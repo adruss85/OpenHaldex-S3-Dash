@@ -286,6 +286,20 @@ Values values(const uint8_t generation) {
     }
     if (recent(0x288, 3, frame)) out.brake = frame.data[2] & 0x01;             // Motor_2: MO2_BLS
     if (recent(0x320, 2, frame)) out.handbrake = (frame.data[1] >> 1) & 0x01;  // Kombi_1: KO1_Handbremse
+
+    // Brake_1: the cluster's own traction tell-tale, and whether it is
+    // intervening now. The dashboard lamps mirror this instead of inverting the
+    // controller's flags, so they agree with the car (#1).
+    if (recent(0x1A0, 2, frame)) {
+      out.asrLamp = (frame.data[1] >> 1) & 0x01;  // BR1_Lamp_ASR, bit 9
+      out.asrActive = frame.data[0] & 0x01;       // BR1_ASR_Req,   bit 0
+    }
+    // Brake_5: the pressure is only real when the frame says so. Gated here,
+    // once, so no caller can show a standstill as 1.7 bar of braking (#3).
+    if (recent(0x4A8, 4, frame)) {
+      const bool valid = ((frame.data[3] >> 5) & 0x01) != 0;  // BR5_PressureValid, bit 29
+      if (valid) out.brakeBar = (float)(frame.data[2] | ((frame.data[3] & 0x0F) << 8)) * 0.1f;
+    }
   } else {
     // MQB. The controller does not read Motor_07, so its API has no temperatures
     // on these cars. 254 and 255 mean "initialising" and "fault". Not yet checked

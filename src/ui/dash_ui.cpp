@@ -978,6 +978,12 @@ void buildSettings() {
   addStepper(card, y, "Boost warn (mbar)", &g_edit.boostWarn, 100, 0, 5000, 0); y += 30;
   addStepper(card, y, "Boost crit (mbar)", &g_edit.boostCrit, 100, 0, 5000, 0); y += 40;
 
+  // Every stepper above was created showing addStepper()'s "-" placeholder and
+  // only formats itself on the first +/- press, so the page opened lying about
+  // the car's thresholds until each row was touched. All the rows exist now, so
+  // draw the stored values (#12).
+  refreshSteppers();
+
   button(card, 0, y, 90, 30, "DEFAULTS", onCfgDefaults);
   button(card, 100, y, 82, 30, "RAW DATA", onCfgRaw);
   button(card, 192, y, 82, 30, "CAN DATA", onCfgCan);
@@ -1209,7 +1215,8 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
 
   // ---- lamps. Last known state is held, like the readouts above: the amber
   // status light is what tells the driver the data is no longer fresh.
-  // ---- lamps. Two independent things report the pedals on this platform:
+  //
+  // Two independent things report the pedals on this platform:
   // the C6's own wired inputs (brakeIn / handbrakeIn) and the chassis CAN
   // (brakeFromCAN / handbrakeFromCAN, decoded from Bremse_1 and Kombi_1).
   // Reading only the wired pair is why both lamps sat dark on a car where the
@@ -1220,8 +1227,23 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
   const bool handOn = d.handbrakeIn || d.handbrakeFromCAN == 1;
   lampState(w.lampBrake, brakeOn, false);
   lampState(w.lampHand, handOn, false);
-  lampState(w.lampTc, d.tcOn, false);
-  lampState(w.lampAsr, d.asrOn, false);
+  // The traction tell-tales now come from the car's own lamp rather than the
+  // controller's flags inverted, which had them lit while the system was on (#1).
+  // The cluster lights BR1_Lamp_ASR (0x1A0 bit 9) when traction control is
+  // switched off and sets BR1_ASR_Req (bit 0) while it intervenes. So: dark when
+  // it is on, lit when it is off, flashing while it works. The flash is ours -
+  // the same 60 ms toggle the shift cue uses - because the frame arrives at 9/s
+  // and lossily, so mirroring the lamp bit's own flicker would alias. On this car
+  // TC and ASR are one system with one tell-tale, so both lamps move together;
+  // the packet's off-flags are only the fallback while the frame is quiet.
+  const bool haveLamp = d.asrLamp >= 0;
+  // Without chassis CAN the packet's flags mean nothing either, so the lamp
+  // stays dark rather than guessing "off means disabled".
+  const bool tractionOff = haveLamp ? d.asrLamp == 1 : (d.chassisCAN && (!d.tcOn || !d.asrOn));
+  const bool intervening = d.asrActive == 1;
+  const bool tractionLit = intervening ? g_flashOn : tractionOff;
+  lampState(w.lampTc, tractionLit, false);
+  lampState(w.lampAsr, tractionLit, false);
   lampState(w.lampAwd, d.awdWarning, true);
 }
 
@@ -1539,6 +1561,11 @@ void showSettings(bool visible) {
     lv_textarea_set_text(g_taSsid, g_edit.ssid);
     lv_textarea_set_text(g_taPass, g_edit.pass);
     lv_textarea_set_text(g_taHost, g_edit.host);
+    // The steppers are the same story as the text areas: g_edit has just been
+    // reloaded from the config, so the numbers on screen have to be redrawn to
+    // match, or an edit abandoned by closing the page leaves stale values in
+    // front of the fields they no longer describe (#12).
+    refreshSteppers();
   } else if (w.kb) {
     lv_keyboard_set_textarea(w.kb, nullptr);
     lv_obj_add_flag(w.kb, LV_OBJ_FLAG_HIDDEN);

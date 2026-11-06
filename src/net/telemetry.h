@@ -27,6 +27,7 @@
 // =====================================================================
 #pragma once
 
+#include <math.h>
 #include <stdint.h>
 
 namespace telemetry {
@@ -67,6 +68,20 @@ struct Dash {
   float steeringAngle;    // deg, NAN when the C6 reports null (Gen1 gating)
   int brakeFromCAN;       // -1 unknown, else 0/1
   int handbrakeFromCAN;   // -1 unknown, else 0/1
+
+  // The cluster's own traction tell-tales, off the relayed chassis bus
+  // (0x1A0 Brake_1). asrLamp is the ASR/ESP lamp the car lights when the
+  // system is switched off; asrActive is set while it is intervening now.
+  // -1 = the frame has not been heard, so the lamps fall back to the packet's
+  // tcForce / asrOff flags - which is the inversion that was wrong before.
+  int asrLamp = -1;    // -1 unknown, else 0/1
+  int asrActive = -1;  // -1 unknown, else 0/1
+
+  // Brake pressure off the relayed chassis bus (0x4A8 Brake_5), already gated
+  // on the frame's own BR5_PressureValid: NAN unless the car says the reading is
+  // real, so "no braking" and "1.7 bar of braking at a standstill" cannot be
+  // confused. Shown on the raw page beside the CAN brake switch (#3).
+  float brakeBar = NAN;  // bar
 };
 
 struct Stats {

@@ -151,9 +151,9 @@ const RowDef kRowsC[] = {
     {F_DMODE, "mode / state", false},
     {F_DCAN, "chassis / haldex", false},
     {F_DBRAKE, "brakeIn / handbrIn", false},
-    {F_DBRKCAN, "brakeCAN / handCAN", false},
+    {F_DBRKCAN, "brkCAN/hand/bar", false},
     {F_DSTEER, "steerAngle", false},
-    {F_DTC, "tc / asr", false},
+    {F_DTC, "tc/asr/lamp/act", false},
     {F_DAWD, "awd/coup/tempPr", false},
     {F_DAGE, "age ms", false},
     {F_WIFI, "wifi / rssi", false},
@@ -399,7 +399,7 @@ void updateTitle() {
 }
 
 void refresh() {
-  Buf a, b, c;
+  Buf a, b, c, d;
   char s[96];
   const Status p = ohxnow::last();
   const ohxnow::Stats n = ohxnow::stats();
@@ -526,11 +526,23 @@ void refresh() {
   // the chassis CAN says. The lamps on the dashboard are fed by the first
   // pair only, which is the working theory for why they never light.
   pair(g_val[F_DBRAKE], fbit(a, dd.brakeIn), fbit(b, dd.handbrakeIn));
-  pair(g_val[F_DBRKCAN], fint(a, dd.brakeFromCAN), fint(b, dd.handbrakeFromCAN));
+  // brakeCAN / handCAN are the chassis CAN's view of the pedals; the third value
+  // is BR5_BrakePressure, already gated on BR5_PressureValid, so it reads "--"
+  // whenever the car says the pressure is not real - which is how the
+  // standstill-reads-1.7-bar trap is seen to be closed (#3).
+  snprintf(s, sizeof s, "%s/%s/%sbar", fint(a, dd.brakeFromCAN), fint(b, dd.handbrakeFromCAN),
+           fnum(c, dd.brakeBar, 1));
+  setText(g_val[F_DBRKCAN], s);
   // Gen1 gating: the packet carries a steering angle, the JSON path reports
   // this one as null. Seeing them disagree is the point of the row.
   setText(g_val[F_DSTEER], fnum(a, dd.steeringAngle, 0));
-  pair(g_val[F_DTC], fbit(a, dd.tcOn), fbit(b, dd.asrOn));
+  // tc / asr are the controller's enabled flags; lamp / act are the car's own
+  // tell-tale (BR1_Lamp_ASR) and its intervention bit (BR1_ASR_Req). The
+  // dashboard lamps follow the second pair (#1) and fall back to the first when
+  // the frame has gone quiet - which shows here as "lamp --".
+  snprintf(s, sizeof s, "%s/%s/%s/%s", fbit(a, dd.tcOn), fbit(b, dd.asrOn),
+           fint(c, dd.asrLamp), fint(d, dd.asrActive));
+  setText(g_val[F_DTC], s);
   snprintf(s, sizeof s, "%s/%s/%s", fbit(a, dd.awdWarning), fbit(b, dd.couplingOpen),
            fbit(c, dd.tempProtection));
   setText(g_val[F_DAWD], s);

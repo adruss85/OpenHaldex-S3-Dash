@@ -48,7 +48,12 @@ void poll() {
 #if OHX_USE_ESP_NOW
   const ohxnow::Status s = ohxnow::last();
   if (s.valid) {
-    if (!g.genKnown) {
+    // 0 is not a Haldex generation (the controller sends 1, 2, 4, 41, 50, 51,
+    // 52 ...), so a packet carrying it has not told us anything yet. Latching it
+    // would answer "not a Gen1" and hand the car a boost tile it has no source
+    // for. Waiting costs nothing: the real value follows, and the sentinel
+    // checks below still run meanwhile.
+    if (!g.genKnown && s.generation != 0) {
       g.genKnown = true;
       g.generation = s.generation;
       g_firstPacketMs = now;

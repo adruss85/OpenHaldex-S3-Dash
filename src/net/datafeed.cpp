@@ -7,6 +7,7 @@
 #include <math.h>
 
 #include "app/config.h"
+#include "app/capability.h"
 #include "net/can_relay.h"
 #include "net/ohx_now.h"
 
@@ -83,6 +84,15 @@ telemetry::Live live() {
   v.speed = pick(p.speed, http.speed);
   v.throttle = pick(p.throttle, http.throttle);
   v.boost = pick(p.boost, http.boost);
+  // Boost is decided from the Haldex generation (capability.h): a Gen1 car has
+  // no boost frame at all - Motor_7 (0x588) arrives three bytes long - so the
+  // controller's own decode reads a confident 0.00 over bytes that are not
+  // there. Gate the *value* on what the car can feed, not just the tile band,
+  // and until the decision has been made read "--" rather than a guess: the band
+  // is Full for those first seconds, so without this the tile that is meant to
+  // be hidden shows a number first (#2).
+  const cap::Caps &caps = cap::get();
+  if (!caps.settled || !caps.boost) v.boost = NAN;
   // Not the packet's oilTemp: that is the Haldex's own oil (Gen4, over KWP), and
   // the OIL tile is engine oil from Kombi_2 with engine thresholds on it. They
   // are different fluids, so one is no fallback for the other.
@@ -123,6 +133,14 @@ telemetry::Dash dash() {
   const canrelay::Values relay = canrelay::values(p.generation);
   if (relay.brake >= 0) v.brakeFromCAN = relay.brake;
   if (relay.handbrake >= 0) v.handbrakeFromCAN = relay.handbrake;
+  // The cluster's own traction tell-tale and its intervention bit, straight off
+  // Brake_1. Left at -1 (unknown) while the frame is quiet, so the lamps fall
+  // back to the packet flags rather than a stale lamp (#1).
+  if (relay.asrLamp >= 0) v.asrLamp = relay.asrLamp;
+  if (relay.asrActive >= 0) v.asrActive = relay.asrActive;
+  // Already gated on BR5_PressureValid in can_relay.cpp: NAN unless the frame
+  // says the pressure is real (#3).
+  v.brakeBar = relay.brakeBar;
   v.everOk = true;
   return v;
 }

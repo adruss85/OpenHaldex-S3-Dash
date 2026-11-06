@@ -51,6 +51,17 @@ struct Values {
   float oil = NAN;      // C, engine oil
   int brake = -1;       // 0 / 1
   int handbrake = -1;   // 0 / 1
+  // The cluster's own tell-tales, from 0x1A0 Brake_1. asrLamp is BR1_Lamp_ASR,
+  // the lamp the car lights when traction control is switched off (and flashes
+  // while it intervenes); asrActive is BR1_ASR_Req, set while it is intervening
+  // right now. The dashboard mirrors these rather than inverting the packet's
+  // tcForce / asrOff flags, so the lamps match the car.
+  int asrLamp = -1;    // 0 / 1
+  int asrActive = -1;  // 0 / 1
+  // Brake pressure from 0x4A8 Brake_5, filled in only when the frame's own
+  // BR5_PressureValid is set: a car at a standstill with the pedal up otherwise
+  // reads 1.7 bar of braking at all times. NAN = not valid or not heard.
+  float brakeBar = NAN;  // bar
 };
 
 /// Makes the frame tables in PSRAM. Call in setup(), before the network starts.

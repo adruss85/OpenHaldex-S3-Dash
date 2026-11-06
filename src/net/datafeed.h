@@ -20,8 +20,12 @@
 //     the CAN relay while it is carrying them, and from HTTP otherwise. The
 //     packet's oilTemp is the Haldex's oil, which is shown on the raw page and
 //     never on the OIL tile
-//   * the TC and ASR lamps come from the packet's flags, the same two the
-//     controller's API inverts; the AWD lamp is HTTP only
+//   * the TC and ASR lamps come from the car's own tell-tale while the relay is
+//     carrying it (BR1_Lamp_ASR, 0x1A0), and only fall back to the packet's
+//     tcForce / asrOff flags when it is quiet; the AWD lamp is HTTP only
+//   * a number the car has no source for is gated off here, not just left off
+//     the layout: a Gen1 has no boost frame, so the packet's boost is dropped
+//     rather than shown on the strength of a decode over absent bytes
 //
 // It also decides how often HTTP is worth asking at all: see livePeriodMs().
 //
