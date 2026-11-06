@@ -1,0 +1,297 @@
+# Decoded CAN relay sample, engine running - the committed output of
+#
+#   python tools/decode_can_snapshot.py docs/can-relay-sample-engine-running.txt
+#
+# against dbc/vw_pq.dbc, so the sample can be read without running anything. Each
+# id is decoded from its first capture in that file, so one column is one moment
+# (idle, 754 rpm, coolant 77 C, fuel 22 l).
+#
+# Units are printed as the DBC spells them - the opendbc PQ file mixes German and
+# English ('??Grad', 'U/min', 'MDI', 'U/sec') and this repeats them verbatim
+# rather than guessing.
+#
+# Note: 0x588 arrives as a 3-byte frame while the DBC declares 8, so the signals
+# the DBC puts in its later bytes (BoostPressure among them) are absent here rather
+# than wrong. See the note at the end of docs/can-relay-sample-engine-running.txt.
+
+docs/can-relay-sample-engine-running.txt  decoded with vw_pq.dbc
+
+0x0C2  SteeringAngle_1     9/s  00 80 00 80 8C 52 00 AD
+        LW1_LRW                                          0.00 ??Grad
+        LW1_LRW_Sign                                     1.00 
+        LW1_Steer_Speed                                  0.00 ??Grad/s
+        LW1_Speed_Sign                                   1.00 
+        LW1_ID                                         140.00 
+        LW1_InitSource                                   0.00 
+        LW1_Status                                       1.00 
+        LW1_Status_TERM30                                0.00 
+        LW1_Counter                                      5.00 
+        LW1_Coding                                       0.00 
+        LW1_CRC                                        173.00 
+
+0x1A0  Brake_1             9/s  00 42 00 00 FE FE 00 5D
+        BR1_ASR_Req                                      0.00 
+        BR1_ABS_Brake                                    0.00 
+        BR1_EDS_OnGround                                 0.00 
+        BR1_ESP_OnGround                                 0.00 
+        BR1_ASR_OnGround                                 0.00 
+        BR1_EBV_OnGround                                 0.00 
+        BR1_Lamp_ABS                                     0.00 
+        BR1_Lamp_ASR                                     1.00 
+        BR1_Lamp_BK                                      0.00 
+        BR1_LightShift                                   0.00 
+        BR1_StatusPressureThreshold                      0.00 
+        BR1_MAD                                          0.00 
+        BR1_Status_MAD                                   1.00 
+        BR1_Diagnostics                                  0.00 
+        BR1_BKV_active                                   0.00 
+        BR1_Wheel_kmh                                    0.00 km/h
+        BR1_ASRMo_sl                                    99.06 %
+        BR1_ASRMo_fa                                    99.06 %
+        BR1_MSR_Mo                                       0.00 %
+        BR1_Counter                                     13.00 
+        BR1_ASR_ESP                                      1.00 
+        BR1_ESPASR_passive                               0.00 
+        BR1_Status_ESP                                   1.00 
+        BR1_Substitute_Kmh                               0.00 
+
+0x280  Engine_1            7/s  09 1A C8 0B 1A 00 13 1A
+        DriverDemandTorque                              10.14 MDI
+        Mechanical_Engine_LossTorque                     7.41 MDI
+        AccelPedalValue_Or_ThrottleValve                 0.00 %
+        Inner_Engine_Torque_Without_exter               10.14 MDI
+        EngineRpm                                      754.00 U/min
+        Inner_Engine_Torque                             10.14 MDI
+        TorqueData_Inaccurate                            0.00 
+        ErrorStatus_Gearbox_TorqueIntervention           0.00 
+        ErrorStatus_Brake_TorqueInput                    0.00 
+        Time_Out_Brakes_Message                          0.00 
+        ClutchSwitch                                     1.00 
+        KickdownSwitch                                   0.00 
+        IdleInformation                                  1.00 
+
+0x288  Engine_2            6/s  0A A7 10 00 00 4C 71 13
+        MO2_Mp_Code                                      0.00 
+        MO2_Coolant_T                                   77.25 ??C
+        MO2_BLS                                          0.00 
+        MO2_BTS                                          0.00 
+        MO2_Status_Coolant                               0.00 
+        MO2_Status_Climate                               0.00 
+        MO2_Status_No_Bet                                1.00 
+        MO2_Status_TSK                                   0.00 
+        MO2_Status_GRA                                   0.00 
+        TSK_Limiter_Selected                             0.00 
+        MO2_GRAregelt                                    0.00 
+        MO2_Sport_Error                                  0.00 
+        MO2_OffRoad                                      0.00 
+        MO2_RME_Gehalt                                   0.00 %
+        MO2_GRA_Target                                   0.00 km/h
+        MO2_LL_TargetRpm                               760.00 1/min
+        MO2_Limit_Mo                                    44.07 %
+        MO2_Mo_ZWR                                       7.41 %
+
+0x2A0  Brake_4             9/s  00 00 00
+        Unit_ClutchStiffness                             0.00 
+        ABS_SpecifiedValue_Rear_Clutch                   0.00 %
+        ABS_SpecifiedValue_Centre_Clutch              -381.00 Nm/min
+
+0x320  Cluster_1           9/s  04 02 16 00 00 00 00 00
+        Displayed_Speed                                  0.00 km/h
+        Indicator_Right_4_1                              0.00 
+        Indicator_Left_4_1                               0.00 
+        Set_TimeGap__Cluster_1_                          0.00 
+        ADDR_Buzzer_SwitchedOff                          0.00 
+        Speed__Cluster_1_                                0.00 km/h
+        SignalSource_Speed_4_                            0.00 
+        LowFuelWarning                                   0.00 
+        TankContents                                    22.00 l
+        FuelStop                                         0.00 
+        Cluster_In_ActuatorTest                          0.00 
+        ChargeWarning_Lamp__Cluster_                     0.00 
+        BrakeInfo                                        2.00 
+        GlowPlugLamp__Cluster_1_                         0.00 
+        LowFuelLamp                                      0.00 
+        HotWarning_PreWarning                            0.00 
+        CoolantLow                                       0.00 
+        Dynamic_OilPressureWarning                       0.00 
+        OilPressure                                      1.00 
+        ErrorStatus_Tank                                 0.00 
+        DriverDoor_4_1                                   0.00 
+
+0x380  Engine_3            9/s  00 61 00 00 00 00 00 07
+        MO3_Preheat                                      0.00 
+        MO3_Prio_Rpm                                     0.00 
+        MO_Switch_StartStop                              0.00 
+        MO3_WinterProgram                                0.00 
+        MO3_Status_Pedal                                 0.00 
+        MO3_Status_Temp                                  0.00 
+        MO3_Offsentemp                                  24.75 ??C
+        MO3_PedalValue                                   0.00 %
+        MO3_Wheel_Wu_Mo                                  0.00 %
+        MO3_Sign_WheelWu                                 0.00 
+        MO3_Enable_Coasting                              0.00 
+        MO_StartStop_StopPreparation                     0.00 
+        MO3_Rpm_Influence                                0.00 %
+        MO3_RequestRpm                                   0.00 U/min
+        MO3_DKW                                          2.80 %
+
+0x38A  GRA_New             9/s  29 01 28 00
+        CHECKSUM                                        41.00 
+        GRA_MainSwitch                                   1.00 
+        GRA_Cancel                                       0.00 
+        GRA_Down_Short                                   0.00 
+        GRA_Up_Short                                     0.00 
+        GRA_Down_Long                                    0.00 
+        GRA_Up_Long                                      0.00 
+        GRA_Error_Condition                              0.00 
+        GRA_CodingInfo                                   0.00 
+        GRA_New_Set                                      0.00 
+        GRA_Recall                                       0.00 
+        GRA_Transmitter                                  2.00 
+        COUNTER                                          2.00 
+        GRA_Tip_Down                                     0.00 
+        GRA_Tip_Up                                       0.00 
+        GRA_TimeGap                                      0.00 
+        GRA_Status_Limiter                               0.00 
+        GRA_Type_MainSwitch                              0.00 
+        GRA_SportSwitch                                  0.00 
+        GRA_Error_Tip                                    0.00 
+
+0x420  Cluster_2           4/s  00 78 78 73 A8 18 00 00
+        ErrorStatus_Term__58_s                           0.00 
+        Terminal_58s__Cluster_2_                         0.00 %
+        ErrorStatus_Term__58_d                           0.00 
+        Terminal_58d__Cluster_2_                        24.00 %
+        CoolantTemp__4_1__Cluster_2_                    78.00 C
+        OilTemperature_4_1                              55.00 C
+        OutsideTemp__Unfiltered_4_1__Ko                 10.00 C
+        OutsideTemperature_Filtered                     10.00 C
+        FaultMemoryEntry__Cluster_                       0.00 
+        Trailer_Detected                                 0.00 
+        ErrorStatus__CoolantTemp__4_1                    0.00 
+        ErrorStatus_OilTemperature_4_1                   0.00 
+        ErrorStatus_OutsideTemp__4_1                     0.00 
+
+0x480  Engine_5            8/s  1B 00 69 EC 00 00 04 00
+        MO5_max_Torque                                 270.00 Nm
+        MO5_Preheat                                      0.00 
+        MO5_E_Gas                                        0.00 
+        MO5_OBD_2                                        0.00 
+        MO5_HotWarning                                   0.00 
+        MO5_AcCompressor                                 0.00 
+        MO5_Field_Cool                                   0.00 
+        MO5_KliKo_Red                                    0.00 
+        MO5_Consumption                              27753.00 ??l
+        MO5_UeberlVerb                                   1.00 
+        MO5_Fan                                          0.00 %
+        MO5_HLamp                                        0.00 
+        MO5_ParticleLamp                                 0.00 
+        MO5_Status_BKU                                   0.00 
+        MO5_TypeStartSteu                                0.00 
+        MO5_TDE_Lamp                                     0.00 
+        MO5_TDE_Text                                     0.00 
+        MO5_DZM_Damping                                  0.00 
+        MO5_Interlock                                    0.00 
+        MO5_Start                                        0.00 
+        MO5_Starter                                      0.00 
+        MO5_GRA_Hauptsch                                 1.00 
+        MO5_Torques                                      0.00 
+        MO5_EngineText1                                  0.00 
+        MO5_EngineText2                                  0.00 
+        MO5_EngineText3                                  0.00 
+        MO5_EngineText4                                  0.00 
+        CHECKSUM                                         0.00 
+
+0x488  Engine_6            9/s  00 1A 1A 7E A6 00 00 00
+        Counter_Engine_6                                 0.00 
+        OilTempProtection                                0.00 
+        GRA_BrakeIntervention_Enable                     0.00 
+        Feedback_Torque                                  0.00 
+        GRA_TargetAcceleration                           0.00 m/s2
+        AltitudeInfo__Engine_6_                          0.99 
+        ActualTorque_f_r_Gearbox                        10.14 MDI
+        TargetTorque_f_r_Gearbox                        10.14 MDI
+        Checksum_Engine_6                                0.00 
+
+0x4A0  Brake_3             9/s  00 00 00 00 00 00 00 00
+        WheelSpeed__HR_4_1                               0.00 km/h
+        WheelSpeed__HL_4_1                               0.00 km/h
+        WheelSpeed__VR_4_1                               0.00 km/h
+        WheelSpeed__VL_4_1                               0.00 km/h
+
+0x4A8  Brake_5             7/s  FF FF 11 80 00 00 00 91
+        CHECKSUM                                       145.00 
+        COUNTER                                          0.00 
+        BR5_ECD_Lamp                                     0.00 
+        BR5_ZT_Rueckk_Convert                            0.00 
+        BR5_Anhi_Status                                  0.00 
+        ESP_RollerMode_Deactivate                        0.00 
+        BR5_Sign_Pressure                                1.00 
+        BR5_Status_Pressure                              0.00 
+        BR5_PressureValid                                0.00 
+        BR5_Standstill                                   0.00 
+        BR5_BrakePressure                                1.70 bar
+        BR5_Sign                                         1.00 
+        BR5_Status_YawRate                               1.00 
+        BR5_YawRate                                    163.83 Grad/sec
+        BR5_ANB_CM_Rueckk_Convert                        0.00 
+        BR5_HDC_Ready                                    0.00 
+        ESP_Status_FallBack_eBKV                         0.00 
+        ESP_Request_EPB                                  0.00 
+        ESP_AutoHold_active                              0.00 
+        ESP_AutoHold_Standby                             0.00 
+        BR5_Anhi_Act                                     0.00 
+        BR5_v_Monitor                                    0.00 
+        BR5_BrakeLight                                   0.00 
+        BR5_EmergencyBraking                             0.00 
+        BR5_Driver_Occurs_ZBR_Threshold                  0.00 
+        BR5_AWV2_BrakeJerk                               0.00 
+        BR5_AWV2_Error                                   0.00 
+
+0x520  Cluster_3           4/s  10 4B 01 0B 85 7A 1D 02
+        Odometer                                    138618.00 km
+        ErrorStatus_ParkedTime                           1.00 
+        ParkedTime                                    5164.00 sec
+        KeyInfo                                          1.00 
+        Cluster_Multiplex_Brand                          1.00 
+        Cluster_Multiplex_Series                         3.00 
+        Cluster_Multiplex_Generation                     1.00 
+        Cluster_Multiplex_Derivative                     0.00 
+
+0x580  Engine_Flexia       0/s  8F 00 00 88 60 00 3C 43
+        Gradient_The_FillCurve                           0.07 l/mm
+        WeightingFactor_SootIndex_Turbo                  1.50 
+        WeightingFactor_WearIndex                        0.00 
+        Manufacturer_Code                                0.00 
+        Normalised_Consumption                         960.00 l/Zyl.
+        OilLevelThreshold                               34.00 cm
+        WearIndex                                        0.00 
+        SootIndex                                        0.00 
+        CombustionType                                   1.00 
+        Warm_Up_Cycle                                    0.00 
+        Driving_Cycle                                    0.00 
+        Counter_Engine_Flexia                            7.00 
+
+0x588  Engine_7            8/s  08 00 7E
+        (DBC says 8 bytes, the frame carried 3)
+        AltitudeInfo__Engine_7_                          0.99 
+        Terminal_DFM                                     0.00 %
+        PTC___GlowPlugs_SwitchedOff                      0.00 
+        FaultMemoryEntry__Engine_7_                      1.00 
+        StatusBit_SpeedLimit                             0.00 
+        SpeedLimit_Activatable                           0.00 
+        Idle_TargetRpm_Open_Max_W                        0.00 
+
+0x5A0  Brake_2             8/s  7F 00 00 E7 72 01 10 2B
+        Measured_LateralAccel                            0.00 
+        PulseCount                                      43.00 
+        ErrorStatus_DistancePulses_4_1                   0.00 
+        WarningLamp_DDS                                  0.00 
+        FaultMemoryEntry_Brake                           1.00 
+        DistPulseCounterStatus                           0.00 
+        DistancePulses_FrontAxle                         1.00 
+        Timestamp                                    29415.00 tics
+        Average_WheelSpeed__Brake_2                      0.00 U/sec
+        LateralAccel                                     0.00 g
+
+17 ids, 0 not in the DBC

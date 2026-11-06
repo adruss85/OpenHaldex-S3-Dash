@@ -95,10 +95,16 @@ Gen1 PQ, controller fw 11.0.4, relay at **Each ID up to 10 per second**, dash on
 | Render rate | Dashboard 60 fps, CAN DATA page 41-45 fps, RAW page 13-30 fps |
 | CAN DATA page | Opens and closes repeatedly with the panel staying up |
 
-An earlier capture from the same car, with the console dump in full, is kept as
-`docs/can-relay-sample.txt` — with `docs/can-relay-sample-decoded.txt` beside it and
-`tools/decode_can_snapshot.py` to re-decode it. No car, controller or CAN hardware
-needed to read the frames again.
+Two captures from the same car, with the console dump in full, are kept so the
+frames can be re-read without a car, controller or CAN hardware:
+
+* `docs/can-relay-sample.txt` — engine off, ignition on (17 ids, fuel 25 l)
+* `docs/can-relay-sample-engine-running.txt` — engine idling (17 ids, 754 rpm,
+  coolant 77 °C, fuel 22 l) — same ids as above, so a running engine changes the
+  values in those messages rather than adding new ones
+
+Each has a `-decoded.txt` beside it and `tools/decode_can_snapshot.py` re-decodes
+either one against `dbc/vw_pq.dbc`.
 
 ## 6. Fixes in the same release, worth checking while you are there
 

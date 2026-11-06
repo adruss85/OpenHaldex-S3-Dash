@@ -1,0 +1,185 @@
+# CAN relay sample, engine running - the same car as can-relay-sample.txt, but with
+# the engine idling rather than off, kept so the per-id list and the values can be
+# compared without a car. Decode it with:
+#
+#   python tools/decode_can_snapshot.py docs/can-relay-sample-engine-running.txt
+#
+# What it is: the dash's serial console (115200) with 'C' pressed twice, about
+# thirty-five seconds apart, while the controller was relaying its chassis bus.
+#
+# Rig, as reported by the controller's own status packet:
+#   chassis      VW PQ, Haldex generation 1
+#   controller   DC:1E:D5:82:8B:79 "OpenHaldex-C6", firmware 11.0.4
+#   dash         0.5.1, CrowPanel 7.0" ESP32-S3, dashboard on the glass
+#   relay        Controller Options > Relay CAN Frames to Gauges =
+#                "Each ID up to 10 per second"; Gauges over WiFi (ESP-NOW) on
+#   link         WiFi channel 11, RSSI -71..-74 dBm, esp-now 8.9 Hz, air lost 4.9%
+#   car state    engine idling: 754 rpm, coolant 77 C, fuel 22 l, speed 0, oil
+#                pressure present. Warm engine, stationary. The car is outside and
+#                the panel inside, nothing in between this time (a 3D printer there
+#                takes air lost from ~5% to 16-26%).
+#
+# The frame list is the same 17 ids as the engine-off capture: this car does not
+# broadcast anything new once it is running, so the extra values come from the same
+# messages changing, not from new ones.
+#
+# Two things in here are questions rather than data, both about boost pressure:
+#
+#   0x588 Engine_7 carries only 3 bytes (08 00 7E), in every capture from this car,
+#   while dbc/vw_pq.dbc declares 8 with BoostPressure at byte 4. The relay sends the
+#   controller's own data_length_code, so the car really is sending 3 bytes - which
+#   means byte 4, where both dbc/vw_pq.dbc and the controller's own code look for
+#   boost, is not in the frame at all.
+#
+#   0x280 Engine_1 is where the two databases disagree: dbc/vw_pq.dbc has
+#   AccelPedalValue_Or_ThrottleValve at bit 40, while the controller's own decoder
+#   expects MO_Ladedruck (boost, absolute) at bit 39. On the frame above those bits
+#   are zero, which reads as "pedal 0%" or as "0 bar absolute" - and 0 bar absolute
+#   is impossible for an idling engine with the throttle shut (that should be about
+#   1000 mbar). Pressing the pedal with the ignition on and the engine off tells the
+#   two apart: the pedal value moves, boost does not.
+#
+# The tile values are not affected by either question: those read fixed bytes in
+# can_relay.cpp, and they agree with the controller's API on this car.
+# ---------------------------------------------------------------------------
+
+[can] --- 17 ids, 2407 frames, air lost 38 pkt, sender lost 0, DBC vw_pq ---
+[can]       C2     9/s  00 80 00 80 8C 52 00 AD SteeringAngle_1
+[can]      1A0     9/s  00 42 00 00 FE FE 00 5D Brake_1
+[can]      280     7/s  09 1A C8 0B 1A 00 13 1A Engine_1
+[can]      288     6/s  0A A7 10 00 00 4C 71 13 Engine_2
+[can]      2A0     9/s  00 00 00                Brake_4
+[can]      320     9/s  04 02 16 00 00 00 00 00 Cluster_1
+[can]      380     9/s  00 61 00 00 00 00 00 07 Engine_3
+[can]      38A     9/s  29 01 28 00             GRA_New
+[can]      420     4/s  00 78 78 73 A8 18 00 00 Cluster_2
+[can]      480     8/s  1B 00 69 EC 00 00 04 00 Engine_5
+[can]      488     9/s  00 1A 1A 7E A6 00 00 00 Engine_6
+[can]      4A0     9/s  00 00 00 00 00 00 00 00 Brake_3
+[can]      4A8     7/s  FF FF 11 80 00 00 00 91 Brake_5
+[can]      520     4/s  10 4B 01 0B 85 7A 1D 02 Cluster_3
+[can]      580     0/s  8F 00 00 88 60 00 3C 43 Engine_Flexia
+[can]      588     8/s  08 00 7E                Engine_7
+[can]      5A0     8/s  7F 00 00 E7 72 01 10 2B Brake_2
+[can] --- SteeringAngle_1 ---
+[can] LW1_LRW                                        0.00 ??Grad
+[can] LW1_LRW_Sign                                   1.00 
+[can] LW1_Steer_Speed                                0.00 ??Grad/s
+[can] LW1_Speed_Sign                                 1.00 
+[can] LW1_ID                                       140.00 
+[can] LW1_InitSource                                 0.00 
+[can] LW1_Status                                     1.00 
+[can] LW1_Status_TERM30                              0.00 
+[can] LW1_Counter                                   15.00 
+[can] LW1_Coding                                     0.00 
+[can] LW1_CRC                                       13.00 
+[stats] live 1 ok / 0 fail | dash 8 ok / 0 fail | reconnects 1
+[stats] wifi up rssi -73  ip 192.168.1.203  ->  192.168.1.1:80  (1000/1000 ms)
+[stats] live data went stale 1 time(s), oldest data 0 ms
+[stats] source esp-now (packet age 43 ms, http up, live every 0 ms, dash every 2000 ms)
+[stats] esp-now 155 pkt (10.0 Hz), age live, rej 0 dup 0 gap 14, ignored 0, ch 11, rssi -71 dBm
+[stats] relay 140 f/s, 17 ids, 763 pkt, air lost 39 (4.9%), sender lost 0, rej 0, full 0
+[stats] ms/tick: gauge 0.53 readouts 0.23 conn 0.05  (mask 0xFFFF)
+[stats] render 39.2 fps | 13.59 ms/loop, 15.45 ms/busy of a 25.5 ms period | 4.63 ms/flush (4.60 ms/wait) | vsync 33/s | heap 157532 B, psram 6551188 B
+[stats] live 1 ok / 0 fail | dash 11 ok / 0 fail | reconnects 1
+[stats] wifi up rssi -74  ip 192.168.1.203  ->  192.168.1.1:80  (1000/1000 ms)
+[stats] live data went stale 1 time(s), oldest data 0 ms
+[stats] source esp-now (packet age 46 ms, http up, live every 0 ms, dash every 2000 ms)
+[stats] esp-now 200 pkt (9.0 Hz), age live, rej 0 dup 0 gap 18, ignored 0, ch 11, rssi -71 dBm
+[stats] relay 150 f/s, 17 ids, 989 pkt, air lost 52 (5.0%), sender lost 0, rej 0, full 0
+[stats] ms/tick: gauge 0.55 readouts 0.21 conn 0.06  (mask 0xFFFF)
+[stats] render 37.6 fps | 16.60 ms/loop, 17.76 ms/busy of a 26.6 ms period | 5.76 ms/flush (5.73 ms/wait) | vsync 33/s | heap 157532 B, psram 6550676 B
+[stats] live 1 ok / 0 fail | dash 13 ok / 0 fail | reconnects 1
+[stats] wifi up rssi -73  ip 192.168.1.203  ->  192.168.1.1:80  (1000/1000 ms)
+[stats] live data went stale 1 time(s), oldest data 0 ms
+[stats] source esp-now (packet age 78 ms, http up, live every 0 ms, dash every 2000 ms)
+[stats] esp-now 246 pkt (7.0 Hz), age live, rej 0 dup 0 gap 20, ignored 0, ch 11, rssi -71 dBm
+[stats] relay 144 f/s, 17 ids, 1200 pkt, air lost 65 (5.1%), sender lost 0, rej 0, full 0
+[stats] ms/tick: gauge 0.50 readouts 0.19 conn 0.07  (mask 0xFFFF)
+[stats] render 40.8 fps | 13.03 ms/loop, 14.08 ms/busy of a 24.5 ms period | 4.62 ms/flush (4.58 ms/wait) | vsync 33/s | heap 157532 B, psram 6550168 B
+[stats] live 1 ok / 0 fail | dash 15 ok / 0 fail | reconnects 1
+[stats] wifi up rssi -72  ip 192.168.1.203  ->  192.168.1.1:80  (1000/1000 ms)
+[stats] live data went stale 1 time(s), oldest data 0 ms
+[stats] source esp-now (packet age 28 ms, http up, live every 0 ms, dash every 2000 ms)
+[stats] esp-now 294 pkt (9.9 Hz), age live, rej 0 dup 0 gap 21, ignored 0, ch 11, rssi -71 dBm
+[stats] relay 144 f/s, 17 ids, 1414 pkt, air lost 76 (5.1%), sender lost 0, rej 0, full 0
+[stats] ms/tick: gauge 0.53 readouts 0.24 conn 0.08  (mask 0xFFFF)
+[stats] render 41.6 fps | 12.23 ms/loop, 13.35 ms/busy of a 24.0 ms period | 4.17 ms/flush (4.14 ms/wait) | vsync 33/s | heap 157176 B, psram 6547216 B
+[stats] live 1 ok / 0 fail | dash 18 ok / 0 fail | reconnects 1
+[stats] wifi up rssi -72  ip 192.168.1.203  ->  192.168.1.1:80  (1000/1000 ms)
+[stats] live data went stale 1 time(s), oldest data 0 ms
+[stats] source esp-now (packet age 26 ms, http up, live every 0 ms, dash every 2000 ms)
+[stats] esp-now 340 pkt (9.9 Hz), age live, rej 0 dup 0 gap 24, ignored 0, ch 11, rssi -71 dBm
+[stats] relay 144 f/s, 17 ids, 1631 pkt, air lost 88 (5.1%), sender lost 0, rej 0, full 0
+[stats] ms/tick: gauge 0.43 readouts 0.22 conn 0.05  (mask 0xFFFF)
+[stats] render 45.4 fps | 9.52 ms/loop, 10.46 ms/busy of a 22.0 ms period | 3.03 ms/flush (3.02 ms/wait) | vsync 33/s | heap 157532 B, psram 6549656 B
+[stats] live 1 ok / 0 fail | dash 20 ok / 0 fail | reconnects 1
+[stats] wifi up rssi -73  ip 192.168.1.203  ->  192.168.1.1:80  (1000/1000 ms)
+[stats] live data went stale 1 time(s), oldest data 0 ms
+[stats] source esp-now (packet age 84 ms, http up, live every 0 ms, dash every 2000 ms)
+[stats] esp-now 387 pkt (9.0 Hz), age live, rej 0 dup 0 gap 26, ignored 0, ch 11, rssi -72 dBm
+[stats] relay 147 f/s, 17 ids, 1857 pkt, air lost 98 (5.0%), sender lost 0, rej 0, full 0
+[stats] ms/tick: gauge 0.49 readouts 0.22 conn 0.07  (mask 0xFFFF)
+[stats] render 41.4 fps | 12.44 ms/loop, 13.49 ms/busy of a 24.2 ms period | 4.22 ms/flush (4.21 ms/wait) | vsync 33/s | heap 157532 B, psram 6549648 B
+[stats] live 1 ok / 0 fail | dash 22 ok / 0 fail | reconnects 1
+[stats] wifi up rssi -74  ip 192.168.1.203  ->  192.168.1.1:80  (1000/1000 ms)
+[stats] live data went stale 1 time(s), oldest data 0 ms
+[stats] source esp-now (packet age 66 ms, http up, live every 0 ms, dash every 2000 ms)
+[stats] esp-now 435 pkt (8.9 Hz), age live, rej 0 dup 0 gap 28, ignored 0, ch 11, rssi -71 dBm
+[stats] relay 143 f/s, 17 ids, 2093 pkt, air lost 103 (4.7%), sender lost 0, rej 0, full 0
+[stats] ms/tick: gauge 0.52 readouts 0.29 conn 0.06  (mask 0xFFFF)
+[stats] render 40.2 fps | 13.48 ms/loop, 14.62 ms/busy of a 24.9 ms period | 4.76 ms/flush (4.73 ms/wait) | vsync 33/s | heap 157176 B, psram 6547956 B
+[can] --- 17 ids, 7445 frames, air lost 118 pkt, sender lost 0, DBC vw_pq ---
+[can]       C2     7/s  00 80 00 80 8C B2 00 4D SteeringAngle_1
+[can]      1A0     7/s  00 42 00 00 FE FE 00 54 Brake_1
+[can]      280     9/s  09 19 FE 0B 1A 00 13 1A Engine_1
+[can]      288     9/s  0A A8 10 00 00 4C 71 13 Engine_2
+[can]      2A0     9/s  00 00 00                Brake_4
+[can]      320    10/s  04 02 16 00 00 00 00 00 Cluster_1
+[can]      380     8/s  00 61 00 00 00 00 00 06 Engine_3
+[can]      38A     9/s  99 01 98 00             GRA_New
+[can]      420     3/s  00 78 78 74 A9 18 00 00 Cluster_2
+[can]      480     9/s  84 00 F9 8E 00 00 04 00 Engine_5
+[can]      488     9/s  00 1A 1A 7E A6 00 00 00 Engine_6
+[can]      4A0     7/s  00 00 00 00 00 00 00 00 Brake_3
+[can]      4A8     9/s  FF FF 11 80 00 00 10 81 Brake_5
+[can]      520     3/s  80 87 01 0B 85 7A 1D 02 Cluster_3
+[can]      580     0/s  80 00 00 15 1B 9A 4A 12 Engine_Flexia
+[can]      588     8/s  08 00 7E                Engine_7
+[can]      5A0     9/s  7F 00 00 1F 0A 01 10 2B Brake_2
+[can] --- SteeringAngle_1 ---
+[can] LW1_LRW                                        0.00 ??Grad
+[can] LW1_LRW_Sign                                   1.00 
+[can] LW1_Steer_Speed                                0.00 ??Grad/s
+[can] LW1_Speed_Sign                                 1.00 
+[can] LW1_ID                                       140.00 
+[can] LW1_InitSource                                 0.00 
+[can] LW1_Status                                     1.00 
+[can] LW1_Status_TERM30                              0.00 
+[can] LW1_Counter                                   11.00 
+[can] LW1_Coding                                     0.00 
+[can] LW1_CRC                                       77.00 
+[stats] live 1 ok / 0 fail | dash 25 ok / 0 fail | reconnects 1
+[stats] wifi up rssi -74  ip 192.168.1.203  ->  192.168.1.1:80  (1000/1000 ms)
+[stats] live data went stale 1 time(s), oldest data 0 ms
+[stats] source esp-now (packet age 38 ms, http up, live every 0 ms, dash every 2000 ms)
+[stats] esp-now 482 pkt (8.9 Hz), age live, rej 0 dup 0 gap 31, ignored 0, ch 11, rssi -71 dBm
+[stats] relay 139 f/s, 17 ids, 2294 pkt, air lost 119 (4.9%), sender lost 0, rej 0, full 0
+[stats] ms/tick: gauge 0.52 readouts 0.21 conn 0.07  (mask 0xFFFF)
+[stats] render 40.0 fps | 12.69 ms/loop, 14.51 ms/busy of a 25.0 ms period | 4.38 ms/flush (4.37 ms/wait) | vsync 33/s | heap 157532 B, psram 6549648 B
+[stats] live 1 ok / 0 fail | dash 27 ok / 0 fail | reconnects 1
+[stats] wifi up rssi -73  ip 192.168.1.203  ->  192.168.1.1:80  (1000/1000 ms)
+[stats] live data went stale 1 time(s), oldest data 0 ms
+[stats] source esp-now (packet age 34 ms, http up, live every 0 ms, dash every 2000 ms)
+[stats] esp-now 530 pkt (10.8 Hz), age live, rej 0 dup 0 gap 33, ignored 0, ch 11, rssi -71 dBm
+[stats] relay 152 f/s, 17 ids, 2517 pkt, air lost 129 (4.9%), sender lost 0, rej 0, full 0
+[stats] ms/tick: gauge 0.46 readouts 0.21 conn 0.06  (mask 0xFFFF)
+[stats] render 42.4 fps | 11.62 ms/loop, 12.66 ms/busy of a 23.6 ms period | 3.87 ms/flush (3.85 ms/wait) | vsync 33/s | heap 157532 B, psram 6549656 B
+[stats] live 1 ok / 0 fail | dash 29 ok / 0 fail | reconnects 1
+[stats] wifi up rssi -73  ip 192.168.1.203  ->  192.168.1.1:80  (1000/1000 ms)
+[stats] live data went stale 1 time(s), oldest data 0 ms
+[stats] source esp-now (packet age 11 ms, http up, live every 0 ms, dash every 2000 ms)
+[stats] esp-now 580 pkt (9.9 Hz), age live, rej 0 dup 0 gap 33, ignored 0, ch 11, rssi -71 dBm
+[stats] relay 140 f/s, 17 ids, 2728 pkt, air lost 142 (4.9%), sender lost 0, rej 0, full 0
+[stats] ms/tick: gauge 0.53 readouts 0.27 conn 0.06  (mask 0xFFFF)
+[stats] render 40.8 fps | 13.01 ms/loop, 14.16 ms/busy of a 24.5 ms period | 4.48 ms/flush (4.45 ms/wait) | vsync 33/s | heap 157176 B, psram 6547952 B
