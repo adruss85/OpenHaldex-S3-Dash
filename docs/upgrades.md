@@ -246,9 +246,10 @@ it cannot mean night). The two other corrections to the brief still stand:
 2. **There is no `localStorage`** — the dashboard persists settings in NVS
    (`Preferences`, namespace `ohxdash`). The override goes there with everything else.
 
-**Behaviour:** mode is Auto (default) / Day / Night, with the existing DAY button
-moving off the status bar into the settings page (which also frees the space #6
-needs). The 300–500 ms debounce is applied to *changes* only, using a 400 ms
+**Behaviour:** mode is Auto (default) / Day / Night, chosen **in the settings page
+only** — there is no day/night button on the status bar (confirmed), so no quick
+override competes with it. The mode setting sits in the display section beside the
+brightness readout. The 300–500 ms debounce is applied to *changes* only, using a 400 ms
 hysteresis: a new reading must hold for 400 ms before the mode moves. Missing or
 error-flagged values are treated as 0 (day) for a mode *decision*, but never move the
 mode — the last mode is held — so a dropped frame cannot strobe the screen.
@@ -363,24 +364,30 @@ acceptance test for items 4–6, and it settles several details they left open:
 | In the mockup | What it means here |
 |---|---|
 | Left and right arrows flanking the big rev number | the indicator repeaters (#5) go either side of the *number*, not beside the bar |
-| Middle panel rows: `COOLANT 79`, `OIL 90`, `FUEL 49.6 L`, each with a bar | fuel is a **third row in the temperatures panel**, following the coolant/oil idiom that is already there (`dash_ui.cpp:550-560`), not a new panel |
+| Middle panel rows: `COOLANT 79`, `OIL 90`, `FUEL 49.6 L`, each with a bar | fuel is a **third row in the temperatures panel**, following the coolant/oil idiom that is already there (`dash_ui.cpp:550-560`), not a new panel. Confirmed: fuel lives in this band in **both** variants — a fourth row in the `Full` band beside boost — so it is not a defer-until-Gen4 decision |
 | Status bar: `ODO 87,412 km` where `rpm peak` is today | #6 as decided; the mockup value is illustrative (the car reads 138 618 km) |
-| `DAY` still in the status bar | conflicts with "bury it in settings" — see below |
+| `DAY` still in the status bar | **dropped** — there is no day/night button on the status bar; the Auto/Day/Night override lives in settings only (see below) |
 | Speed tile keeps `peak 185` | only the *rpm* peak goes, as asked |
 
-**The `DAY` button:** the mockup keeps it on the status bar, and the earlier brief
-said move it into settings. My proposal, which satisfies both: keep the button — there
-is room, since the rpm-peak slot became the odometer — and let it **cycle Auto → Day →
-Night**, with the button label showing the current mode (`AUTO`/`DAY`/`NIGHT`)
-instead of toggling blind. The same three-way choice appears in settings. So the
-status bar keeps a one-tap override and the setting still lives where it belongs.
+**The `DAY` button: gone from the status bar.** Confirmed — no button. The mode is
+chosen in the settings page (a three-way Auto / Day / Night choice in the display
+section) and nowhere else. A `DAY`/`NIGHT`/`AUTO` text label may still be *shown* in
+the status bar as a quiet status readout if there is room, but it is **not tappable**;
+the setting is the control. This also means #6's freed rpm-peak slot belongs entirely
+to the odometer, and no status-bar space is spent on a mode control.
+
+**Temperature units.** The `COOLANT` and `OIL` rows get their unit shown so the
+reading is unambiguous — the value becomes `79 °C` rather than `79`, with the label
+staying `COOLANT` / `OIL`. The unit is **dynamic**, taken from the existing C/F toggle
+(`°C` or `°F`), so it never disagrees with the setting — one `fmtTemp()` helper feeds
+all three temperature rows and the existing tiles. `FUEL` carries `L` (or `gal` under
+#7's imperial) the same way, as the mockup already shows (`49.6 L`).
 
 **Implementation:** the temperatures panel gains one row (`FUEL` + value + bar,
-reusing `bar()` and the placement pass), the status-bar label is renamed and reformatted
-(#6), and the two arrows are two small labels added beside the rev number. In the
-`Full` band (a car that has boost) that panel would gain fuel as a fourth row — the
-mockup only covers the Gen1 three-panel band, so that placement gets decided when it is
-built, and Gen1 is what we can see on the glass.
+reusing `bar()` and the placement pass) and its two existing rows gain a unit suffix,
+the status-bar label is renamed and reformatted (#6), and the two arrows are two small
+labels added beside the rev number. The `Full` band gets the same fuel row as a fourth
+entry beside boost.
 
 ---
 
@@ -476,10 +483,10 @@ work (#9/#11) happens:
 
 * `src/net/chassis.h` gains `bool headlightLow, headlightHigh; bool headlightKnown;`,
   always `false`/unknown today, filled by a single function when a source exists.
-* A `LIGHTS` lamp slot is reserved in `layout.h` in the speed tile, under `km/h` and
-  beside `peak` — the one place in layout C with room, since the status bar is full
-  (LIVE, five lamps, ODO, RESET PEAKS, DAY, SETTINGS) and adding a sixth lamp there
-  would crowd it.
+* A `LIGHTS` lamp slot is reserved in `layout.h`, **in the status-bar lamp cluster
+  beside the existing five** — the `DAY` button leaving the status bar frees exactly
+  the room a sixth lamp needs, and a headlight lamp belongs with the other tell-tales
+  (TC, ABS, handbrake, low fuel) rather than buried in a tile.
 * It is built only when `DASH_HEADLAMP_LAMP` is 1 in `board_config.h`, which defaults
   to **0** — so nothing is drawn, nothing changes on the glass, and there is no dead
   widget costing a byte of pool.
@@ -527,11 +534,13 @@ to be re-made when a source turns up.
 7. **Brightness only** — no `theme.h` palette conversion in this batch.
 8. **Auto-FWD paused**, safety requirements agreed and kept above for when it restarts.
 
-Still open, both small and both answerable on the glass:
+Both small questions from the mockup are now answered:
 
-* **`DAY` button in the status bar** (mockup C) versus in settings (the brief) — the
-  proposal in #11 is to keep it, cycling Auto → Day → Night, with the same three-way
-  choice in settings. Say if you would rather it leave the status bar altogether.
-* **Fuel row placement in the `Full` band** — mockup C only covers the three-panel
-  Gen1 band, so whether the temperatures panel gains a fourth row or boost keeps its
-  own column is decided when a Gen4/5 car is on the bench.
+* **No `DAY` button on the status bar** — the Auto / Day / Night override lives in the
+  settings page only. The status bar may show the current mode as a non-tappable
+  readout if there is room, but the setting is the control.
+* **Fuel sits in the temperatures panel in both variants** — a third row on Gen1
+  (`COOLANT` / `OIL` / `FUEL`), a fourth row in the `Full` band beside boost. Not a
+  defer-until-Gen4 decision.
+* **Units on the temperature rows** — `COOLANT` and `OIL` show `°C`/`°F` from the
+  existing C/F toggle; `FUEL` shows `L`/`gal`. The reading is never left bare.
