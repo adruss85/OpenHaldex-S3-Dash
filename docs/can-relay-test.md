@@ -78,7 +78,29 @@ with the car's own cluster, and report what you see.
 * The page stays usable with the engine revving, and the dashboard's frame rate comes
   back when the page closes.
 
-## 5. Fixes in the same release, worth checking while you are there
+## 5. Recorded so far (2026-11-06)
+
+Gen1 PQ, controller fw 11.0.4, relay at **Each ID up to 10 per second**, dash on
+0.5.1 with all three pages resident.
+
+| Measured | Result |
+|---|---|
+| Ids relayed | 17, holding steady; `full 0` — no id got dropped |
+| Frame rate | 121-153 f/s, with 0x0C2 capped just under 10/s as the setting intends |
+| Sender lost | 0, rejected 0 — the controller always had queue room |
+| Air lost | 5.2% parked beside the panel; 16-26% with a 3D printer between the car and the panel (both links, ESP-NOW status included, degraded together) |
+| HTTP reduction | `live every 0 ms, dash every 2000 ms` with the relay on, with no gap in the coolant and oil tiles |
+| Values vs the controller's API | Coolant 30 C, oil 8 C, handbrake 1, brake 0 — all matched |
+| Gen1 steering | 0x0C2 `LW1_LRW` arrives over the relay while `/api/dashboard` returns null |
+| Render rate | Dashboard 60 fps, CAN DATA page 41-45 fps, RAW page 13-30 fps |
+| CAN DATA page | Opens and closes repeatedly with the panel staying up |
+
+An earlier capture from the same car, with the console dump in full, is kept as
+`docs/can-relay-sample.txt` — with `docs/can-relay-sample-decoded.txt` beside it and
+`tools/decode_can_snapshot.py` to re-decode it. No car, controller or CAN hardware
+needed to read the frames again.
+
+## 6. Fixes in the same release, worth checking while you are there
 
 * Change the brightness, power-cycle, and it stays changed.
 * Press **DAY**. The status light stays LIVE, with no `[net] joining` on the console.
