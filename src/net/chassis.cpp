@@ -119,7 +119,11 @@ void readPq(Chassis &c) {
     c.cruiseValid = true;
   }
   if (recent(0x38A, 2, f)) {
-    c.cruiseMain = (f.data[1] & 0x01) != 0;  // GRA_MainSwitch, bit 8
+    // GRA_MainSwitch 8|1: the column switch is ARMED, which is not the same as
+    // cruise working - it reads 1 on a parked car with the engine off, and that
+    // is correct. The "is it actually holding a speed" answer is MO2_GRAregelt
+    // above, which is why the CC lamp needs both.
+    c.cruiseMain = (f.data[1] & 0x01) != 0;
     c.cruiseValid = true;
   }
 }
