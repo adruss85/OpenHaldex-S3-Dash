@@ -206,7 +206,8 @@ void printStats() {
 // how the render cost of each part of the dashboard gets measured on the
 // real panel, and it stays useful for later tuning.
 uint16_t g_mask = 0xFFFF;
-uint8_t g_pclkStep = 0;  // index into the 'p' command's clock table (boot value = 24 MHz)
+uint8_t g_pclkStep = 0;  // index into the 'p' command's clock table (boot value = 16 MHz,
+                         // so the first press goes up to 24 MHz, not down)
 
 void handleSerial() {
   while (Serial.available() > 0) {
