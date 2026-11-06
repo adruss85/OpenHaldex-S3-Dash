@@ -27,6 +27,7 @@
 #include "app/config.h"
 #include "ui/dash_ui.h"
 #include "net/can_relay.h"
+#include "net/chassis.h"
 #include "ui/can_ui.h"
 #include "ui/raw_ui.h"
 
@@ -251,6 +252,13 @@ void handleSerial() {
                       ok ? "ok" : "FAILED", (double)crowpanel::takeFlushMicros() / 1000.0);
         continue;
       }
+      case 'k':
+        // The chassis decode, before anything is drawn from it: fuel,
+        // indicators, odometer, the lighting switch, brake pressure, the
+        // cluster's lamps and the cruise state, with "--" where a value is
+        // absent or the car says it is not real.
+        chassis::print(ohxnow::last().generation);
+        break;
       case 'd':
         Serial.printf("[dump] frame the panel is scanning -> %dx%d cells\n", LCD_H_RES, LCD_V_RES);
         crowpanel::dumpFrame(120, 36);
@@ -266,7 +274,7 @@ void handleSerial() {
         }
         continue;
       case 'h':
-        Serial.println("1=arcs 2=needle 3=ticks 4=digits 5=readouts 6=status 0=all 9=none p=pclk b=bounce d=dump n=polling e=esp-now f=forget controller v=tile band x=raw page c=can page C=can dump m=mode o=ota O=ota-fail-test");
+        Serial.println("1=arcs 2=needle 3=ticks 4=digits 5=readouts 6=status 0=all 9=none p=pclk b=bounce d=dump k=chassis n=polling e=esp-now f=forget controller v=tile band x=raw page c=can page C=can dump m=mode o=ota O=ota-fail-test");
         break;
       case 'v': {
         // Force the tile band, for bench work: the capability decision is made

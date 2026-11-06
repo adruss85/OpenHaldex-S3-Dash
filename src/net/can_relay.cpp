@@ -8,6 +8,7 @@
 
 #include "app/ram.h"
 #include "cannow_proto.h"
+#include "net/chassis.h"
 #include "net/dbc.h"
 
 // One entry for each possible 11-bit CAN id, in the table g_slotOf11Bit.
@@ -19,9 +20,6 @@ namespace {
 // Relay packets stop arriving when the setting is off or the bus goes quiet, and
 // this is what the "is the relay carrying the car" decisions go by.
 constexpr uint32_t kFreshMs = 1000;
-// How long a value read from a frame is believed. The same 2 s the controller
-// gives Kombi_2 before its own API reports null.
-constexpr uint32_t kValueFreshMs = 2000;
 constexpr int kMaxExtended = 16;  // 29-bit ids are rare on these cars
 
 struct Slot {
@@ -104,12 +102,6 @@ void copyOut(const Slot &slot, uint32_t now, Frame &out) {
   out.count = slot.count;
   out.perSec = slot.perSec;
   out.ageMs = now - slot.lastMs;
-}
-
-// A frame heard recently enough to read a value from, at least minLength long.
-bool recent(uint32_t id, uint8_t minLength, Frame &out) {
-  if (!find(id, false, out)) return false;
-  return out.ageMs <= kValueFreshMs && out.length >= minLength;
 }
 
 }  // namespace
@@ -274,43 +266,19 @@ Values values(const uint8_t generation) {
   Values out;
   const dbc::Table *table = dbc::forGeneration(generation);
   if (table == nullptr) return out;  // another make: its ids mean something else
-  Frame frame;
 
-  // The same bytes the controller reads (OpenHaldexC6_can.cpp), on purpose: these
-  // have been on a car, and they are not all what the DBC says. vw_pq lumps the
-  // handbrake in with the brake-fluid warning as one 2-bit "Bremsinfo".
-  if (table == &dbc::kVwPq) {
-    if (recent(0x420, 5, frame)) {  // Kombi_2
-      out.oil = frame.data[3] - 60.0f;
-      out.coolant = frame.data[4] * 0.75f - 48.0f;
-    }
-    if (recent(0x288, 3, frame)) out.brake = frame.data[2] & 0x01;             // Motor_2: MO2_BLS
-    if (recent(0x320, 2, frame)) out.handbrake = (frame.data[1] >> 1) & 0x01;  // Kombi_1: KO1_Handbremse
-
-    // Brake_1: the cluster's own traction tell-tale, and whether it is
-    // intervening now. The dashboard lamps mirror this instead of inverting the
-    // controller's flags, so they agree with the car (#1).
-    if (recent(0x1A0, 2, frame)) {
-      out.asrLamp = (frame.data[1] >> 1) & 0x01;  // BR1_Lamp_ASR, bit 9
-      out.asrActive = frame.data[0] & 0x01;       // BR1_ASR_Req,   bit 0
-    }
-    // Brake_5: the pressure is only real when the frame says so. Gated here,
-    // once, so no caller can show a standstill as 1.7 bar of braking (#3).
-    if (recent(0x4A8, 4, frame)) {
-      const bool valid = ((frame.data[3] >> 5) & 0x01) != 0;  // BR5_PressureValid, bit 29
-      if (valid) out.brakeBar = (float)(frame.data[2] | ((frame.data[3] & 0x0F) << 8)) * 0.1f;
-    }
-  } else {
-    // MQB. The controller does not read Motor_07, so its API has no temperatures
-    // on these cars. 254 and 255 mean "initialising" and "fault". Not yet checked
-    // on a car: see TODO.
-    if (recent(0x640, 4, frame)) {  // Motor_07
-      if (frame.data[2] < 0xFE) out.oil = frame.data[2] - 60.0f;
-      if (frame.data[3] < 0xFE) out.coolant = frame.data[3] * 0.75f - 48.0f;
-    }
-    if (recent(0x106, 4, frame)) out.brake = (frame.data[3] >> 2) & 0x01;      // ESP_05: ESP_Fahrer_bremst
-    if (recent(0x30B, 3, frame)) out.handbrake = (frame.data[2] >> 7) & 0x01;  // Kombi_01: KBI_Handbremse
-  }
+  // One decode path: chassis.cpp reads the frames, this narrows that view to the
+  // handful of values the dashboard has asked for so far. As the dashboard grows
+  // a use for the rest - fuel, indicators, the odometer - they are added here
+  // rather than decoded a second time.
+  const chassis::Chassis c = chassis::read(generation);
+  out.coolant = c.coolant;
+  out.oil = c.oil;
+  out.brake = c.brake;
+  out.handbrake = c.handbrake;
+  out.asrLamp = c.lampValid ? (c.lampAsr ? 1 : 0) : -1;
+  out.asrActive = c.lampValid ? (c.asrActive ? 1 : 0) : -1;
+  out.brakeBar = c.brakeBar;
   return out;
 }
 
