@@ -42,6 +42,30 @@ never been flashed, or one whose app slots have been scrambled, needs the
 factory image written at `0x0` instead. One line of release notes, or a second
 asset — decide when the first person asks.
 
+### 1.4 Automatic FWD while cruise control is active — **paused**
+The **read-only half is built**: `chassis.cpp` decodes `MO2_GRAregelt` (0x288,
+bit 26, "regulating to a set speed") and `GRA_MainSwitch` (0x38A, bit 8, the
+column switch — "armed", which is not the same thing), and they drive the **CC**
+lamp: dark green armed, bright green while the engine is actually holding a
+speed. That is what `can_relay.cpp`'s `cruise` value carries.
+
+The half that **acts is not built**: nothing switches the Haldex mode to FWD when
+cruise engages, and there is no setting for it. It would be the only feature here
+that changes how the car puts power down without the driver asking, so it was
+paused by decision — and the safety requirements were agreed at that point, which
+is why it is a short job when it is picked up rather than a fresh design:
+
+* opt-in setting, off by default, and it says on the glass when it is on;
+* 2 s of debounce to enter *and* to leave;
+* capture the mode on entry and restore exactly that — never "cycle to the next";
+* any manual mode change wins, and switches it off for the rest of the ignition
+  cycle;
+* every change announced on the glass and on the console.
+
+The signal evidence, the reasoning and the full requirements are in
+[`docs/upgrades.md`](docs/upgrades.md) §13. It starts at the debounce, not at the
+research.
+
 ---
 
 ## 2. Verification gaps

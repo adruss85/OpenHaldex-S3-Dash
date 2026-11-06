@@ -426,6 +426,9 @@ values change to the defaults and SAVE persists them.
 
 ## 13. Automatic FWD while cruise control is active — paused
 
+*(Listed in [TODO.md](../TODO.md) §1.4, which is where "still to be done" lives;
+this section is the evidence and the requirements.)*
+
 **Feasible, and the signal is in a frame we already have.** `0x288 Engine_2`:
 
 * `MO2_GRAregelt` — bit 26, 1 bit — "cruise control is regulating", i.e. **active**
