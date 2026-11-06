@@ -26,7 +26,9 @@ the output describes one moment, and an id that never moved is not printed twice
 --each prints every capture instead, oldest first, which is how you see a value
 move.
 
-Only the Python standard library is needed.
+Only the Python standard library is needed, but it decodes with the same tables
+the firmware links, so it needs dbc/*.dbc and tools/make_dbc_tables.py beside it -
+both of which arrive with the CAN relay work, not before it.
 """
 import argparse
 import os

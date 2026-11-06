@@ -109,30 +109,37 @@ mode    : 4 (75:25), haldexState 41
 [stats] relay 146 f/s, 17 ids, 676 pkt, air lost 48 (6.6%), sender lost 0, rej 0, full 0
 
 # ---------------------------------------------------------------------------
-# An open question, kept rather than tidied away.
+# The 0x0C2 "discrepancy", asked about and now answered: both decodes are right.
 #
-# The firmware's own "--- SteeringAngle_1 ---" block above is its per-signal
-# decode of one frame. It does not agree with an offline decode of the 0x0C2 row
-# printed immediately before it, in the same dump:
+# The firmware's own "--- SteeringAngle_1 ---" block is its per-signal decode of
+# one frame, and it did not agree with an offline decode of the 0x0C2 row printed
+# immediately before it:
 #
-#   row 0x0C2 bytes              firmware block        offline decode of the row
-#   00 80 00 80 8C 62 00 9D      Counter  0, CRC 253    Counter  6, CRC 157
-#   00 80 00 80 8C A2 00 5D      Counter  4, CRC 189    Counter 10, CRC  93
+#   row bytes                 detail block printed     offline decode of the row
+#   00 80 00 80 8C 62 00 9D   Counter  0, CRC 253       Counter  6, CRC 157
+#   00 80 00 80 8C A2 00 5D   Counter  4, CRC 189       Counter 10, CRC  93
+#   00 80 00 80 8C 02 00 FD   Counter 10, CRC  93       Counter  0, CRC 253
+#                             detail = row + 10 (mod 16), every time
 #
-# Five further presses on a repeat run showed the same relationship every time,
-# so it is not a race between the two reads:
+# The row and the block are two *adjacent* frames of the same message, not one
+# frame decoded twice. The relay is set to "Each ID up to 10 per second" and the
+# car sends 0x0C2 about a hundred times a second, so the 4-bit rolling counter in
+# byte 5 moves on by exactly 10 (mod 16) between the row the dump prints and the
+# frame the block re-reads a moment later. That constant step is why the same
+# arithmetic difference turned up every time.
 #
-#   block LW1_Counter = row LW1_Counter - 6  (mod 16)
-#   block LW1_CRC     = row byte 7     + 96  (mod 256)
+# The CRC moves with it rather than independently: LW1_CRC is the one's complement
+# of the sum of the data bytes *other than* the counter byte, so a counter byte
+# 0xA0 higher moves the CRC by exactly 0x60 - the "+96" that first looked like a
+# decoding difference. Working back from each block's own CRC gives the counter
+# byte it was read from (255 - 0xFD = 0x02, counter 0; 255 - 0x5D = 0xA2, counter
+# 10), and that agrees with the counter and status bits printed beside it. Each
+# half is a valid decode of a valid frame, about 100 ms apart.
 #
-# A fixed arithmetic difference in two independent fields means the same bytes
-# are being decoded two different ways, not that two different frames were read.
-# dbc_tables.cpp is up to date with dbc/vw_pq.dbc (tools/make_dbc_tables.py
-# regenerates it and passes its check against the controller's own decodes), and
-# the offline decoder imports that table generator's arithmetic - so the two
-# should agree by construction and do not. Worth chasing: this is the decode the
-# CAN DATA page would have shown.
+# So dbc_tables.cpp and the offline decoder agree by construction, as they should,
+# and there is nothing to fix in the decode. The third row above came from a run
+# on 2026-11-06 with 0.5.1 flashed.
 #
-# The tile values are not affected: those read fixed bytes in can_relay.cpp rather
+# The tile values were never affected: those read fixed bytes in can_relay.cpp rather
 # than going through the DBC, and on the car they matched the controller's own API
 # exactly (Cluster_2 -> oil 8 C, coolant 30 C against 8.00 / 30.00).

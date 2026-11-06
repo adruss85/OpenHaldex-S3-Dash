@@ -9,9 +9,10 @@
 # English ('??Grad', 'U/min', 'MDI', 'U/sec') and this repeats them verbatim
 # rather than guessing.
 #
-# Note: the firmware's own per-signal block in the sample does not agree with this
-# decode for 0x0C2, reproducibly. See the open question at the end of
-# docs/can-relay-sample.txt before reading either as authoritative for that frame.
+# Note: the firmware's own per-signal block in the sample showed a different
+# LW1_Counter and LW1_CRC for 0x0C2. That is now explained and is not a decode
+# error: the block and the row are adjacent frames, ten counter steps apart. See
+# the note at the end of docs/can-relay-sample.txt.
 
 docs/can-relay-sample.txt  decoded with vw_pq.dbc
 
