@@ -17,6 +17,11 @@ namespace cfg {
 
 enum BoostUnits : uint8_t { BOOST_BAR = 0, BOOST_MBAR = 1, BOOST_PSI = 2 };
 
+/// How the backlight is decided. Auto reads Terminal 58s off the car's own bus
+/// (0 = lights off, 7..99 % = the dash dimmer wheel), which carries both the
+/// mode and the night brightness in one signal.
+enum DayNightMode : uint8_t { DN_AUTO = 0, DN_DAY = 1, DN_NIGHT = 2 };
+
 struct Data {
   // Connection to the OpenHaldex-C6. Stored in NVS, never in git.
   char ssid[33];
@@ -54,6 +59,21 @@ struct Data {
   // Waiting 15 s for a lease that never comes costs 15 s of a blank dashboard
   // on every boot and on every reconnect.
   uint8_t netUseStatic;
+
+  // --- added in version 5. These sit at the END of Data on purpose: an older
+  // NVS blob is then a byte-for-byte prefix of this one, so it can be read back
+  // into the same struct (config.cpp) instead of being thrown away, which would
+  // cost the connection settings that were learnt on the car.
+
+  // Tank size, only for the fuel bar's percentage and the low-fuel threshold:
+  // the litres themselves come from the car (TankContents, 1 l per count).
+  float tankLitres;
+
+  // 1 = km/h and km (metric), 0 = mph and miles. Distance only: the
+  // temperature toggle above is a separate setting and stays separate.
+  uint8_t unitsMetric;
+
+  uint8_t dayNight;  // DayNightMode
 };
 
 /// Load from NVS (or defaults + any build-time secrets on first boot).

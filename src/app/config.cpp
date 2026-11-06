@@ -19,9 +19,13 @@ namespace {
 constexpr const char *kNamespace = "ohxdash";
 constexpr const char *kKey = "cfg";
 constexpr uint32_t kMagic = 0x4F485844;  // 'OHXD'
-constexpr uint16_t kVersion = 4;  // 4: pollLiveMs 100 -> 1000 (ESP-NOW is the
+constexpr uint16_t kVersion = 5;  // 5: + tankLitres, unitsMetric, dayNight (all
+                                  //    three at the end of Data, so a version 4
+                                  //    blob is a prefix of a version 5 one);
+                                  //    4: pollLiveMs 100 -> 1000 (ESP-NOW is the
                                   //    fast path now); 3: + netUseStatic;
                                   //    2: staleMs 500 -> 1500
+constexpr uint16_t kOldestVersion = 3;  // the oldest blob still worth reading
 
 struct Blob {
   uint32_t magic;
@@ -68,7 +72,11 @@ void validate(Data &d) {
   d.rpmMax = clampv(d.rpmMax, 1000.0f, 20000.0f);
   d.rpmAmber = clampv(d.rpmAmber, 0.0f, d.rpmMax);
   d.rpmRedline = clampv(d.rpmRedline, d.rpmAmber, d.rpmMax);
-  d.rpmShift = clampv(d.rpmShift, 0.0f, d.rpmMax);
+  // The shift flash is meant to start *before* the limiter, so it is clamped
+  // between the amber zone and the redline. Before this the stored order was
+  // free, and the shipped defaults (shift 7300, redline 6800) had the shift
+  // light firing 500 rpm after the limiter (#10).
+  d.rpmShift = clampv(d.rpmShift, d.rpmAmber, d.rpmRedline);
   d.coolWarn = clampv(d.coolWarn, -40.0f, 200.0f);
   d.coolCrit = clampv(d.coolCrit, d.coolWarn, 250.0f);
   d.oilWarn = clampv(d.oilWarn, -40.0f, 200.0f);
@@ -79,6 +87,9 @@ void validate(Data &d) {
 
   if (d.boostUnits > BOOST_PSI) d.boostUnits = BOOST_BAR;
   d.brightness = clampv(d.brightness, 1.0f, 100.0f);
+  d.tankLitres = clampv(d.tankLitres, 20.0f, 120.0f);
+  d.unitsMetric = d.unitsMetric ? 1 : 0;
+  if (d.dayNight > DN_NIGHT) d.dayNight = DN_AUTO;
 
   // --- polling -------------------------------------------------------
   d.pollLiveMs = (uint16_t)clampv<int>(d.pollLiveMs, 50, 1000);
@@ -128,7 +139,7 @@ Data defaults() {
   d.rpmMax = 8000;
   d.rpmAmber = 6000;
   d.rpmRedline = 6800;
-  d.rpmShift = 7300;
+  d.rpmShift = 6500;  // below the redline: the flash is a "change up now" cue
   d.coolWarn = 100;
   d.coolCrit = 110;
   d.oilWarn = 120;
@@ -140,6 +151,10 @@ Data defaults() {
   d.tempF = false;
   d.boostUnits = BOOST_BAR;
   d.brightness = 100.0f;
+
+  d.tankLitres = 62.0f;  // the 4motion wagon's tank; only sizes the bar
+  d.unitsMetric = 1;
+  d.dayNight = DN_AUTO;
 
   // /api/live is no longer the fast path: rpm, speed, throttle, boost, oil
   // and the lock values arrive over ESP-NOW at 10 Hz. It stays at 1 Hz for
@@ -167,24 +182,40 @@ void begin() {
   bool saveAgain = false;
   Preferences prefs;
   if (prefs.begin(kNamespace, true)) {
-    Blob blob{};
     const size_t n = prefs.getBytesLength(kKey);
-    // A version 3 blob has exactly the same field layout, so it can be read
-    // and migrated rather than thrown away - throwing it away would also
-    // throw away netUseStatic, which was learnt on the bench, and cost 15 s
-    // of DHCP wait on the next boot.
-    if (n == sizeof(blob) && prefs.getBytes(kKey, &blob, sizeof(blob)) == sizeof(blob) &&
-        blob.magic == kMagic && (blob.version == kVersion || blob.version == 3)) {
-      Data d = blob.data;
-      if (blob.version < 4) {
-        d.pollLiveMs = 1000;  // the fast values no longer come from HTTP
-        Serial.println("[cfg] migrating settings: /api/live 100 ms -> 1000 ms (ESP-NOW)");
-        saveAgain = true;
+    // Read whatever is stored into a zeroed Blob, however long it is. Every
+    // field added since version 3 sits at the END of Data, so an older blob is
+    // a byte-for-byte prefix of this one and copying n bytes leaves the newer
+    // tail at zero - which is then overwritten with explicit defaults below.
+    // Rejecting a shorter blob instead would throw away netUseStatic, which was
+    // learnt on the bench, and cost 15 s of DHCP wait on the next boot.
+    alignas(4) uint8_t raw[sizeof(Blob)] = {};
+    Blob blob{};
+    if (n >= sizeof(blob.magic) + sizeof(blob.version) + sizeof(blob.reserved) &&
+        n <= sizeof(raw) && prefs.getBytes(kKey, raw, n) == n) {
+      memcpy(&blob, raw, n);
+      if (blob.magic == kMagic && blob.version >= kOldestVersion && blob.version <= kVersion) {
+        Data d = blob.data;
+        if (blob.version < 5) {
+          d.tankLitres = 62.0f;
+          d.unitsMetric = 1;
+          d.dayNight = DN_AUTO;
+          saveAgain = true;
+        }
+        if (blob.version < 4) {
+          d.pollLiveMs = 1000;  // the fast values no longer come from HTTP
+          Serial.println("[cfg] migrating settings: /api/live 100 ms -> 1000 ms (ESP-NOW)");
+          saveAgain = true;
+        }
+        validate(d);
+        if (memcmp(&d, &blob.data, sizeof(Data)) != 0) saveAgain = true;  // something was clamped
+        storeInRam(d);
+        haveSaved = true;
+        if (blob.version < kVersion) {
+          Serial.printf("[cfg] migrating settings: blob v%u -> v%u\n", (unsigned)blob.version,
+                        (unsigned)kVersion);
+        }
       }
-      validate(d);
-      if (memcmp(&d, &blob.data, sizeof(Data)) != 0) saveAgain = true;  // something was clamped
-      storeInRam(d);
-      haveSaved = true;
     }
     prefs.end();
   }

@@ -343,6 +343,10 @@ void pollLive() {
     v.oil = numOrNan(doc["oilTemp"]);
     v.lockTarget = numOrNan(doc["lockTarget"]);
     v.lockActual = numOrNan(doc["lockActual"]);
+    // Fuel is not in the API at all: it comes from the relayed cluster frame,
+    // and datafeed.cpp fills it in. NAN here means "this source has nothing",
+    // which is exactly what the merge expects.
+    v.fuel = NAN;
     v.everOk = true;
     v.ageMs = 0;
     g_liveOkMs = now;
@@ -484,7 +488,7 @@ void setPaused(bool paused) {
 }
 
 void begin() {
-  g_live = Live{NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, false, UINT32_MAX};
+  g_live = Live{NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, false, UINT32_MAX};
   g_dash = Dash{-1, -1, -1, -1, false, false, false, false, false, false,
                 false, false, false, false, UINT32_MAX, NAN, -1, -1};
   g_stats = Stats{};

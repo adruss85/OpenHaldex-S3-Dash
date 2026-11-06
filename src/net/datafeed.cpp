@@ -102,6 +102,9 @@ telemetry::Live live() {
   const canrelay::Values relay = canrelay::values(p.generation);
   if (!isnan(relay.oil)) v.oil = relay.oil;
   if (!isnan(relay.coolant)) v.coolant = relay.coolant;
+  // Fuel level, same story as the temperatures: the relay is the only source
+  // (the API has never carried it), and NAN means the frame is quiet.
+  if (!isnan(relay.fuelLitres)) v.fuel = relay.fuelLitres;
   v.lockTarget = pick(p.lockTarget, http.lockTarget);
   v.lockActual = pick(p.lockActual, http.lockActual);
 
@@ -146,6 +149,13 @@ telemetry::Dash dash() {
   v.brakeBar = relay.brakeBar;
   // Cruise state for the CC lamp, straight off the car's own bus.
   if (relay.cruise >= 0) v.cruise = relay.cruise;
+  // The fuel warning, the odometer and the indicator bits: all relay-only, so
+  // they are taken as they come (#4/#5/#6).
+  v.fuelLow = relay.fuelLow;
+  if (!isnan(relay.odometerKm)) v.odometerKm = relay.odometerKm;
+  if (relay.indicators >= 0) v.indicators = relay.indicators;
+  // Terminal 58s, the automatic day/night source.
+  if (relay.term58s >= 0) v.term58s = relay.term58s;
   v.everOk = true;
   return v;
 }

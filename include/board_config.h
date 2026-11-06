@@ -130,6 +130,20 @@
 #define LCD_BOUNCE_LINES 24
 #endif
 
+// ------------------------------------------------- automatic day / night
+// With the backlight in Auto mode, night brightness is scaled from Terminal
+// 58s - the dash dimmer wheel, 7..99 % when the lights are on - so the panel
+// follows the car's own dimming:
+//
+//   night = clamp(DASH_NIGHT_MIN_PCT + DASH_NIGHT_SPAN_PCT * 58s / 100, .., 100)
+//
+// 20 % floor so the panel is still readable at night, 65 % ceiling so it
+// cannot dazzle. Both are here, not in config: they are judgements about this
+// panel rather than preferences, and the settings page shows the number they
+// produce so they can be judged on the glass.
+#define DASH_NIGHT_MIN_PCT 20
+#define DASH_NIGHT_SPAN_PCT 45
+
 // -------------------------------------------------------- pixel clock source
 // lcd_clk = src / (div_num + div_b/div_a), and on this peripheral a
 // fractional divider is allowed. 24 MHz divides PLL_F160M exactly only as

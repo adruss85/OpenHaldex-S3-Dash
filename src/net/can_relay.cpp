@@ -280,6 +280,11 @@ Values values(const uint8_t generation) {
   out.asrActive = c.lampValid ? (c.asrActive ? 1 : 0) : -1;
   out.brakeBar = c.brakeBar;
   out.cruise = c.cruiseValid ? (c.cruiseRegulating ? 2 : (c.cruiseMain ? 1 : 0)) : -1;
+  out.fuelLitres = c.fuelValid ? c.fuelLitres : NAN;
+  out.fuelLow = c.fuelLow;
+  out.odometerKm = c.odometerValid ? c.odometerKm : NAN;
+  out.indicators = c.indValid ? ((c.indLeft ? 1 : 0) | (c.indRight ? 2 : 0)) : -1;
+  out.term58s = c.termValid ? c.term58s : -1;
   return out;
 }
 

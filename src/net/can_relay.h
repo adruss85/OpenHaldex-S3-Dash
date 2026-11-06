@@ -66,6 +66,22 @@ struct Values {
   // heard, 0 off, 1 armed (the column switch is on), 2 regulating (the engine is
   // holding a speed). See chassis.h for the two bits it is built from.
   int cruise = -1;
+
+  // Fuel, from the cluster's tank contents. NAN = no reading, or one the car
+  // says is not real, so an empty tank cannot be shown for a missing sensor.
+  float fuelLitres = NAN;
+  bool fuelLow = false;
+
+  // The cluster's odometer, and the indicator bits as a mask (bit 0 left, bit 1
+  // right; -1 = no frame). The bits are mirrored raw - the blink the driver sees
+  // is the dashboard's own, because 9/s and lossy cannot follow an edge.
+  float odometerKm = NAN;
+  int indicators = -1;
+
+  // Terminal 58s, the lighting switch and dash dimmer: 0 with the lights off,
+  // 7..99 % with them on. -1 = not heard. One signal carries both the day/night
+  // decision and the night brightness (see board_config.h).
+  int term58s = -1;
 };
 
 /// Makes the frame tables in PSRAM. Call in setup(), before the network starts.

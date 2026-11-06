@@ -31,6 +31,7 @@
 #define COL_AMBER lv_color_hex(0xf59e0b)
 #define COL_RED lv_color_hex(0xef4444)
 #define COL_CYAN lv_color_hex(0x22d3ee)
+#define COL_SHIFT lv_color_hex(0x8b5cf6)  // the rev bar's shift flash
 #define COL_TRACK lv_color_hex(0x14181d)  // unfilled bar background
 #define COL_LAMP_OFF lv_color_hex(0x0e1114)
 #define COL_LAMP_EDGE lv_color_hex(0x2a2f36)

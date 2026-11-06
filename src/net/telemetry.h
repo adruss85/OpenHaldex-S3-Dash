@@ -36,6 +36,10 @@ struct Live {
   float rpm, speed, throttle, boost;
   float coolant, oil;
   float lockTarget, lockActual;
+  // Fuel level in litres, from the cluster's tank contents over the relay. NAN
+  // = not heard, or a reading the car says is not real. The relay is the only
+  // source; /api/live has never carried it.
+  float fuel;
   bool everOk;
   uint32_t ageMs;  // ms since the last successful parse
 };
@@ -86,6 +90,22 @@ struct Dash {
   // Cruise, from the car's own bus: -1 not heard, 0 off, 1 armed (the column
   // switch is on but nothing is being held), 2 regulating. Drives the CC lamp.
   int cruise = -1;
+
+  // The cluster's low-fuel warning (0x320 Cluster_1 bit 23) and its odometer
+  // (0x520 Cluster_3, whole km). fuelLow is a plain flag with no sentinel to
+  // gate on: it is only read from a frame that has been heard.
+  bool fuelLow = false;
+  float odometerKm = NAN;
+
+  // The indicator bits as a mask (bit 0 left, bit 1 right; -1 = no frame). The
+  // UI latches these and runs its own flash phase - the bits themselves toggle
+  // too slowly under packet loss to follow an edge (see docs/upgrades.md #5).
+  int indicators = -1;
+
+  // Terminal 58s off Cluster_2: 0 with the lights off, 7..99 % with the dash
+  // dimmer. This is the automatic day/night source. -1 = not heard. Terminal_58d
+  // is deliberately not read: it sits at a non-zero 24 % with the lights off.
+  int term58s = -1;
 };
 
 struct Stats {
