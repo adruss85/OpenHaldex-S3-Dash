@@ -1,27 +1,32 @@
 # Planned upgrades — functional first, cosmetic after
 
-Drawn up from the drive of 2026-11-06 (0.5.1) and the code as it stands. Nothing here
-is started. Priorities are proposed, not fixed: read the "Decisions" section at the
-end before this turns into code.
+Drawn up from the drive of 2026-11-06 (0.5.1) and the code as it stands.
+
+> **This batch is delivered.** Items **1–12 all shipped in 0.6.0** (commits
+> `7017271`, `0062487`, `1eb4930`, `7260267`), so this document is kept as the
+> plan and the evidence behind them rather than as a to-do list. The only live
+> items are **13** (paused by decision) and **14** (a placeholder waiting for a
+> bus the relay does not carry). What is still unbuilt or unproven lives in
+> [TODO.md](../TODO.md).
 
 The short version:
 
-| # | Item | Kind | Size | Priority |
-|---|---|---|---|---|
-| 1 | TC/ASR lamp logic is inverted | correctness | S | **P1** |
-| 2 | Boost shown on Gen1, where it does not exist | correctness | S | **P1** |
-| 3 | Brake pressure needs its validity bit | correctness | S | **P1** |
-| 4 | Fuel level + low fuel warning | feature | M | **P2** |
-| 5 | Turn indicator repeaters | feature | M | **P2** |
-| 6 | Odometer in the status bar, rpm peak dropped | feature | S | **P2** |
-| 7 | Metric / imperial toggle | feature | S | **P2** |
-| 8 | Automatic day / night mode and brightness | feature | M | **P2** |
-| 9 | Settings page: static, no scrolling, paired rows | usability | M/L | **P2** |
-| 10 | Shift light: flash the bar, not the numbers | usability | S | **P3** |
-| 11 | Dashboard layout C (see the mockup) | usability | M | **P2** |
-| 12 | Settings thresholds show `-` until they are touched | bug | S | **P1** |
-| 13 | Automatic FWD while cruise control is active | feature | M | **paused** |
-| 14 | Headlight display | placeholder | — | **not built** — no bit available |
+| # | Item | Kind | Size | Priority | Status |
+|---|---|---|---|---|---|
+| 1 | TC/ASR lamp logic is inverted | correctness | S | **P1** | shipped 0.6.0 |
+| 2 | Boost shown on Gen1, where it does not exist | correctness | S | **P1** | shipped 0.6.0 |
+| 3 | Brake pressure needs its validity bit | correctness | S | **P1** | shipped 0.6.0 |
+| 4 | Fuel level + low fuel warning | feature | M | **P2** | shipped 0.6.0 |
+| 5 | Turn indicator repeaters | feature | M | **P2** | shipped 0.6.0 |
+| 6 | Odometer in the status bar, rpm peak dropped | feature | S | **P2** | shipped 0.6.0 |
+| 7 | Metric / imperial toggle | feature | S | **P2** | shipped 0.6.0 — distance only |
+| 8 | Automatic day / night mode and brightness | feature | M | **P2** | shipped 0.6.0 |
+| 9 | Settings page: static, no scrolling, paired rows | usability | M/L | **P2** | shipped 0.6.0 |
+| 10 | Shift light: flash the bar, not the numbers | usability | S | **P3** | shipped 0.6.0 |
+| 11 | Dashboard layout C (see the mockup) | usability | M | **P2** | shipped 0.6.0 |
+| 12 | Settings thresholds show `-` until they are touched | bug | S | **P1** | shipped 0.6.0 |
+| 13 | Automatic FWD while cruise control is active | feature | M | **paused** | not built |
+| 14 | Headlight display | placeholder | — | **not built** — no bit available | not built |
 
 S = under half a day, M = about a day, L = more. Sizes assume the relay path below
 is built once and reused, which is why #4–#7 are cheap.
@@ -225,6 +230,14 @@ odometer (km ↔ miles) and the odometer on the status bar; distance only — th
 temperature toggle already exists and stays separate. All formatting goes through one
 helper (`fmtSpeed`, `fmtDistance`) so nothing is converted twice.
 
+> **As built (0.6.0):** the toggle sits in the **Units** row of Settings, beside
+> the °C/°F and bar/mbar/psi buttons, and reads `km` or `mi`. It moves exactly what
+> is listed above and deliberately does **not** touch the fuel, which stays in litres
+> in both modes — the car reports litres, a tank size is a metric figure here, and
+> "switch to miles" is a statement about distance rather than about the tank.
+> Converting it would also leave the number disagreeing with the bar beside it,
+> whose full scale is a litre figure.
+
 ---
 
 ## 8. Automatic day / night mode and brightness — P2
@@ -380,8 +393,8 @@ to the odometer, and no status-bar space is spent on a mode control.
 reading is unambiguous — the value becomes `79 °C` rather than `79`, with the label
 staying `COOLANT` / `OIL`. The unit is **dynamic**, taken from the existing C/F toggle
 (`°C` or `°F`), so it never disagrees with the setting — one `fmtTemp()` helper feeds
-all three temperature rows and the existing tiles. `FUEL` carries `L` (or `gal` under
-#7's imperial) the same way, as the mockup already shows (`49.6 L`).
+all three temperature rows and the existing tiles. `FUEL` carries `L` the same way
+— always litres, since #7 is distance-only — as the mockup already shows (`49.6 L`).
 
 **Implementation:** the temperatures panel gains one row (`FUEL` + value + bar,
 reusing `bar()` and the placement pass) and its two existing rows gain a unit suffix,
@@ -543,4 +556,11 @@ Both small questions from the mockup are now answered:
   (`COOLANT` / `OIL` / `FUEL`), a fourth row in the `Full` band beside boost. Not a
   defer-until-Gen4 decision.
 * **Units on the temperature rows** — `COOLANT` and `OIL` show `°C`/`°F` from the
-  existing C/F toggle; `FUEL` shows `L`/`gal`. The reading is never left bare.
+  existing C/F toggle; `FUEL` shows `L`. The reading is never left bare.
+
+## Postscript (2026-11-06, as shipped in 0.6.0)
+
+The batch above closed with one change against this document: **the fuel stays in
+litres whatever the distance unit is.** #7 was written as "distance only" and it was
+built that way, so this was a correction to the mockup note (which had `gal` beside
+`FUEL`) rather than to the plan.

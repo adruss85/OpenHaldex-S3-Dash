@@ -66,15 +66,17 @@ DATA page were contributed by **Adam Forbes**.
 
 ## 1. What it shows
 
-![The dashboard layout](docs/mockups/g-fullwidth.png)
+![The dashboard layout](docs/mockups/C.%20Updated%20layout.png)
 
-*Mock-up at the panel's real 800x480 geometry — `tools/mockup_dash.py` draws it.*
+*The layout the glass is built to (0.6.0). The earlier mock-ups in
+`docs/mockups/` — A, B and `g-fullwidth.png`, the one the band widths come from —
+predate the fuel row, the repeaters and the odometer.*
 
 | Band | Contents |
 |---|---|
-| Rev bar | One segmented bar across the full 800 px, `1`–`7` above it and `x1000` at the right, then the rpm as a large centred number on its own row |
-| Tiles | `SPEED` (km/h + peak) · `BOOST` (value, unit, a bar, peak) · `TEMPERATURES` (coolant and oil, each with a bar) · `HALDEX` (mode, coupling state, lock requested / actual, throttle) — **tap it to step the Haldex mode** |
-| Status bar | Data-state dot, the BRAKE / HAND / TC / ASR / AWD lamps, rpm peak, and the RESET PEAKS / DAY / SETTINGS buttons |
+| Rev bar | One segmented bar across the full 800 px, `1`–`7` above it and `x1000` at the right, then the rpm as a large centred number on its own row — with a **turn-indicator arrow at each end of that row**, dark until the car blinks |
+| Tiles | `SPEED` (km/h or mph + peak) · `BOOST` (value, unit, a bar, peak) · `TEMPERATURES` (coolant, oil and **fuel**, each with its unit and a bar) · `HALDEX` (mode, coupling state, lock requested / actual, throttle) — **tap it to step the Haldex mode** |
+| Status bar | Data-state dot, the BRAKE / HAND / TC / ASR / **CC** lamps, the **odometer**, and the RESET PEAKS / SETTINGS buttons |
 
 The tile band follows the same geometry as the browser page, from one unit:
 
@@ -84,6 +86,15 @@ u = min(width / 100, height / 56)         ->  8 px at 800x480
 
 REVS is the only full-width item; everything else is a tile, so no value
 appears twice.
+
+**Tell-tales mirror the car, they are not inferred.** BRAKE and HAND light from
+the chassis CAN bit (or the controller's wired input, whichever moves — on this
+car the CAN brake works and the wired handbrake never moves). TC and ASR mirror
+the cluster's own `BR1_Lamp_ASR` and flash while it intervenes. CC is
+the cruise lamp: dark green when the column switch is armed, bright green while
+the engine is actually holding a speed. The shift cue is the bar, not the
+number: at the shift point the lit cells alternate with purple, at the redline
+with red.
 
 **Unmeasurable values show `--`, never a fake zero.** A JSON `null` from the
 controller is carried all the way to the screen as "unknown", with a dash
@@ -103,9 +114,17 @@ the link itself is down. Nothing is blanked and no overlay covers the screen.
 * **Long-press anywhere on the top band opens Settings**, because the
   status-bar buttons are small to hit in a moving car.
 * Boost, speed and rpm are drawn with the *eased* value — a 110 ms time
-  constant, matching the page — so they sweep rather than snap.
-* Settings holds every threshold, the units, the brightness and the
-  connection, and is stored in NVS so it survives a power cycle.
+  constant, matching the page — so they sweep rather than snap. Fuel is eased
+  much harder (5 s, behind a slosh gate), because a tank level is read at a
+  glance rather than followed.
+* **The backlight follows the car.** Terminal 58s — the lighting switch and dash
+  dimmer wheel, one signal that reads 0 with the lights off and 7-99 % with them
+  on — decides day or night and, at night, the brightness. Auto / Day / Night is
+  a setting, not a status-bar button.
+* Settings holds every threshold, the units, the day/night mode, the brightness
+  and the connection, and is stored in NVS so it survives a power cycle. It is
+  laid out in two columns with no scrolling: on a 32 Hz panel, a scroll step
+  repaints the full card width, which is what made the old page feel slow.
 
 ---
 
@@ -179,9 +198,10 @@ is the fallback, and it still carries what neither of those has.
 |---|---|
 | `rpm`, `speed`, `throttle`, `boost`, `lockTarget`, `lockActual` | ESP-NOW while packets arrive (holds 500 ms), else HTTP |
 | `mode`, `haldexState`, `chassisCAN`, `haldexCAN`, `brakeIn`, `handbrakeIn`, `couplingOpen`, `tempProtection` | ESP-NOW — the packet has real bits for all of these |
-| `coolant`, `oil`, `brakeFromCAN`, `handbrakeFromCAN` | the CAN relay while it is carrying them, else HTTP. The packet has none of these: its `oilTemp` is the Haldex's oil, not the engine's |
-| `tcOn`, `asrOn` | ESP-NOW — the packet's `TC_FORCE` / `ASR_OFF`, inverted, which is exactly how the controller's API works them out |
-| `awdWarning` | always HTTP — it comes from Haldex data, which is on the bus the relay does not carry |
+| `coolant`, `oil`, `fuel`, `odometerKm`, `brakeFromCAN`, `handbrakeFromCAN` | the CAN relay while it is carrying them, else HTTP. The packet has none of these: its `oilTemp` is the Haldex's oil, not the engine's |
+| `fuelLow`, `indicators`, `term58s`, `asrLamp`, `asrActive`, `cruise` | the CAN relay only — the cluster's own frame, with no HTTP equivalent at all |
+| `tcOn`, `asrOn` | the relay's `BR1_Lamp_ASR`; the packet's `TC_FORCE` / `ASR_OFF` flags (which is how the controller's API works them out) are only the fallback while the frame is quiet |
+| `awdWarning` | always HTTP — it comes from Haldex data, which is on the bus the relay does not carry. Kept and shown on the raw page; nothing on the dashboard uses it |
 | packets stopped | everything falls back to HTTP, and says so on the console |
 
 A numeric field the packet marks as "no data" falls back to the HTTP value if
@@ -196,23 +216,32 @@ costs the panel frames and costs the controller's single core time:
 | | `/api/live` | `/api/dashboard` |
 |---|---|---|
 | Packets stopped | 1000 ms: everything | 1000 ms: everything |
-| Packets, no relay | 5000 ms: coolant and oil | 1000 ms: brake, handbrake, AWD lamp |
-| Packets and relay | not at all | 2000 ms: the AWD lamp |
+| Packets, no relay | 5000 ms: coolant and oil | 1000 ms: brake, handbrake, AWD flag |
+| Packets and relay | 1000 ms: coolant, as a cross-check | 2000 ms: nothing the glass needs |
 
 The rate in force is on the `[stats] source` line. The fallback starts within
 100 ms of the packets stopping, however slow the previous rate was.
 
-Because ESP-NOW needs no association, the dashboard goes **LIVE before the
-WiFi join completes** — `[ui] LIVE (data age 21 ms, source esp-now)` while
+**With the relay on, `/api/live` is still polled at 1 Hz for one reason: it is
+the cross-check.** Everything on the glass arrives over the relay, so the HTTP
+value is only there for `e` to compare against — and it costs one request a
+second, against the eleven a second (10 + 1) the 0.5.0 build made.
+
+`/api/dashboard` is polled at 2 s even though the glass needs nothing from it:
+it is the only handler that calls `otaNoteWebActivity()` on the controller, and
+the controller drops its access point after about five minutes without it.
+
+Because ESP-NOW needs no association, the dashboard goes **LIVE before the WiFi
+join completes** — `[ui] LIVE (data age 21 ms, source esp-now)` while
 `http down`.
 
 ### Why HTTP is still there
 
-Three reasons, all deliberate: without the relay, coolant and engine oil are not
-on the air at all; the AWD lamp comes from Haldex data, which the relay does not
-carry; and if the controller stops broadcasting (older firmware, ESP-NOW
-disabled, out of range) the dashboard keeps working at 1 Hz instead of going
-dark. The station also stays joined because the update page lives on its address.
+Three reasons, all deliberate: without the relay, coolant, engine oil, the fuel
+level and the odometer are not on the air at all; if the controller stops
+broadcasting (older firmware, ESP-NOW disabled, out of range) the dashboard
+keeps working at 1 Hz instead of going dark; and the station has to stay joined
+because the over-the-air update page lives on the controller's address.
 
 ### Why two poll rates
 
@@ -421,18 +450,29 @@ Defaults match the browser page:
 |---|---|
 | SSID / password | `OpenHaldex-C6` / *(empty — the controller's AP is open by default)* |
 | Host | `192.168.1.1` (the access-point address; `openhaldex.local` also works) |
-| rpm max / amber / redline / shift | 8000 / 6000 / 6800 / 7300 |
+| rpm max / amber / redline / shift | 8000 / 6000 / 6800 / 6500 |
 | Coolant warn / crit (C) | 100 / 110 |
 | Oil warn / crit (C) | 120 / 135 |
 | Boost max / warn / crit (mbar gauge) | 2500 / 1800 / 2200 |
+| Fuel tank | 62 l |
 | Temperature / boost units | C / bar |
+| Distance units | km (metric) |
+| Day / night | Auto (from the car's Terminal 58s) |
+| Brightness (day) | 100 % |
 | Poll live / dash / stale | 1000 / 1000 / 1500 ms |
 
-All of it is editable on the device's Settings page and stored in NVS
-(`Preferences`, namespace `ohxdash`) as one versioned blob, so a firmware
-update that changes the struct layout falls back to defaults instead of
-reading garbage. Saving only rejoins the WiFi if the SSID, password, host or
-port actually changed.
+The thresholds are clamped into a sensible order on load and on save —
+`amber ≤ shift ≤ redline ≤ max`, `warn ≤ crit` — so a stored set can never
+disagree with itself. The shift point used to be free, and the shipped default
+sat *above* the redline, which meant the shift cue fired after the limiter.
+
+All of it is editable on the device's Settings page — two columns, no scrolling —
+and stored in NVS (`Preferences`, namespace `ohxdash`) as one versioned blob.
+New fields are appended to the **end** of that struct, so an older blob is a
+byte-for-byte prefix of a newer one and is migrated rather than thrown away:
+a firmware update that adds a setting keeps everything else, including the static
+address the network task learnt on the car. Saving only rejoins the WiFi if the
+SSID, password, host or port actually changed.
 
 **No credentials are in git.** For bench work, copy
 `include/wifi_secrets.h.example` to `include/wifi_secrets.h` (gitignored) and
@@ -444,6 +484,21 @@ afterwards.
 Boost is **millibar gauge** (above ambient). The controller decodes both MQB
 `Ladedruck` (0x107) and PQ (0x588) as `(raw * 10) - 1000` and clamps to
 `>= 0`, so 1000 mbar ≈ 1.00 bar ≈ 14.5 psi.
+
+There are three toggles in the Settings page's **Units** row and they are
+deliberately not one:
+
+* **Temperature** — `°C` or `°F`, shown on the COOLANT and OIL rows and used for
+  the two warning thresholds.
+* **Boost** — bar, mbar or psi.
+* **Distance** — the `km` / `mi` button, which moves the speed, the speed peak and
+  the odometer.
+
+**Fuel is always litres.** The car reports litres (`TankContents` is one litre
+per count), a tank size is a metric figure here, and "switch to miles" is a
+statement about distance rather than about the tank. Converting it would also
+leave the number disagreeing with the bar beside it, whose full scale is a litre
+figure. So the fuel row reads `22.4 L` whichever distance unit is chosen.
 
 ---
 
@@ -472,8 +527,11 @@ while the panel is scanning:
 |---|---|---|
 | 24 MHz | 49 Hz | 37.9 MB/s — starves everything else |
 | 20 MHz | 41 Hz | 31.6 MB/s |
-| **16 MHz** | **33 Hz** | **25.3 MB/s — what this build uses** |
+| **16 MHz** | **32 Hz** | **25.3 MB/s — what this build uses** |
 | 12 MHz | 24.6 Hz | 19.0 MB/s |
+
+(One frame is `htotal x vtotal` = 928 x 525 = 487 200 pixel clocks, so the refresh
+is `pclk / 487 200` — which is why the boot line prints `32 Hz` for 16 MHz.)
 
 Two things make it worse. WiFi's buffers are allocated in PSRAM
 (`CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y`, baked into the prebuilt IDF
@@ -503,11 +561,15 @@ the driver refills an internal-SRAM bounce buffer from PSRAM in bursts, and
 the deeper it is, the longer a WiFi burst can run without emptying it. Two of
 them are allocated, so 16 lines costs 2 x 25 600 B.
 
-The pixel clock is taken from **PLL_D2 (240 MHz)**, which divides to 24 MHz by
-an exact 10. On `PLL_F160M` the same 24 MHz needs the fractional divider
-6 + 2/3; the exact divider removes any clock jitter from the picture. The
-source is printed at boot, and `p` on the serial console steps the clock down
-24 → 20 → 16 → 12 MHz at runtime to test the bandwidth theory live.
+The pixel clock is **16 MHz taken from PLL_D2 (240 MHz)**, which it divides by an
+exact 15 — `[board] ... 16000000 Hz pclk (32 Hz refresh, PLL_D2/240M, exact)`.
+On `PLL_F160M` the same rate needs a fractional divider, and the code falls back
+to that rather than leave the screen dark; the exact divider removes any
+pixel-clock jitter from the picture. The source is printed at boot, and `p` on
+the serial console cycles the clock through 24 → 20 → 16 → 12 MHz at runtime to
+test the bandwidth theory live — the first press goes *up* to 24 MHz, which is
+right at the outer edge for this panel, so treat anything above 16 as a bench
+experiment.
 
 ### Where the layout lives
 
@@ -618,9 +680,10 @@ one gets looked at.
 
 The controller broadcasts a packed `OhxStatus` struct to the broadcast address
 every 100 ms with **no web stack involved** — no access-point association, no
-sockets, no HTTP. This firmware listens to it and it carries the numbers on the
-glass; HTTP stays for coolant temperature, for the three lamps the packet has
-no matching flag for, and as the fallback if the packets stop.
+sockets, no HTTP. This firmware listens to it and it carries most of the numbers
+on the glass; HTTP stays for the values the packet has no field for — coolant,
+oil, the fuel level and the odometer arrive over the CAN relay instead
+(see [Data flow](#3-data-flow)) — and as the fallback if the packets stop.
 
 | | |
 |---|---|
@@ -723,6 +786,9 @@ as soon as they arrive, from its own controller only. That gives it:
   [Data flow](#3-data-flow));
 * **coolant and oil on MQB**, which the controller's API does not report. Read from
   `Motor_07` (0x640), and not yet checked on a car;
+* **what the packet and the API have no field for at all**: the fuel level and its
+  low-fuel warning, the odometer, the turn-indicator bits and Terminal 58s (the
+  lighting switch and dimmer, which drives [day/night](#8-display-tuning));
 * **the CAN DATA page**: **SETTINGS → CAN DATA**, or `c` on the console. Every id on
   the bus with its name and rate. Tap one to see every signal in it, decoded.
 
@@ -792,11 +858,16 @@ src/
     telemetry.h/.cpp        WiFi + /api/live + /api/dashboard, core 0 task
     ohx_now.h/.cpp          ESP-NOW listener: decode + counters, which controller
     can_relay.h/.cpp        CAN relay receiver: latest copy of each id, counters
+    chassis.h/.cpp          decodes the relayed frames into one Chassis view
     dbc.h/.cpp              look up and decode signals from the tables
     dbc_tables.cpp          the tables, generated from dbc/
     datafeed.h/.cpp         source selection, and how often HTTP is worth asking
   app/
     config.h/.cpp           NVS-backed settings, validation, revision counter
+    capability.h/.cpp       what the controller says this car can feed
+    ota.h/.cpp              over-the-air update page and the boot trial
+    ram.h/.cpp              5 s internal-RAM and LVGL-pool reporting
+    lv_assert_glue.cpp      LVGL's assert handler: print, backtrace, reboot
   ui/
     dash_ui.h/.cpp          the whole dashboard in LVGL
     raw_ui.h/.cpp           raw telemetry page: both transports, no
@@ -836,7 +907,10 @@ build needs neither node nor the script.
 
 ## 14. Status
 
-Working on the bench against a live controller, and now verified in the car:
+This is **0.6.0**: the layout C batch, built and run on the bench, on top of the
+earlier work that was verified in the car.
+
+**In the car** (0.5.x):
 
 * Panel, touch and the PCA9557 expander all come up; tearing and jitter are
   dealt with (two frame buffers, DIRECT mode, push only on
@@ -844,12 +918,12 @@ Working on the bench against a live controller, and now verified in the car:
 * Both transports are live: HTTP at 1 Hz and the ESP-NOW broadcast at ~10 Hz,
   with the source printed and switchable.
 * Stale behaviour, the settings page, the touch mapping and all five redraw
-  groups have been measured on the bench.
-* **In the car**: the raw telemetry page renders and every field matches what
-  the controller reports; the BRAKE and HAND lamps light from the source that
-  actually moves on this car; the capability decision settles to the NoBoost
-  band; and **the mode switch works** — a tap on the HALDEX panel, and `m` on
-  the console, each got `ok` back from the controller in ~60 ms.
+  groups were measured on the bench.
+* The raw telemetry page renders and every field matches what the controller
+  reports; the BRAKE and HAND lamps light from the source that actually moves on
+  this car; the capability decision settles to the NoBoost band; and **the mode
+  switch works** — a tap on the HALDEX panel, and `m` on the console, each got
+  `ok` back from the controller in ~60 ms.
 * **Over the air**: a real 1.7 MB upload from a browser wrote the other slot,
   rebooted into it *on trial*, and stood the trial down once the panel had
   held for 20 s. The fall-back was then exercised for real — a trial told to
@@ -858,34 +932,55 @@ Working on the bench against a live controller, and now verified in the car:
   HTTP 500 and nothing written. Confirmed from a phone on the controller's own
   access point as well.
 
+**On the bench, 0.6.0** (panel attached, controller powered off, so every relay-fed
+value correctly reads `--`):
+
+* Flashed over USB and left running for minutes: the fuel row, the two indicator
+  repeaters, the odometer in the status bar, the day/night backlight and the
+  rewritten settings page all draw as intended, and the settings page no longer
+  scrolls.
+* The settings blob was **migrated in place, v4 → v5** — SSID, brightness, the
+  metric flag and the static-IP flag all survived the update (read back out of the
+  NVS partition to confirm). The stored shift point was 5800 rpm, below the amber
+  zone, so the new `amber ≤ shift ≤ redline` clamp raised it to 6000 on load.
+* Render rate is **61.8 fps** idle (`0.74 ms/loop, 1.19 ms/busy of a 16.2 ms
+  period`); while the station is still hunting for the controller's access point it
+  settles at 32 fps, which is the WiFi buffers competing for PSRAM as described in
+  [§8](#8-display-tuning).
+* Internal RAM holds at **163.5 KB free, 162.9 KB lowest**, with LVGL's pool at
+  46 % of its 256 KB. See [Internal RAM](#internal-ram).
+
 **Still to be exercised in the car:** the CAN relay and the CAN DATA page
-([test procedure](docs/can-relay-test.md)); and the value scaling for `boost` — none of
-the reference car's data has come from a boost source yet, since a Gen1 Haldex
-has no boost frame at all, and the Full band itself remains unverified. One
-unexplained chip reset was seen 8 s after the first post-update boot while the
-station was re-associating (no panic, clean ROM banner); 180 s of idle running
-afterwards showed no repeats, and the boot banner now prints the reason so it
-can be caught if it happens again.
+([test procedure](docs/can-relay-test.md)) — which now also covers the fuel,
+odometer, indicator and 58s values, since those arrive the same way; and the value
+scaling for `boost` — none of the reference car's data has come from a boost source
+yet, since a Gen1 Haldex has no boost frame at all, and the Full band itself
+remains unverified. One unexplained chip reset was seen 8 s after the first
+post-update boot while the station was re-associating (no panic, clean ROM banner);
+180 s of idle running afterwards showed no repeats, and the boot banner now prints
+the reason so it can be caught if it happens again.
 
 Next: [TODO.md](TODO.md) — what is deliberately not built yet, and why.
 
 Build result:
 
 ```
-RAM:   164 060 / 327 680 B   (50.1%)   <- 0.5.0. 96 KB of that was LVGL's own heap
-Flash: 1 782 102 / 1 966 080 B (90.6%) <- of the 1.875 MB OTA slot
+RAM:   58 516 / 327 680 B   (17.9%)   <- LVGL's pool and the relay tables are in PSRAM
+Flash: 1 772 398 / 1 966 080 B (90.1%) <- of the 1.875 MB OTA slot
 ```
 
-0.5.1 moves LVGL's pool and the relay's tables to PSRAM, so its `RAM:` line should
-read about 58 000 B (17.8 %). It has not been run on a panel yet: see
-[Internal RAM](#internal-ram) below.
+The RAM line came down from 0.5.0's 50.1 % (164 060 B) when the pool and the relay
+tables moved to PSRAM (see [Internal RAM](#internal-ram) below). The flash line is
+within ~194 KB of the OTA slot's limit, which is the number to watch if another
+page or table is added.
 
 ### Memory, exactly
 
 The ESP32-S3 has **512 KB of SRAM**, but only 327 680 B (320 KB) of it is
-addressable as the application's DRAM region — the rest is IRAM and
-ROM-reserved — so `47.3% of 327 680` is the normal way PlatformIO reports it
-for this chip, not a sign that something is missing.
+addressable as the application's DRAM region — the rest is IRAM and ROM-reserved.
+So the `327 680` in PlatformIO's `RAM:` line is the DRAM the application can
+actually run out of, and reporting a percentage of it (`17.9 %` in 0.6.0) is
+normal for this chip, not a sign that something is missing.
 
 The 8 MB of **PSRAM** is the part that matters here: the two 800x480x16 bpp
 frame buffers are 1 536 000 B and they must live there. The build confirms the
@@ -894,32 +989,39 @@ frame buffers are 1 536 000 B and they must live there. The build confirms the
 ### Internal RAM
 
 Internal RAM is what runs out first: WiFi, ESP-NOW and the task stacks all have to
-have it, while PSRAM has megabytes free. Read from the 0.5.0 build's `firmware.elf`:
+have it, while PSRAM has megabytes free. Read from the 0.5.0 build's `firmware.elf`,
+with the 0.5.1 moves to PSRAM marked:
 
 | What | Internal RAM | |
 |---|---|---|
 | Panel bounce buffers | 76.8 KB | has to be internal; `LCD_BOUNCE_LINES` in `board_config.h` |
 | Code that must run from RAM | 67 KB | framework; WiFi and lwIP's speed-ups are already off in this build |
-| LVGL's pool | 96 KB | **in PSRAM since 0.5.1**, and 256 KB there |
+| LVGL's pool | 256 KB (248 472 B usable) | **in PSRAM since 0.5.1** — it was 96 KB of internal RAM in 0.5.0 |
 | CAN relay tables | 7.6 KB | **in PSRAM since 0.5.1** |
 | Everything else fixed | ~58 KB | framework, WiFi, the other small variables |
 
 Also since 0.5.1: ordinary memory requests of 512 B or more come from PSRAM first,
 and the JSON from `/api/live` and `/api/dashboard` is parsed in PSRAM.
 
-Every 5 s the console prints:
+Every 5 s the console prints, on the 0.6.0 board with the panel up and no
+controller in range (WiFi down, relay carrying nothing — the exact byte counts
+move by a few hundred between boots):
 
 ```
-[ram] internal 120000 B free, lowest 95000 B, biggest piece 70000 B | stack spare: ui 3000 B, net 6000 B
-[ram] lvgl pool 30% of 262144 B used, peak 80000 B, biggest piece 180000 B
+[ram] internal 163476 B free, lowest 162904 B, biggest piece 122868 B | stack spare: ui 3332 B, net 6936 B
+[ram] lvgl pool 46% of 248472 B used, peak 114988 B, biggest piece 134804 B
 ```
 
-(The figures above are made up, to show the layout.) **lowest** is the one to watch.
-A failed request prints `[ram] OUT OF MEMORY ...` at once, says so in the 5 s report,
-and is reported again at the next boot if it ended in a reset.
+**lowest** is the one to watch: of the 320 KB DRAM the application starts with, the
+panel's bounce buffers are allocated first, and 163 KB is what is left for WiFi,
+ESP-NOW, the two task stacks and every runtime allocation. A failed request prints
+`[ram] OUT OF MEMORY ...` at once, says so in the 5 s report, and is reported again
+at the next boot if it ended in a reset.
 
 To undo the pool move, set `DASH_LVGL_POOL_IN_PSRAM` to 0 in `include/lv_conf.h`. Do
 that if the render rate drops noticeably, since widgets are slower to reach in PSRAM.
+The pool is 256 KB and the bench peak was 115 KB, so it could be cut to suit if PSRAM
+is ever tight enough to matter — it is not today.
 
 If LVGL ever does run out - it has its own pool, so the warning above does not cover
 it - the panel no longer goes quiet about it. `src/app/lv_assert_glue.cpp` replaces

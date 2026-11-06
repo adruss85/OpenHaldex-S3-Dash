@@ -76,6 +76,12 @@ and which relay setting to recommend. MQB coolant and oil from `Motor_07` have
 never been on a car through this path. The whole test is in
 [`docs/can-relay-test.md`](docs/can-relay-test.md).
 
+The bench half of this is now done: with no controller in range the panel runs at
+61.8 fps and internal RAM holds at 163 KB free, so the PSRAM moves are no longer the
+worry they were. What the *relay* costs — render rate and loss with the frames
+actually arriving — can only be measured on the car, and the procedure covers the
+fuel, odometer, indicator and 58s values too, since those arrive the same way.
+
 ### 2.3 A wrong *project* image is accepted
 The IDF refuses an image for another chip (verified in its source:
 `mismatch chip ID, expected %d, found %d`, on the same verify path
@@ -116,24 +122,6 @@ moved ~20 cm away from whatever it is currently sitting next to.
 
 Worth trying when someone has the car apart: a position that gets to −70 dBm,
 and measuring `[stats] esp-now … Hz` before and after.
-
-### 2.6 Internal RAM changes (0.5.1) on a real panel
-Written and not yet run: there was no panel to hand. With the glass in front of you,
-compare against 0.5.0:
-
-* `[stats] render ... fps`, on the dashboard page with the relay on. LVGL's widgets
-  are now in PSRAM, which the panel is already short of. If it drops noticeably, set
-  `DASH_LVGL_POOL_IN_PSRAM` to 0 in `include/lv_conf.h`.
-* The picture stays steady, including while the CAN DATA and SETTINGS pages open.
-* An over-the-air update and a settings save still work.
-* `[ram] ... lowest` after 10 minutes in the car, with the relay on and a phone on the
-  update page. Then `[ram] lvgl pool ... peak`: the pool can be cut to suit.
-
-If it is still short, in order: cut `LCD_BOUNCE_LINES` from 24 to 16 (26 KB, needs the
-glass to judge), then trim the `ohxnet` stack using `stack spare` (it must stay
-internal, because the over-the-air update writes flash from that task). Rebuilding the
-framework as can2gauge did would gain little: WiFi and lwIP's speed-ups are already out
-of internal RAM in this build, and that rebuild does not currently succeed here (§4.1).
 
 ---
 
@@ -189,7 +177,6 @@ them once a Gen4/5 tester exists (see 2.1).
 ### 3.6 Smaller polish
 * Scale up the big SPEED number — noted as not urgent, since speed matters
   least on a racecar-style dash, but it is inconsistent with rpm.
-* Imperial speed (mph) alongside the existing °F and psi.
 * A QR code on the SETTINGS page for the update URL, to kill the last bit of
   typing on a phone.
 
@@ -214,10 +201,13 @@ dumps, and a way to read one back out (over the update page would be neat),
 would turn a field crash from "it rebooted" into a stack trace.
 
 ### 4.3 Render performance
-16–35 fps depending on what the radio is doing; the loop is PSRAM-bandwidth
-bound, not HTTP bound (see §8 of the README). The pixel clock is deliberately
-left where it is known to be stable. The `p` and `b` console keys remain the
-fastest way to explore it if anyone wants more.
+The loop is PSRAM-bandwidth bound, not HTTP bound (see §8 of the README), so the
+rate follows the radio: 16–35 fps while a phone or the controller is pushing
+traffic through WiFi, and **61.8 fps on the bench with nothing in range** (0.6.0,
+which also cut the polling to a single cross-check request a second). What it does
+in the car with the relay arriving has not been measured. The pixel clock is
+deliberately left where it is known to be stable. The `p` and `b` console keys
+remain the fastest way to explore it if anyone wants more.
 
 ### 4.4 Report upstream: the steering inconsistency
 `/api/dashboard` gates `steeringAngle` on `steerSupported = (gen == 2 || 4 ||
