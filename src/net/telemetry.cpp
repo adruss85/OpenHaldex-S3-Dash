@@ -8,12 +8,14 @@
 #include <ESPmDNS.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 
 #include <cmath>
 #include <cstring>
 
 #include "app/config.h"
 #include "app/ota.h"
+#include "net/ohx_now.h"
 
 namespace telemetry {
 namespace {
@@ -56,16 +58,23 @@ int intOrMinus1(JsonVariantConst v) {
 }
 
 // ------------------------------------------------------------- WiFi link
-void wifiDisconnect() { WiFi.disconnect(true, false); }
+// Leaves the association, and leaves the radio on. Passing true as the first
+// argument shuts the whole WiFi driver down (esp_wifi_stop + esp_wifi_deinit)
+// with ESP-NOW still registered on top of it, which the IDF says must be undone
+// first, and nothing here would ever have restarted the listener afterwards.
+void wifiDisconnect() { WiFi.disconnect(false, false); }
 
 // Last octet of the address used when the access point never leases one.
 // High enough to stay clear of the DHCP pool's usual .2 ... .10 range.
 constexpr uint8_t kStaticLastOctet = 203;
 
-// Association state. BSSID/channel/RSSI only read back once the station is
-// associated, so these tell "on the radio but no address" apart from "never
-// got near the AP".
-bool wifiAssociated() { return WiFi.channel() != 0; }
+// Association state, which tells "on the radio but no address" apart from
+// "never got near the AP". Asked of the driver directly: with the radio left on
+// across a rejoin, WiFi.channel() is non-zero whether associated or not.
+bool wifiAssociated() {
+  wifi_ap_record_t ap;
+  return esp_wifi_sta_get_ap_info(&ap) == ESP_OK;
+}
 uint32_t wifiIp() { return (uint32_t)WiFi.localIP(); }
 
 // The core reports WL_CONNECTED on GOT_IP; with a static address the netif
@@ -100,7 +109,29 @@ bool wifiEnsureConnected() {
   const uint32_t rev = cfg::revision();
   const bool revisionChanged = (rev != lastRevision);
 
-  if (wifiLinkUp() && !revisionChanged) return true;
+  // Joined the right access point? Two cars can share the default SSID, and the
+  // HTTP values must come from the same controller as the ESP-NOW ones. Checked
+  // once a second, because this runs every 2 ms.
+  static uint32_t lastApCheck = 0;
+  static bool onWrongAp = false;
+  if (!revisionChanged && wifiLinkUp()) {
+    if ((uint32_t)(millis() - lastApCheck) >= 1000) {
+      lastApCheck = millis();
+      uint8_t joined[6];
+      uint8_t ours[6];
+      if (WiFi.BSSID(joined) != nullptr) {
+        if (!ohxnow::controller(ours)) {
+          ohxnow::setController(joined);  // nothing heard yet: the AP we joined is it
+          onWrongAp = false;
+        } else {
+          onWrongAp = memcmp(joined, ours, 6) != 0;
+          if (onWrongAp) Serial.println("[net] joined another controller's AP - rejoining ours");
+        }
+      }
+    }
+    if (!onWrongAp) return true;
+  }
+  onWrongAp = false;
 
   const uint32_t now = millis();
   // A bounced access point should be back within a couple of seconds. The
@@ -137,15 +168,28 @@ bool wifiEnsureConnected() {
   // straight to a static address instead of spending 15 s finding out again.
   const bool preferStatic = cfg::get().netUseStatic != 0;
   IPAddress hostIp;
+  // The radio now stays on between attempts, so a static address tried on an
+  // earlier attempt is still set. It has to be taken back off by hand or DHCP
+  // never gets another go.
+  static bool staticInUse = false;
   if (preferStatic && hostIp.fromString(host)) {
     const IPAddress staticIp(hostIp[0], hostIp[1], hostIp[2], kStaticLastOctet);
     WiFi.config(staticIp, hostIp, IPAddress(255, 255, 255, 0));
+    staticInUse = true;
     Serial.printf("[net] static %s (no DHCP on this access point)\n",
                   staticIp.toString().c_str());
+  } else if (staticInUse) {
+    WiFi.config(IPAddress(), IPAddress(), IPAddress());  // all zero = back to DHCP
+    staticInUse = false;
   }
 
-  Serial.printf("[net] joining \"%s\" (password %s)\n", ssid, pass[0] ? "set" : "empty");
-  WiFi.begin(ssid, pass[0] ? pass : nullptr);
+  // Aimed at our controller's own MAC when we know it, so a stronger access
+  // point with the same SSID in the next parking space cannot pull us away.
+  uint8_t ours[6];
+  const uint8_t *bssid = ohxnow::controller(ours) ? ours : nullptr;
+  Serial.printf("[net] joining \"%s\" (password %s%s)\n", ssid, pass[0] ? "set" : "empty",
+                bssid ? ", our controller only" : "");
+  WiFi.begin(ssid, pass[0] ? pass : nullptr, 0, bssid);
 
   bool up = waitForJoin(preferStatic ? 8000 : 15000);
 
@@ -161,9 +205,10 @@ bool wifiEnsureConnected() {
       Serial.printf("[net] associated but no DHCP lease - retrying with static %s\n",
                     staticIp.toString().c_str());
       if (WiFi.config(staticIp, hostIp, IPAddress(255, 255, 255, 0))) {
+        staticInUse = true;
         WiFi.disconnect();
         delay(100);
-        WiFi.begin(ssid, pass[0] ? pass : nullptr);
+        WiFi.begin(ssid, pass[0] ? pass : nullptr, 0, bssid);
         up = waitForJoin(8000);
         if (up && !preferStatic) {
           cfg::Data d = cfg::get();
@@ -367,6 +412,11 @@ void netTask(void *) {
 
   for (;;) {
     if (!wifiEnsureConnected()) {
+      // Say so: the status light's "NO WIFI" reads this, and the block further
+      // down that normally sets it is skipped while the link is down.
+      taskENTER_CRITICAL(&g_mux);
+      g_stats.wifiUp = false;
+      taskEXIT_CRITICAL(&g_mux);
       vTaskDelay(pdMS_TO_TICKS(100));
       continue;
     }
@@ -454,10 +504,8 @@ Stats stats() {
 bool liveFresh(uint32_t staleMs) { return g_liveOkMs != 0 && (millis() - g_liveOkMs) <= staleMs; }
 
 void restart() {
-  // Re-applying bumps cfg::revision(), which the network task watches: it
-  // drops the link and reconnects with the new SSID / host.
-  cfg::Data d = cfg::get();
-  cfg::apply(d);
+  // The network task watches cfg::revision(): it drops the link and rejoins.
+  cfg::requestReconnect();
 }
 
 }  // namespace telemetry

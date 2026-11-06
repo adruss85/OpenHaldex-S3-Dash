@@ -98,14 +98,19 @@ const char *ackResultText(uint8_t r) {
   }
 }
 
-// One step: STOCK -> FWD -> 50:50 -> 60:40 -> 75:25 -> EXPERT -> STOCK. While
+// One step: STOCK -> FWD -> 50:50 -> 60:40 -> 75:25 -> EXPERT -> STOCK (or back
+// to FWD on a standalone controller, which has no STOCK). While
 // a command is still in flight the step counts from the mode we just asked
 // for, so three quick taps move three modes instead of re-sending one.
 void cycleMode() {
   const int base = g_modeCmd.pending
                        ? g_modeCmd.want
                        : (g_curMode >= 0 && g_curMode < 6 ? g_curMode : 0);
-  const uint8_t want = (uint8_t)((base + 1) % 6);
+  uint8_t want = (uint8_t)((base + 1) % 6);
+  // Standalone has no stock behaviour to fall back on, so the controller answers
+  // a request for STOCK by staying on its last mode, and still reports ok. Ask
+  // for it from EXPERT and the panel never moves again, so step over it.
+  if (want == 0 && ohxnow::last().standalone) want = 1;
 
   ModeCmd &m = g_modeCmd;
   m.want = want;
@@ -839,7 +844,11 @@ void onCfgSave(lv_event_t *) {
   strncpy(g_edit.ssid, lv_textarea_get_text(g_taSsid), sizeof(g_edit.ssid) - 1);
   strncpy(g_edit.pass, lv_textarea_get_text(g_taPass), sizeof(g_edit.pass) - 1);
   strncpy(g_edit.host, lv_textarea_get_text(g_taHost), sizeof(g_edit.host) - 1);
+  // A new SSID means a different controller, so the remembered one is dropped.
+  // A new password on the same SSID is still the same controller.
+  const bool ssidChanged = strcmp(g_edit.ssid, cfg::get().ssid) != 0;
   cfg::apply(g_edit);
+  if (ssidChanged) ohxnow::forgetController();
   crowpanel::setBacklight((uint8_t)lroundf(cfg::get().brightness));
   syncGauge();  // the zones and the numbers move with the scale
   showSettings(false);
@@ -847,12 +856,14 @@ void onCfgSave(lv_event_t *) {
 
 void onCfgDefaults(lv_event_t *) {
   const cfg::Data keep = cfg::get();
-  cfg::setDefaults();
-  cfg::Data fresh = cfg::get();
+  cfg::Data fresh = cfg::defaults();
   strncpy(fresh.ssid, keep.ssid, sizeof(fresh.ssid) - 1);
   strncpy(fresh.pass, keep.pass, sizeof(fresh.pass) - 1);
   strncpy(fresh.host, keep.host, sizeof(fresh.host) - 1);
+  fresh.port = keep.port;
+  fresh.netUseStatic = keep.netUseStatic;  // learnt on this car, not a preference
   cfg::apply(fresh);
+  ohxnow::forgetController();  // also how a replaced controller gets picked up
   g_edit = cfg::get();
   lv_textarea_set_text(g_taSsid, g_edit.ssid);
   lv_textarea_set_text(g_taPass, g_edit.pass);
