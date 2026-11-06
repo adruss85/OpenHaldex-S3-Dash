@@ -1,0 +1,138 @@
+# CAN relay sample - a real capture from a car, kept so the decode can be tried
+# without one. Decode it with:  python tools/decode_can_snapshot.py docs/can-relay-sample.txt
+#
+# What it is: the dash's serial console (115200), with 'C' pressed three times about
+# five seconds apart, while the controller was relaying its chassis bus.
+#
+# Rig, as reported by the controller's own status packet:
+#   chassis      VW PQ, Haldex generation 1
+#   controller   DC:1E:D5:82:8B:79 "OpenHaldex-C6", firmware 11.0.4
+#   dash         0.5.0 on a CrowPanel 7.0" ESP32-S3
+#   relay        Controller Options > Relay CAN Frames to Gauges =
+#                "Each ID up to 10 per second"; Gauges over WiFi (ESP-NOW) on
+#   link         WiFi channel 11, RSSI -74..-75 dBm, esp-now 8-10 Hz
+#   car state    ignition on, engine not running (coolant 30 C, engine oil 8-14 C),
+#                so most powertrain values are at rest - a good baseline, not a
+#                full-rate bus
+#
+# Readings across the three presses:
+#   relay        141-150 f/s, 17 ids, air lost 5.2-6.1% of packets, sender lost 0,
+#                rejects 0, table-full 0
+#
+# 'C' prints the latest copy of every id heard, its rate, and its bytes - a snapshot,
+# not a stream. Lines are as printed; only the capture timestamps have been removed.
+
+OpenHaldex S3 Dash
+version  : 0.5.0 (Nov  6 2026 11:02:03)
+[can] --- 0 ids, 0 frames, air lost 0 pkt, sender lost 0, DBC none ---
+[now] listening: peer added (0), own mac 44:1B:F6:8B:07:98, station channel 11
+[now] first OHX_STATUS: 84 bytes from DC:1E:D5:82:8B:79 rssi -74 dBm, channel 11 (station is on 11)
+header  : magic OH type 1 proto 1, fw 11.0.4, generation 1
+seq 26  nonce 45d55df7  name 'OpenHaldex-C6'  struct 84 bytes (ours 84)
+flags   : CHASSIS_CAN HALDEX_CAN COUPLING_OPEN CTRL_ACCEPT ASR_OFF
+mode    : 4 (75:25), haldexState 41
+[stats] wifi up rssi -75  ip 192.168.1.203  ->  192.168.1.1:80  (1000/1000 ms)
+[stats] source esp-now (packet age 55 ms, http up, live every 0 ms, dash every 2000 ms)
+[stats] esp-now 22 pkt (7.9 Hz), age live, rej 0 dup 0 gap 1, ignored 0, ch 11, rssi -75 dBm
+[stats] relay 141 f/s, 17 ids, 92 pkt, air lost 5 (5.2%), sender lost 0, rej 0, full 0
+[can] --- 17 ids, 700 frames, air lost 13 pkt, sender lost 0, DBC vw_pq ---
+[can]       C2     7/s  00 80 00 80 8C 62 00 9D SteeringAngle_1
+[can]      1A0     9/s  00 43 00 00 FE FE 00 5C Brake_1
+[can]      280     9/s  09 70 00 00 46 00 28 46 Engine_1
+[can]      288     9/s  0A 4B 10 00 00 82 6E 64 Engine_2
+[can]      2A0     9/s  00 00 00                Brake_4
+[can]      320     9/s  00 02 19 00 00 00 00 00 Cluster_1
+[can]      380     8/s  00 4E 00 00 00 00 00 10 Engine_3
+[can]      38A     8/s  B9 01 B8 00             GRA_New
+[can]      420     5/s  01 01 01 4A 68 7F 7F 00 Cluster_2
+[can]      480     9/s  55 2C 00 00 00 00 04 00 Engine_5
+[can]      488     8/s  00 46 64 7E A6 00 00 00 Engine_6
+[can]      4A0     9/s  00 00 00 00 00 00 00 00 Brake_3
+[can]      4A8     6/s  FF FF 13 80 00 00 B0 23 Brake_5
+[can]      520     5/s  01 C0 01 00 80 7A 1D 02 Cluster_3
+[can]      580     0/s  83 00 00 88 60 00 3C 43 Engine_Flexia
+[can]      588     7/s  08 00 7E                Engine_7
+[can]      5A0     9/s  7F 00 00 FB CD 00 10 2B Brake_2
+[can] --- SteeringAngle_1 ---
+[can] LW1_LRW                                        0.00 ??Grad
+[can] LW1_LRW_Sign                                   1.00
+[can] LW1_Steer_Speed                                0.00 ??Grad/s
+[can] LW1_Speed_Sign                                 1.00
+[can] LW1_ID                                       140.00
+[can] LW1_InitSource                                 0.00
+[can] LW1_Status                                     1.00
+[can] LW1_Status_TERM30                              0.00
+[can] LW1_Counter                                    0.00
+[can] LW1_Coding                                     0.00
+[can] LW1_CRC                                      253.00
+[stats] wifi up rssi -75  ip 192.168.1.203  ->  192.168.1.1:80  (1000/1000 ms)
+[stats] source esp-now (packet age 4 ms, http up, live every 0 ms, dash every 2000 ms)
+[stats] esp-now 67 pkt (8.0 Hz), age live, rej 0 dup 0 gap 6, ignored 0, ch 11, rssi -75 dBm
+[stats] relay 150 f/s, 17 ids, 291 pkt, air lost 19 (6.1%), sender lost 0, rej 0, full 0
+[can] --- 17 ids, 1408 frames, air lost 26 pkt, sender lost 0, DBC vw_pq ---
+[can]       C2     8/s  00 80 00 80 8C A2 00 5D SteeringAngle_1
+[can]      1A0     7/s  00 43 00 00 FE FE 00 56 Brake_1
+[can]      280     7/s  09 70 00 00 46 00 28 46 Engine_1
+[can]      288     7/s  8F 4B 10 00 00 82 6E 64 Engine_2
+[can]      2A0     7/s  00 00 00                Brake_4
+[can]      320     9/s  00 02 19 00 00 00 00 00 Cluster_1
+[can]      380     7/s  00 4E 00 00 00 00 00 10 Engine_3
+[can]      38A     8/s  09 01 08 00             GRA_New
+[can]      420     4/s  01 01 01 47 68 7F 7F 00 Cluster_2
+[can]      480     8/s  F0 2C 00 00 00 00 04 00 Engine_5
+[can]      488     7/s  00 46 64 7E A6 00 00 00 Engine_6
+[can]      4A0     7/s  00 00 00 00 00 00 00 00 Brake_3
+[can]      4A8     8/s  FF FF 13 80 00 00 60 F3 Brake_5
+[can]      520     4/s  10 4B 01 00 80 7A 1D 02 Cluster_3
+[can]      580     0/s  88 00 00 15 1B 9A 4A 12 Engine_Flexia
+[can]      588     7/s  08 00 7E                Engine_7
+[can]      5A0     7/s  7F 00 00 A1 E1 00 10 2B Brake_2
+[can] --- SteeringAngle_1 ---
+[can] LW1_LRW                                        0.00 ??Grad
+[can] LW1_LRW_Sign                                   1.00
+[can] LW1_Steer_Speed                                0.00 ??Grad/s
+[can] LW1_Speed_Sign                                 1.00
+[can] LW1_ID                                       140.00
+[can] LW1_InitSource                                 0.00
+[can] LW1_Status                                     1.00
+[can] LW1_Status_TERM30                              0.00
+[can] LW1_Counter                                    4.00
+[can] LW1_Coding                                     0.00
+[can] LW1_CRC                                      189.00
+[stats] wifi up rssi -74  ip 192.168.1.203  ->  192.168.1.1:80  (1000/1000 ms)
+[stats] source esp-now (packet age 54 ms, http up, live every 0 ms, dash every 2000 ms)
+[stats] esp-now 112 pkt (8.9 Hz), age live, rej 0 dup 0 gap 10, ignored 0, ch 11, rssi -75 dBm
+[stats] relay 136 f/s, 17 ids, 489 pkt, air lost 34 (6.5%), sender lost 0, rej 0, full 0
+[stats] wifi up rssi -75  ip 192.168.1.203  ->  192.168.1.1:80  (1000/1000 ms)
+[stats] source esp-now (packet age 95 ms, http up, live every 0 ms, dash every 2000 ms)
+[stats] esp-now 158 pkt (8.9 Hz), age live, rej 0 dup 0 gap 14, ignored 0, ch 11, rssi -75 dBm
+[stats] relay 146 f/s, 17 ids, 676 pkt, air lost 48 (6.6%), sender lost 0, rej 0, full 0
+
+# ---------------------------------------------------------------------------
+# An open question, kept rather than tidied away.
+#
+# The firmware's own "--- SteeringAngle_1 ---" block above is its per-signal
+# decode of one frame. It does not agree with an offline decode of the 0x0C2 row
+# printed immediately before it, in the same dump:
+#
+#   row 0x0C2 bytes              firmware block        offline decode of the row
+#   00 80 00 80 8C 62 00 9D      Counter  0, CRC 253    Counter  6, CRC 157
+#   00 80 00 80 8C A2 00 5D      Counter  4, CRC 189    Counter 10, CRC  93
+#
+# Five further presses on a repeat run showed the same relationship every time,
+# so it is not a race between the two reads:
+#
+#   block LW1_Counter = row LW1_Counter - 6  (mod 16)
+#   block LW1_CRC     = row byte 7     + 96  (mod 256)
+#
+# A fixed arithmetic difference in two independent fields means the same bytes
+# are being decoded two different ways, not that two different frames were read.
+# dbc_tables.cpp is up to date with dbc/vw_pq.dbc (tools/make_dbc_tables.py
+# regenerates it and passes its check against the controller's own decodes), and
+# the offline decoder imports that table generator's arithmetic - so the two
+# should agree by construction and do not. Worth chasing: this is the decode the
+# CAN DATA page would have shown.
+#
+# The tile values are not affected: those read fixed bytes in can_relay.cpp rather
+# than going through the DBC, and on the car they matched the controller's own API
+# exactly (Cluster_2 -> oil 8 C, coolant 30 C against 8.00 / 30.00).
