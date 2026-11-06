@@ -1,8 +1,8 @@
 # Planned upgrades — functional first, cosmetic after
 
 Drawn up from the drive of 2026-11-06 (0.5.1) and the code as it stands. Nothing here
-is started. Priorities are proposed, not fixed: read the "Decisions wanted" section
-at the end before this turns into code.
+is started. Priorities are proposed, not fixed: read the "Decisions" section at the
+end before this turns into code.
 
 The short version:
 
@@ -18,7 +18,10 @@ The short version:
 | 8 | Automatic day / night mode and brightness | feature | M | **P2** |
 | 9 | Settings page: static, no scrolling, paired rows | usability | M/L | **P2** |
 | 10 | Shift light: flash the bar, not the numbers | usability | S | **P3** |
-| 11 | Automatic FWD while cruise control is active | feature | M | **P3, last** |
+| 11 | Dashboard layout C (see the mockup) | usability | M | **P2** |
+| 12 | Settings thresholds show `-` until they are touched | bug | S | **P1** |
+| 13 | Automatic FWD while cruise control is active | feature | M | **paused** |
+| 14 | Headlight display | placeholder | — | **not built** — no bit available |
 
 S = under half a day, M = about a day, L = more. Sizes assume the relay path below
 is built once and reused, which is why #4–#7 are cheap.
@@ -154,8 +157,9 @@ engine-off capture. **Low fuel is bit 23 of the same frame** (`LowFuelWarning`, 
 warning active) and there is no offset or scaling anywhere in it.
 
 So no capacity conversion is needed for litres — only for a **percentage**, which is
-where a `tankLitres` config constant comes in (default 55, range 20–120, settings
-row). Show all three: bar (percentage of `tankLitres`), litres, and the amber warning.
+where `tankLitres` comes in: **62 l by default, settable in settings** (range 20–120).
+Show all three: bar (percentage of `tankLitres`), litres to one decimal (layout C
+shows `49.6 L`), and the amber warning.
 
 **Smoothing:** reports say slosh, especially on track, so the *displayed* level is a
 1 Hz-friendly low-pass: an exponential filter with a 5 s time constant, plus a
@@ -171,26 +175,33 @@ README next to the value.
 `Indicator_Right_4_1` at bit 45, one bit each, in a frame we already receive at
 10/s. DBC comment: `[DE: Blinker_links_4_1]` / `[DE: Blinker_rechts_4_1]`.
 
-**Mirror, do not generate.** Whether the bit is the *lamp* state or a steady
-"indicator active" status, I could not confirm from the captures we hold: both were
-taken with the indicators off (byte 5 = `0x00`). It is a 30-second check — indicators
-on, one `C` press, count the transitions of bit 44 in the dump. If it toggles, mirror
-it; if it is steady, we generate the blink ourselves at the car's rate. Default is to
-mirror whatever arrives.
+**Decided, and this is what gets built.** The bits do toggle 1/0 with the lamps, so
+they *are* the lamp state — but packet loss (8–11 % on the drive) delays edges by
+100–200 ms, so mirroring the raw bit gives a repeater that looks lopsided and
+occasionally misses a phase. So the repeaters are driven by **our own oscillator, at
+the shift light's cadence**, gated on activity:
 
-**Aliasing at 10 Hz: not a problem, with one caveat.** A VW indicator flashes at about
+* "indicator active" is latched: a 1 seen in the last second means active. 58s-style
+  turn signals flash for seconds at a time, so a lost frame cannot cancel one.
+* while active, the arrow flashes at `kIndicatorFlashMs`, **set to the same 4 Hz as
+  the shift light** as asked. Exposed as one constant, because on the glass 4 Hz is
+  noticeably quicker than the car's own ~1.5 Hz blink — if it looks wrong next to the
+  cluster, that is the number to change.
+* the *direction* and the left/right decision come from the bits, so no timing is
+  invented for anything but the on/off phase
+* both latched high (hazards) lights both; hazards flash at the same rate on the car,
+  so a shared oscillator covers it
+
+**Aliasing at 10 Hz: not the problem, loss is.** A VW indicator flashes at about
 1.5 Hz, so each phase lasts ~330 ms — the relay samples it ~3.3 times per phase, well
-above the 2 needed, and hazards use the same rate. The caveat is loss: `air lost` was
-8–11 % on the drive, and a missed frame delays an edge by up to 100–200 ms, so an
-occasional blink can look a touch lopsided. Harmless for a repeater; it is why we
-mirror rather than re-time. (The analysis goes in this document, since there is no
-`ANALYSIS.md` — say the word and it becomes one.)
+above the 2 needed, and hazards use the same rate. The failure mode is a missed frame
+shifting an edge, which is what the oscillator above avoids. (This analysis goes in
+this document, since there is no `ANALYSIS.md` — say the word and it becomes one.)
 
-**Placement:** left and right of the RPM bar, top corners, green when lit. Both on
-together (hazards) lights both. Stale data: both off, and the NO DATA overlay covers
-it as it does now. The controller also reports a `hazard` flag in its status packet —
-worth showing as a cross-check on the RAW page, but the repeaters themselves read the
-bus.
+**Placement, from layout C:** left and right arrows flanking the big rev number, top
+corners, green when lit. Stale data: both off, and the NO DATA overlay covers it as it
+does now. The controller also reports a `hazard` flag in its status packet — worth
+showing as a cross-check on the RAW page, but the repeaters themselves read the bus.
 
 ---
 
@@ -218,20 +229,20 @@ helper (`fmtSpeed`, `fmtDistance`) so nothing is converted twice.
 
 ## 8. Automatic day / night mode and brightness — P2
 
-**Sources, both present in `0x420 Cluster_2`, both already relayed at 4–10/s:**
+**Sources, both present in `0x420 Cluster_2`, already relayed at 4–10/s:**
 
 | Signal | Where | Live value (drive, lights off) |
 |---|---|---|
 | `Terminal_58s__Cluster_2_` | bit 48, 7 bits, % | **0** |
-| `Terminal_58d__Cluster_2_` | bit 40, 7 bits, % | **24** |
-| `ErrorStatus_Term__58_s` / `…_d` | bits 55 / 47 | 0 (valid) |
+| `ErrorStatus_Term__58_s` | bit 55 | 0 (valid) |
 
-Two corrections to the brief, both from the live data:
+**`58s` only, and the answer from the car is better than the brief assumed.** You
+confirmed: 58s reads **0 with the lights off, and 7–99 % with them on, following the
+dash dimmer wheel** — so one signal carries both the mode *and* the brightness, and
+`Terminal_58d` is ignored entirely (it sat at a non-zero 24 % with the lights off, so
+it cannot mean night). The two other corrections to the brief still stand:
 
-1. **Use 58s for the mode decision, 58d for the brightness scale.** 58d sat at 24 %
-   with the lights off on the drive — it follows the dimmer wheel, so it does not mean
-   "night" on its own, while 58s was a clean 0. Rule as asked: 58s > 0 → night, 58s
-   == 0 or absent → day.
+1. Rule as asked: 58s > 0 → night, 58s == 0 or absent → day.
 2. **There is no `localStorage`** — the dashboard persists settings in NVS
    (`Preferences`, namespace `ohxdash`). The override goes there with everything else.
 
@@ -243,17 +254,17 @@ error-flagged values are treated as 0 (day) for a mode *decision*, but never mov
 mode — the last mode is held — so a dropped frame cannot strobe the screen.
 
 **Brightness.** Day: the configured brightness (default 100). Night: scaled from the
-dimmer,
+dimmer on the same 58s reading,
 
 ```
-night = kNightMinPct + (kNightSpanPct * term58d / 100)      // clamped to kNightMinPct..100
+night = clamp(kNightMinPct + kNightSpanPct * term58s / 100, kNightMinPct, 100)
 kNightMinPct  = 20    // never darker than this: readable at night
-kNightSpanPct = 45    // so 58d 0 % -> 20 %, 58d 100 % -> 65 %
+kNightSpanPct = 45    // 58s 7 % -> 23 %, 58s 99 % -> 65 %
 ```
 
-Those are my picks — 20 % floor for legibility, 65 % ceiling so night never
-dazzles. Both are `#define`s in `board_config.h` beside the other tunables, and the
-settings page shows the resulting number so it can be judged on the glass.
+Those are my picks — 20 % floor for legibility, 65 % ceiling so night never dazzles.
+Both are `#define`s in `board_config.h` beside the other tunables, and the settings
+page shows the resulting number so it can be judged on the glass.
 
 **Palette.** `include/theme.h` is a wall of compile-time `#define`s used at ~100 call
 sites, so a true second palette means converting them into a runtime `Palette` and
@@ -342,7 +353,58 @@ into a sensible order on load rather than silently disagreeing with each other.
 
 ---
 
-## 11. Automatic FWD while cruise control is active — P3, last
+## 11. Dashboard layout C — P2
+
+![layout C](../docs/mockups/C.%20Updated%20layout.png)
+
+The mockup `docs/mockups/C. Updated layout.png` (committed with this plan) is the
+acceptance test for items 4–6, and it settles several details they left open:
+
+| In the mockup | What it means here |
+|---|---|
+| Left and right arrows flanking the big rev number | the indicator repeaters (#5) go either side of the *number*, not beside the bar |
+| Middle panel rows: `COOLANT 79`, `OIL 90`, `FUEL 49.6 L`, each with a bar | fuel is a **third row in the temperatures panel**, following the coolant/oil idiom that is already there (`dash_ui.cpp:550-560`), not a new panel |
+| Status bar: `ODO 87,412 km` where `rpm peak` is today | #6 as decided; the mockup value is illustrative (the car reads 138 618 km) |
+| `DAY` still in the status bar | conflicts with "bury it in settings" — see below |
+| Speed tile keeps `peak 185` | only the *rpm* peak goes, as asked |
+
+**The `DAY` button:** the mockup keeps it on the status bar, and the earlier brief
+said move it into settings. My proposal, which satisfies both: keep the button — there
+is room, since the rpm-peak slot became the odometer — and let it **cycle Auto → Day →
+Night**, with the button label showing the current mode (`AUTO`/`DAY`/`NIGHT`)
+instead of toggling blind. The same three-way choice appears in settings. So the
+status bar keeps a one-tap override and the setting still lives where it belongs.
+
+**Implementation:** the temperatures panel gains one row (`FUEL` + value + bar,
+reusing `bar()` and the placement pass), the status-bar label is renamed and reformatted
+(#6), and the two arrows are two small labels added beside the rev number. In the
+`Full` band (a car that has boost) that panel would gain fuel as a fourth row — the
+mockup only covers the Gen1 three-panel band, so that placement gets decided when it is
+built, and Gen1 is what we can see on the glass.
+
+---
+
+## 12. Settings rows show `-` until they are touched — P1
+
+**Today:** `addStepper()` creates each value label with a literal `"-"`
+(`dash_ui.cpp:774`: `boxedLabel(parent, 370, y + 12, 80, 22, FONT_BODY, COL_FG, "-")`)
+and only formats the real number when `-` or `+` is pressed. `refreshSteppers()`
+(line 785) already formats every field correctly — but it is only called from the
+DEFAULTS/revert path (line 872). So the settings page opens with eleven rows of `-`
+and lies about the car's configuration until you nudge each one.
+
+**Fix:** call `refreshSteppers()` once at the end of building the settings page, after
+the last `addStepper()` and before the buttons. One line, and it makes every threshold
+show its stored value on open. Worth doing in the same pass as #9, since that rewrites
+the same rows.
+
+**Verify:** open SETTINGS → every threshold shows its stored number (`8000`, `6000`,
+`6800`…), not `-`; open it again after a reboot → still the same; press DEFAULTS →
+values change to the defaults and SAVE persists them.
+
+---
+
+## 13. Automatic FWD while cruise control is active — paused
 
 **Feasible, and the signal is in a frame we already have.** `0x288 Engine_2`:
 
@@ -356,8 +418,10 @@ Live on the drive: `GRAregelt = 0` (not in cruise), and `0x38A GRA_New`
 own status packet does not carry a cruise flag, so this is a CAN-only feature — which
 is the first thing in this batch that *depends* on the relay being on.
 
-**This is the highest-risk item in the document** and I would do it last, after the
-battery of the display work. It is the only one that *acts on the car*: it sends real
+**This is the highest-risk item in the document** and it is **paused** by decision —
+but the section stays as written, because the safety requirements below were agreed
+and the signal work is done: when this is picked up, it starts at the debounce, not at
+the research. It is the only item in this batch that *acts on the car*: it sends real
 mode commands to the controller, so a mis-decode changes how the car puts power down
 mid-corner rather than just showing a wrong number. Requirements before it ships:
 
@@ -378,11 +442,59 @@ change that the driver cannot see is worse than the fuel it saves.
 
 ---
 
+## 14. Headlight display — placeholder, not built
+
+**Asked for:** a headlight indicator, baked in as a placeholder unless the right CAN
+bit can be identified. **It cannot** — not from anything this dash can read. Here is
+the whole search, so it does not have to be repeated:
+
+| Signal | Message | Bit | Reachable? |
+|---|---|---|---|
+| `GK1_LowBeam` | `0x390 Gate_Comfort_1` | 48 | **No** |
+| `GK1_HighBeam` | `0x390 Gate_Comfort_1` | 49 | **No** |
+| `GK1_LS1_HighBeam` | `0x390 Gate_Comfort_1` | 37 | **No** |
+| `GK1_Status_Light1/2/3` | `0x390 Gate_Comfort_1` | 2, 38, 3 | **No** |
+| `HeadlightLevelling` | `0x570 BodyECU_Load` | 14 | **No** |
+| `Terminal_P__ParkingLightPosition_` | `0x572 ZAS_1` | 4 | **No** |
+| `Terminal_58s__Cluster_2_` | `0x420 Cluster_2` | 48 | **Yes — but it is not a headlight** |
+
+Every beam signal lives in the **gateway/comfort** messages (`0x390`, `0x392`,
+`0x570`, `0x572`). None of them has ever appeared in a capture — the relay carries the
+controller's *chassis* tap, and those frames are on another bus. So this is not a
+decode problem we can solve on the dash: the bit would have to come from a change at
+the controller (a second bus tapped and relayed), or from a fifth sender.
+
+The one thing we *can* read is `Terminal_58s` (`0x420`, bit 48, already relayed and
+already used for day/night): 0 with the light switch off, 7–99 % with it on. That is
+worth a lamp on its own — **"LIGHTS" lit when the car thinks its lights are on** — but
+it is the switch position, not low or high beam, and it would share its source with
+the day/night rule. Say the word and it is a lamp and one line; otherwise it stays a
+placeholder.
+
+**The placeholder, so implementing is a flip and not a redesign.** When the dashboard
+work (#9/#11) happens:
+
+* `src/net/chassis.h` gains `bool headlightLow, headlightHigh; bool headlightKnown;`,
+  always `false`/unknown today, filled by a single function when a source exists.
+* A `LIGHTS` lamp slot is reserved in `layout.h` in the speed tile, under `km/h` and
+  beside `peak` — the one place in layout C with room, since the status bar is full
+  (LIVE, five lamps, ODO, RESET PEAKS, DAY, SETTINGS) and adding a sixth lamp there
+  would crowd it.
+* It is built only when `DASH_HEADLAMP_LAMP` is 1 in `board_config.h`, which defaults
+  to **0** — so nothing is drawn, nothing changes on the glass, and there is no dead
+  widget costing a byte of pool.
+
+That way the display has a home, the reasoning is written down, and no screenshot has
+to be re-made when a source turns up.
+
+---
+
 ## Cross-cutting
 
-* **Order of work:** 1–3 first (small, and they are wrong values on the glass today),
-  then the `chassis.cpp` relay path, then 4–8, then 9 (which displays 4–8), then 10,
-  then 11.
+* **Order of work:** 1–3 and 12 first (small, and they are wrong values on the glass
+  today), then the `chassis.cpp` relay path, then 4–8, then 9 with 11 (the settings
+  rewrite and layout C, which display 4–8), then 10. 13 stays paused, and 14 is a
+  placeholder that waits for a bus the relay does not carry.
 * **What this does *not* need:** flash or RAM. The relay tables and the LVGL pool are
   in PSRAM since 0.5.1, internal RAM is flat at 156 KB, and the DBC decoder is
   already linked. These are display and logic changes.
@@ -394,20 +506,32 @@ change that the driver cannot see is worse than the fuel it saves.
   last number for a slow value (fuel, odometer, temperatures), go dark for a binary
   (indicators, lamps), and never move a mode (day/night) because a frame was missed.
 
-## Decisions wanted
+## Decisions (answered 2026-11-06)
 
-1. **Priorities** — the brief ends "prioritise functional improvements vs", and the
-   rest was cut off. Taken as functional first, everything else after. Correct me if
-   it was "vs cosmetic" with a different split in mind.
-2. **Fuel:** `tankLitres` default 55 — is that the right tank for the car? Only used
-   for the percentage; litres are litres.
-3. **Night brightness:** `20 % + 45 % × dimmer` as above — pick different numbers now
-   if you want them, they are one-line constants.
-4. **Shift flash colour:** purple `0x8b5cf6` preferred over blue; fine?
-5. **`rpmShift` default 7300 → 6500**, and the clamp order `amber ≤ shift ≤ redline`
-   — this changes behaviour with no settings change by the user, which is the point.
-6. **Indicators:** mirror the bit as it arrives (default) — do you want the check that
-   settles lamp-vs-status first, or should I just build mirroring and see it in the car?
-7. **Night palette:** brightness only in this batch (my recommendation), or the full
-   `theme.h` conversion now?
-8. **Auto-FWD:** confirm the safety requirements in #11, or drop it to a later batch.
+1. **Priorities confirmed** as proposed — correctness, then features, then the settings
+   rewrite and the shift light. The cut-off line in the brief is taken as "functional
+   improvements first, cosmetic after".
+2. **Tank: 62 l, settable** in settings (range 20–120).
+3. **`58s` for everything, `58d` ignored.** Confirmed from the car: 58s is 0 with the
+   lights off and 7–99 % with them on, tracking the dash dimmer — so one signal gives
+   both the mode and the brightness, and 58d (non-zero with the lights off) is out.
+   Night brightness is therefore `20 % + 45 % × 58s/100`, i.e. 23 % at dimmer 7 % and
+   65 % at 99 %.
+4. **Shift flash purple** `0x8b5cf6`; `COL_RED` at the limiter.
+5. **`rpmShift` default 6500**, and `validate()` gains `amber ≤ shift ≤ redline ≤ max`
+   so the stored order can never be nonsense again.
+6. **Indicators: our own oscillator at the shift-light cadence (4 Hz)**, latched on
+   activity, with the direction from the frame. The bits do toggle with the lamps, but
+   loss makes mirroring unreliable. One constant to change if 4 Hz looks wrong beside
+   the car's own ~1.5 Hz blink.
+7. **Brightness only** — no `theme.h` palette conversion in this batch.
+8. **Auto-FWD paused**, safety requirements agreed and kept above for when it restarts.
+
+Still open, both small and both answerable on the glass:
+
+* **`DAY` button in the status bar** (mockup C) versus in settings (the brief) — the
+  proposal in #11 is to keep it, cycling Auto → Day → Night, with the same three-way
+  choice in settings. Say if you would rather it leave the status bar altogether.
+* **Fuel row placement in the `Full` band** — mockup C only covers the three-panel
+  Gen1 band, so whether the temperatures panel gains a fourth row or boost keeps its
+  own column is decided when a Gen4/5 car is on the bench.
