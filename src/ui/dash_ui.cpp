@@ -622,10 +622,11 @@ void buildTiles(lv_obj_t *parent) {
   lv_obj_set_pos(cap, L::TILE_PAD_H, L::TILE_PAD_V);
 
   // Three rows now: coolant, oil and fuel (layout C). The unit rides in the
-  // value label - "79 °C", "49.6 L" - so a reading is never ambiguous, and it
-  // comes from the same C/F and metric/imperial settings the bars use (#11).
-  // Row pitch 64 px, which is what lets three of them plus the caption fit the
-  // 220 px tile with no scrolling and no shrinking of FONT_TEMP.
+  // value label - "79 °C", "49.6 L" - so a reading is never ambiguous: the
+  // temperatures follow the C/F toggle and the fuel is always litres (the
+  // metric/imperial toggle is about distance). Row pitch 64 px, which is what
+  // lets three of them plus the caption fit the 220 px tile with no scrolling and
+  // no shrinking of FONT_TEMP (#11).
   const int tw = L::COL2_W - 2 * L::TILE_PAD_H;
   const int *const rowY = kTempRowY;
 
@@ -1222,7 +1223,6 @@ void setSuffix(lv_obj_t *valueLabel, const char *text, lv_color_t color) {
 constexpr const char *kDegC = "\xC2\xB0" "C";
 constexpr const char *kDegF = "\xC2\xB0" "F";
 constexpr float kMilesPerKm = 0.621371f;
-constexpr float kGalPerLitre = 0.264172f;
 
 bool metric() { return cfg::get().unitsMetric != 0; }
 const char *speedUnitText() { return metric() ? "km/h" : "mph"; }
@@ -1273,18 +1273,19 @@ void fmtDistance(char *buf, size_t n, float km) {
   snprintf(buf, n, "%s %s", num, metric() ? "km" : "mi");
 }
 
-/// The fuel level with its unit: "49.6 L" / "13.1 gal". Litres come from the car
-/// and are not converted until here.
+/// The fuel level, always in litres: "49.6 L".
+///
+/// Deliberately NOT tied to the metric / imperial toggle. The car reports litres
+/// (TankContents is one litre per count) and a tank size is a metric fact here,
+/// and the toggle is about *distance* - so switching to miles moves the speed and
+/// the odometer and leaves the fuel alone. Converting it would also put the fuel
+/// bar's full-scale (a litre figure) at odds with the number beside it.
 void fmtFuel(char *buf, size_t n, float litres) {
   if (isnan(litres)) {
     snprintf(buf, n, "--");
     return;
   }
-  if (metric()) {
-    snprintf(buf, n, "%.1f L", (double)litres);
-  } else {
-    snprintf(buf, n, "%.1f gal", (double)(litres * kGalPerLitre));
-  }
+  snprintf(buf, n, "%.1f L", (double)litres);
 }
 
 void fmtBoost(char *buf, size_t n, float mbar) {
