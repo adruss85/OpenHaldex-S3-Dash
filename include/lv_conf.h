@@ -47,6 +47,17 @@
 #define LV_MEM_SIZE (96U * 1024U)
 #endif
 
+/* An LVGL assert stops the whole panel. The stock handler is a bare `while(1)`
+   and LV_USE_LOG is off, so anything that asserts - most importantly
+   LV_ASSERT_MALLOC, when the pool above runs out - shows up as a dark screen, a
+   silent console and no clue which allocation failed. Print where it happened,
+   with a backtrace, then reboot: a fault on the console instead of a hang with
+   nothing to go on. src/app/lv_assert_glue.cpp implements it. */
+#ifndef __ASSEMBLER__  /* lv_conf.h is included by LVGL's .S files too */
+void ohx_lv_assert_handler(const char *file, int line);
+#endif
+#define LV_ASSERT_HANDLER ohx_lv_assert_handler(__FILE__, __LINE__);
+
 /*====================
    HAL / TICK
  *====================*/

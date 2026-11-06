@@ -921,6 +921,18 @@ and is reported again at the next boot if it ended in a reset.
 To undo the pool move, set `DASH_LVGL_POOL_IN_PSRAM` to 0 in `include/lv_conf.h`. Do
 that if the render rate drops noticeably, since widgets are slower to reach in PSRAM.
 
+If LVGL ever does run out - it has its own pool, so the warning above does not cover
+it - the panel no longer goes quiet about it. `src/app/lv_assert_glue.cpp` replaces
+LVGL's stock assert handler, which is a bare `while(1);`, with one that prints the
+file and line, a backtrace, and then reboots:
+
+```
+[lvgl] *** ASSERT at src/misc/lv_mem.c:123 ***
+```
+
+That is the difference between a fault and a mystery: the CAN DATA page hanging on
+open and on close looked exactly like this before the pool moved to PSRAM.
+
 ### One caveat worth knowing
 
 The precompiled Arduino/IDF libraries in this platform were built assuming
