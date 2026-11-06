@@ -8,7 +8,9 @@
 // =====================================================================
 #pragma once
 
-#define OHX_DASH_VERSION "0.5.1"  // internal RAM: LVGL pool and relay tables in PSRAM, [ram] reports
+#define OHX_DASH_VERSION "0.6.0"  // Layout C: fuel + odometer + indicator repeaters, metric/imperial,
+// auto day/night, shift flash on the bar, settings page without scrolling
+// 0.5.1 - internal RAM: LVGL pool and relay tables in PSRAM, [ram] reports
 // 0.5.0 - CAN relay receiver, DBC tables, CAN DATA page, less HTTP
 
 // Date and time the image was built, which is how two builds of the same
