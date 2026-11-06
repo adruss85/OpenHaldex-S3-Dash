@@ -27,6 +27,7 @@
 #define COL_FG lv_color_hex(0xe8edf2)
 #define COL_DIM lv_color_hex(0x7c8894)
 #define COL_GREEN lv_color_hex(0x22c55e)
+#define COL_GREEN_DIM lv_color_hex(0x15803d)  // lamp "armed" state: on, but not doing anything
 #define COL_AMBER lv_color_hex(0xf59e0b)
 #define COL_RED lv_color_hex(0xef4444)
 #define COL_CYAN lv_color_hex(0x22d3ee)

@@ -11,7 +11,7 @@
 //   | SPEED   | BOOST    | TEMPERATURES | HALDEX                    |  4 tiles
 //   | 123 km/h| 1.55 bar | cool / oil   | mode, lock req/act, thr   |
 //   +---------+----------+--------------+---------------------------+
-//   | * LIVE  BRAKE HAND TC ASR AWD rpm peak  RESET PEAKS DAY SETTINGS|  status bar
+//   | * LIVE  BRAKE HAND TC ASR CC rpm peak  RESET PEAKS DAY SETTINGS|  status bar
 //   +----------------------------------------------------------------+
 //
 // The top band used to be a tach ring (3 anti-aliased arcs, 9 ticks, a
@@ -163,7 +163,7 @@ struct Widgets {
 
   lv_obj_t *dot = nullptr, *connTxt = nullptr, *peakTxt = nullptr;
   lv_obj_t *lampBrake = nullptr, *lampHand = nullptr, *lampTc = nullptr, *lampAsr = nullptr,
-           *lampAwd = nullptr;
+           *lampCc = nullptr;
   lv_obj_t *btnReset = nullptr, *btnDay = nullptr, *btnCfg = nullptr;
   lv_obj_t *dayLabel = nullptr;
 
@@ -362,17 +362,19 @@ lv_obj_t *lamp(lv_obj_t *parent, int x, int y, int width, const char *text) {
   return l;
 }
 
-// Called every frame for five lamps; keep the previous state so an
-// unchanged lamp costs nothing at all.
+// Called every frame for the status-bar lamps; keep the previous state so an
+// unchanged lamp costs nothing at all. The colour is part of the state, because
+// the cruise lamp has two different "on" colours.
 struct LampState {
   lv_obj_t *obj = nullptr;
-  bool on = false;
-  bool red = false;
   bool valid = false;
+  bool on = false;
+  lv_color_t bg = lv_color_black();
+  lv_color_t fg = lv_color_black();
 };
-LampState g_lampState[6];
+LampState g_lampState[8];
 
-void lampState(lv_obj_t *l, bool on, bool red) {
+void lampPaint(lv_obj_t *l, bool on, lv_color_t bg, lv_color_t fg) {
   LampState *st = nullptr;
   for (LampState &c : g_lampState) {
     if (c.obj == l) {
@@ -386,15 +388,36 @@ void lampState(lv_obj_t *l, bool on, bool red) {
     }
   }
   if (!st) return;
-  if (st->valid && st->on == on && st->red == red) return;
-  st->on = on;
-  st->red = red;
+  const bool same = st->valid && st->on == on && st->bg.red == bg.red && st->bg.green == bg.green &&
+                    st->bg.blue == bg.blue;
+  if (same) return;
   st->valid = true;
+  st->on = on;
+  st->bg = bg;
+  st->fg = fg;
 
-  const lv_color_t bg = red ? COL_RED : COL_AMBER;
   setBgColor(l, on ? bg : COL_LAMP_OFF, 0);
   setBorderColor(l, on ? bg : COL_LAMP_EDGE);
-  setTextColor(l, on ? (red ? lv_color_white() : lv_color_black()) : COL_LAMP_TXT_OFF);
+  setTextColor(l, on ? fg : COL_LAMP_TXT_OFF);
+}
+
+// The tell-tale lamps: amber, or red for the ones that mean something is wrong.
+void lampState(lv_obj_t *l, bool on, bool red) {
+  lampPaint(l, on, red ? COL_RED : COL_AMBER, red ? lv_color_white() : lv_color_black());
+}
+
+// The cruise lamp: three states rather than two, because "armed" (the column
+// switch is on) and "regulating" (the engine is holding a speed) are different
+// facts and telling them apart is the whole point of showing it. Dark green
+// armed, the indicator green when it is actually working.
+void lampStateCruise(lv_obj_t *l, const int state) {  // 0 off, 1 armed, 2 regulating
+  if (state <= 0) {
+    lampPaint(l, false, COL_GREEN, lv_color_black());
+  } else if (state == 1) {
+    lampPaint(l, true, COL_GREEN_DIM, lv_color_white());
+  } else {
+    lampPaint(l, true, COL_GREEN, lv_color_black());
+  }
 }
 
 // ---------------------------------------------------------------- gauge
@@ -713,7 +736,10 @@ void buildStatusBar(lv_obj_t *parent) {
   w.lampHand = lamp(s, 146, lampY, 50, "HAND");
   w.lampTc = lamp(s, 200, lampY, 32, "TC");
   w.lampAsr = lamp(s, 236, lampY, 40, "ASR");
-  w.lampAwd = lamp(s, 280, lampY, 42, "AWD");
+  // Where the AWD lamp was. That flag is HTTP-only and its meaning is not
+  // settled; the cruise lamp reads the car's own bus and says something the
+  // driver can act on.
+  w.lampCc = lamp(s, 280, lampY, 42, "CC");
 
   w.peakTxt = fixedLabel(s, 332, 8, 180, 18, FONT_CAP, COL_DIM, "");
 
@@ -1244,7 +1270,10 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
   const bool tractionLit = intervening ? g_flashOn : tractionOff;
   lampState(w.lampTc, tractionLit, false);
   lampState(w.lampAsr, tractionLit, false);
-  lampState(w.lampAwd, d.awdWarning, true);
+  // The cruise lamp: dark green with the column switch on, bright green while
+  // the engine says it is regulating. Off when the frame is missing, so a quiet
+  // link cannot read as "armed".
+  lampStateCruise(w.lampCc, d.cruise);
 }
 
 // The line under the mode on the HALDEX panel: normally the coupling state,

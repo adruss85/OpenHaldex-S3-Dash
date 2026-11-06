@@ -17,7 +17,10 @@ namespace {
 using ohxnow::Status;
 
 constexpr uint32_t kLiveSlowMs = 5000;  // /api/live while it only has temperatures to add
-constexpr uint32_t kDashSlowMs = 2000;  // /api/dashboard while it only has the AWD lamp to add
+// /api/dashboard once the relay is carrying the values it gates. It is still
+// polled: the C6 shuts its access point down after ~5 minutes without a web
+// request, and this handler is what resets that clock. See telemetry.h.
+constexpr uint32_t kDashSlowMs = 2000;
 
 // The last source we logged, so a transition is printed exactly once.
 Source g_lastLogged = Source::None;
@@ -141,6 +144,8 @@ telemetry::Dash dash() {
   // Already gated on BR5_PressureValid in can_relay.cpp: NAN unless the frame
   // says the pressure is real (#3).
   v.brakeBar = relay.brakeBar;
+  // Cruise state for the CC lamp, straight off the car's own bus.
+  if (relay.cruise >= 0) v.cruise = relay.cruise;
   v.everOk = true;
   return v;
 }

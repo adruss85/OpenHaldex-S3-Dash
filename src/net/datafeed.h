@@ -6,8 +6,8 @@
 // ESP-NOW is the primary source: the C6 broadcasts an OHX_STATUS packet
 // every 100 ms with no web stack involved, and with its CAN relay switched on
 // it broadcasts the car's frames too. HTTP is the fallback, and it also supplies
-// what neither of those has (the AWD lamp, and without the relay, coolant and
-// engine oil).
+// what neither of those has (the C6's own lamp flags, and without the relay,
+// coolant and engine oil).
 //
 // The merge is deliberately narrow and easy to audit:
 //
@@ -22,7 +22,7 @@
 //     never on the OIL tile
 //   * the TC and ASR lamps come from the car's own tell-tale while the relay is
 //     carrying it (BR1_Lamp_ASR, 0x1A0), and only fall back to the packet's
-//     tcForce / asrOff flags when it is quiet; the AWD lamp is HTTP only
+//     tcForce / asrOff flags when it is quiet
 //   * a number the car has no source for is gated off here, not just left off
 //     the layout: a Gen1 has no boost frame, so the packet's boost is dropped
 //     rather than shown on the strength of a decode over absent bytes
@@ -72,8 +72,8 @@ const char *sourceName();
 ///   packets stopped       both at the configured rate: HTTP is carrying the glass
 ///   packets, no relay     /api/live every 5 s (temperatures move slowly),
 ///                         /api/dashboard at the configured rate (brake, handbrake)
-///   packets and relay     /api/live not at all, /api/dashboard every 2 s (the AWD
-///                         lamp comes from Haldex data, which the relay lacks)
+///   packets and relay     /api/live not at all, /api/dashboard every 2 s (still
+///                         polled to keep the C6's access point up)
 uint32_t livePeriodMs();
 uint32_t dashPeriodMs();
 

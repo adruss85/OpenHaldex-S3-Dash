@@ -279,6 +279,7 @@ Values values(const uint8_t generation) {
   out.asrLamp = c.lampValid ? (c.lampAsr ? 1 : 0) : -1;
   out.asrActive = c.lampValid ? (c.asrActive ? 1 : 0) : -1;
   out.brakeBar = c.brakeBar;
+  out.cruise = c.cruiseValid ? (c.cruiseRegulating ? 2 : (c.cruiseMain ? 1 : 0)) : -1;
   return out;
 }
 

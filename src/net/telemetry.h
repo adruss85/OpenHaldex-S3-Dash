@@ -82,6 +82,10 @@ struct Dash {
   // real, so "no braking" and "1.7 bar of braking at a standstill" cannot be
   // confused. Shown on the raw page beside the CAN brake switch (#3).
   float brakeBar = NAN;  // bar
+
+  // Cruise, from the car's own bus: -1 not heard, 0 off, 1 armed (the column
+  // switch is on but nothing is being held), 2 regulating. Drives the CC lamp.
+  int cruise = -1;
 };
 
 struct Stats {
