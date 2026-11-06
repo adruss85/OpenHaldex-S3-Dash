@@ -49,7 +49,28 @@ namespace L = layout;
 
 constexpr float kPi = 3.14159265358979f;
 constexpr float kTau = 0.11f;  // interpolation time constant, as in dash.html
-constexpr uint32_t kFlashMs = 60;
+
+// The shift flash and the traction-intervention flash, at 4 Hz. Slower than the
+// 60 ms it was (8.3 Hz): on a 32 Hz panel a 125 ms phase is exactly 8 refreshes,
+// so there is no beating and no half-painted phase, and a 96 px bar pulsing at
+// 8 Hz was a strobe rather than a cue (#10).
+constexpr uint32_t kFlashMs = 125;
+
+// The indicator repeaters flash at the same cadence. One constant, because on
+// the glass 4 Hz is noticeably quicker than the car's own ~1.5 Hz blink - if it
+// looks wrong next to the cluster, this is the number to change (#5).
+constexpr uint32_t kIndicatorFlashMs = 125;
+// How long a seen indicator bit keeps the repeater alive. A VW indicator's dark
+// phase is ~330 ms, so a 1 s latch rides through it, and a lost frame (the relay
+// is 9/s and lossy) cannot cancel a signal that is still going.
+constexpr uint32_t kIndicatorHoldMs = 1000;
+
+// Fuel smoothing (#4): the tank sloshes, so the displayed level is a 5 s
+// exponential low-pass (kFuelTau) and a sample that would move it faster than
+// 8 l/s is dropped rather than latched. The car's own low-fuel warning is NOT
+// smoothed - it is read straight off the frame.
+constexpr float kFuelTau = 5.0f;
+constexpr float kFuelMaxRate = 8.0f;  // l/s
 
 const char *const kModeNames[6] = {"STOCK", "FWD", "50:50", "60:40", "75:25", "EXPERT"};
 
@@ -155,17 +176,21 @@ struct Widgets {
 
   lv_obj_t *rpmVal = nullptr;  // the big number, centred on its own row
 
-  lv_obj_t *speedVal = nullptr, *speedPeak = nullptr;
+  // The indicator repeaters: two arrows flanking that number (#5). Always
+  // present, dark when nothing is blinking, so the row never re-lays out.
+  lv_obj_t *indLeft = nullptr, *indRight = nullptr;
+
+  lv_obj_t *speedVal = nullptr, *speedPeak = nullptr, *speedUnit = nullptr;
   lv_obj_t *boostVal = nullptr, *boostUnit = nullptr, *boostBar = nullptr, *boostPeak = nullptr;
   lv_obj_t *coolVal = nullptr, *coolBar = nullptr, *oilVal = nullptr, *oilBar = nullptr;
+  lv_obj_t *fuelVal = nullptr, *fuelBar = nullptr;
   lv_obj_t *modeVal = nullptr, *haldexSub = nullptr;
   lv_obj_t *lockReqVal = nullptr, *lockActVal = nullptr, *thrBar = nullptr;
 
-  lv_obj_t *dot = nullptr, *connTxt = nullptr, *peakTxt = nullptr;
+  lv_obj_t *dot = nullptr, *connTxt = nullptr, *odoTxt = nullptr;
   lv_obj_t *lampBrake = nullptr, *lampHand = nullptr, *lampTc = nullptr, *lampAsr = nullptr,
            *lampCc = nullptr;
-  lv_obj_t *btnReset = nullptr, *btnDay = nullptr, *btnCfg = nullptr;
-  lv_obj_t *dayLabel = nullptr;
+  lv_obj_t *btnReset = nullptr, *btnCfg = nullptr;
 
   lv_obj_t *settings = nullptr, *kb = nullptr;
   // What the controller will accept from us, and with what key. Shown in
@@ -173,20 +198,27 @@ struct Widgets {
   lv_obj_t *ctrlLine = nullptr, *ctrlWarn = nullptr;
   // Where to send a new image, and which slot this one came from.
   lv_obj_t *otaLine = nullptr;
+  // What automatic day / night has decided, and the number it produced, so the
+  // mode can be judged on the glass rather than trusted.
+  lv_obj_t *dayNightLine = nullptr;
 } w;
 
 struct Values {
-  float rpm, speed, throttle, boost, coolant, oil, lockTarget, lockActual;
+  float rpm, speed, throttle, boost, coolant, oil, lockTarget, lockActual, fuel;
 };
-constexpr Values kBlank = {NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN};
+constexpr Values kBlank = {NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN};
 
 Values g_target = kBlank;  // latest from the API
 Values g_shown = kBlank;   // interpolated, what is drawn
 struct {
-  float rpm = NAN, speed = NAN, boost = NAN;
+  float speed = NAN, boost = NAN;
 } g_peaks;
 
-bool g_flashOn = false;
+bool g_flashOn = false;    // the shift / traction flash phase
+bool g_indOn = false;      // the indicator repeater phase (its own timer)
+uint32_t g_lastIndMs = 0;
+int g_indMask = 0;         // latched indicator bits (bit 0 left, bit 1 right)
+uint32_t g_indMaskMs = 0;  // when a non-zero mask was last seen
 
 // 0xFFFF = draw everything (see dash_ui.h).
 uint16_t g_dbgMask = 0xFFFF;
@@ -507,6 +539,16 @@ void buildGauge(lv_obj_t *parent) {
   w.rpmVal = fixedLabel(w.numGrp, 0, (L::RPM_NUM_H - lh) / 2, L::W, lh, FONT_RPM, COL_FG, "--");
   lv_obj_set_style_text_align(w.rpmVal, LV_TEXT_ALIGN_CENTER, 0);
 
+  // The indicator repeaters: an arrow at each end of the number's row, as in
+  // layout C. They are always there, dark when nothing is blinking, so the row
+  // never re-lays-out and a lit arrow is the only thing that repaints (#5).
+  const int altH = FONT_MODE->line_height > 0 ? FONT_MODE->line_height : 32;
+  w.indLeft = fixedLabel(w.numGrp, 2 * L::TILE_PAD_H, (L::RPM_NUM_H - altH) / 2, 56, altH,
+                         FONT_MODE, COL_LAMP_TXT_OFF, LV_SYMBOL_LEFT);
+  w.indRight = fixedLabel(w.numGrp, L::W - 2 * L::TILE_PAD_H - 56, (L::RPM_NUM_H - altH) / 2, 56,
+                          altH, FONT_MODE, COL_LAMP_TXT_OFF, LV_SYMBOL_RIGHT);
+  lv_obj_set_style_text_align(w.indRight, LV_TEXT_ALIGN_RIGHT, 0);
+
   syncGauge();
 }
 
@@ -521,6 +563,15 @@ lv_obj_t *g_tileSpeed = nullptr, *g_tileBoost = nullptr;
 lv_obj_t *g_tileTemps = nullptr, *g_tileHaldex = nullptr;
 layout::Variant g_variant = layout::Variant::Full;
 bool g_placed = false;
+
+// The temperatures panel's three rows (coolant / oil / fuel) share one pitch,
+// so the build pass and the placement pass cannot drift apart: the value box
+// starts at the row, the caption is centred against it, and the bar runs under
+// it. 3 x 64 px plus the caption fits the 220 px tile exactly (#11).
+constexpr int kTempRows = 3;
+constexpr int kTempRowY[kTempRows] = {30, 94, 158};
+constexpr int kTempValH = 30;
+constexpr int kTempBarDY = 40;
 
 void buildTiles(lv_obj_t *parent) {
   const int y = L::TILE_Y;
@@ -538,7 +589,8 @@ void buildTiles(lv_obj_t *parent) {
 
   w.speedVal = fixedLabel(t0, L::TILE_PAD_H - 2, 44, 132, 58, FONT_BIG, COL_FG, "--");
 
-  fixedLabel(t0, L::TILE_PAD_H + 4, h - 44, 60, 18, FONT_CAP, COL_DIM, "km/h");
+  // Dynamic: km/h or mph, from the metric / imperial setting (#7).
+  w.speedUnit = fixedLabel(t0, L::TILE_PAD_H + 4, h - 44, 70, 18, FONT_CAP, COL_DIM, "km/h");
 
   w.speedPeak = fixedLabel(t0, L::TILE_PAD_H, h - 24, L::COL0_W - 2 * L::TILE_PAD_H, 18,
                            FONT_SMALL, COL_DIM, "peak --");
@@ -569,18 +621,31 @@ void buildTiles(lv_obj_t *parent) {
   cap = label(t2, FONT_CAP, COL_DIM, "TEMPERATURES");
   lv_obj_set_pos(cap, L::TILE_PAD_H, L::TILE_PAD_V);
 
+  // Three rows now: coolant, oil and fuel (layout C). The unit rides in the
+  // value label - "79 °C", "49.6 L" - so a reading is never ambiguous, and it
+  // comes from the same C/F and metric/imperial settings the bars use (#11).
+  // Row pitch 64 px, which is what lets three of them plus the caption fit the
+  // 220 px tile with no scrolling and no shrinking of FONT_TEMP.
   const int tw = L::COL2_W - 2 * L::TILE_PAD_H;
+  const int *const rowY = kTempRowY;
+
   lv_obj_t *cl = label(t2, FONT_CAP, COL_DIM, "COOLANT");
-  lv_obj_set_pos(cl, L::TILE_PAD_H, 44);
-  w.coolVal = fixedLabel(t2, L::TILE_PAD_H + tw - 92, 34, 92, 30, FONT_TEMP, COL_FG, "--");
+  lv_obj_set_pos(cl, L::TILE_PAD_H, rowY[0] + 12);
+  w.coolVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[0] + 2, 100, kTempValH, FONT_TEMP, COL_FG, "--");
   lv_obj_set_style_text_align(w.coolVal, LV_TEXT_ALIGN_RIGHT, 0);
-  w.coolBar = bar(t2, L::TILE_PAD_H, 78, tw, 10, COL_GREEN, 0, 100);
+  w.coolBar = bar(t2, L::TILE_PAD_H, rowY[0] + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
 
   lv_obj_t *ol = label(t2, FONT_CAP, COL_DIM, "OIL");
-  lv_obj_set_pos(ol, L::TILE_PAD_H, 120);
-  w.oilVal = fixedLabel(t2, L::TILE_PAD_H + tw - 92, 110, 92, 30, FONT_TEMP, COL_FG, "--");
+  lv_obj_set_pos(ol, L::TILE_PAD_H, rowY[1] + 12);
+  w.oilVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[1] + 2, 100, kTempValH, FONT_TEMP, COL_FG, "--");
   lv_obj_set_style_text_align(w.oilVal, LV_TEXT_ALIGN_RIGHT, 0);
-  w.oilBar = bar(t2, L::TILE_PAD_H, 154, tw, 10, COL_GREEN, 0, 100);
+  w.oilBar = bar(t2, L::TILE_PAD_H, rowY[1] + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
+
+  lv_obj_t *fl = label(t2, FONT_CAP, COL_DIM, "FUEL");
+  lv_obj_set_pos(fl, L::TILE_PAD_H, rowY[2] + 12);
+  w.fuelVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[2] + 2, 100, kTempValH, FONT_TEMP, COL_FG, "--");
+  lv_obj_set_style_text_align(w.fuelVal, LV_TEXT_ALIGN_RIGHT, 0);
+  w.fuelBar = bar(t2, L::TILE_PAD_H, rowY[2] + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
 
   // ---- HALDEX -----------------------------------------------------
   lv_obj_t *t3 = opaque(parent, L::COL3_X, y, L::COL3_W, h, COL_BG);
@@ -641,10 +706,12 @@ void placeTempsTile(lv_obj_t *t, int x, int width, int height) {
   lv_obj_set_pos(t, x, L::TILE_Y);
   lv_obj_set_size(t, width, height);
   const int tw = width - 2 * L::TILE_PAD_H;
-  lv_obj_set_pos(w.coolVal, L::TILE_PAD_H + tw - 92, 34);
+  lv_obj_set_pos(w.coolVal, L::TILE_PAD_H + tw - 100, kTempRowY[0] + 2);
   lv_obj_set_width(w.coolBar, tw);
-  lv_obj_set_pos(w.oilVal, L::TILE_PAD_H + tw - 92, 110);
+  lv_obj_set_pos(w.oilVal, L::TILE_PAD_H + tw - 100, kTempRowY[1] + 2);
   lv_obj_set_width(w.oilBar, tw);
+  lv_obj_set_pos(w.fuelVal, L::TILE_PAD_H + tw - 100, kTempRowY[2] + 2);
+  lv_obj_set_width(w.fuelBar, tw);
 }
 
 void placeHaldexTile(lv_obj_t *t, int x, int width, int height) {
@@ -701,15 +768,9 @@ void placeBand(layout::Variant v) {
 
 // ---------------------------------------------------------- status bar
 void onResetPeaks(lv_event_t *) {
-  g_peaks.rpm = g_peaks.speed = g_peaks.boost = NAN;
-}
-
-void onToggleDay(lv_event_t *) {
-  cfg::Data d = cfg::get();
-  d.brightness = (d.brightness < 70.0f) ? 100.0f : 35.0f;
-  cfg::apply(d);
-  crowpanel::setBacklight((uint8_t)lroundf(d.brightness));
-  setText(w.dayLabel, (d.brightness < 70) ? "NIGHT" : "DAY");
+  // The rpm peak is gone (the odometer took its slot, #6), so this is now just
+  // the two tiles that show a peak of their own.
+  g_peaks.speed = g_peaks.boost = NAN;
 }
 
 void onOpenSettings(lv_event_t *);
@@ -741,24 +802,40 @@ void buildStatusBar(lv_obj_t *parent) {
   // driver can act on.
   w.lampCc = lamp(s, 280, lampY, 42, "CC");
 
-  w.peakTxt = fixedLabel(s, 332, 8, 180, 18, FONT_CAP, COL_DIM, "");
+  // The odometer, where the rpm peak used to be (#6). It is not "live data" and
+  // is deliberately not part of the LIVE/STALE decision: an odometer that is ten
+  // seconds old is not stale in any useful sense.
+  //
+  // The headlight lamp of #14 has no CAN bit to read and is not built. If it
+  // ever lands it takes the right-hand end of this lamp cluster, and this label
+  // moves up to meet RESET PEAKS.
+  w.odoTxt = fixedLabel(s, 332, 6, 180, 18, FONT_SMALL, COL_DIM, "ODO --");
 
   w.btnReset = button(s, 516, 3, 104, 24, "RESET PEAKS", onResetPeaks);
-  w.btnDay = button(s, 626, 3, 56, 24, "DAY", onToggleDay);
-  w.btnCfg = button(s, 688, 3, 104, 24, "SETTINGS", onOpenSettings);
-  w.dayLabel = lv_obj_get_child(w.btnDay, 0);
+  // The DAY button that used to sit here is gone: day / night is a setting, not
+  // something to toggle by accident from a moving car (#8/#11).
+  w.btnCfg = button(s, 626, 3, 166, 24, "SETTINGS", onOpenSettings);
 }
 
 // ------------------------------------------------------------ settings
+// Two columns, no scrolling (#9). The page is 780x420 and every row is placed
+// to fit: scrolling this on a 32 Hz panel was a full-width repaint per step.
 cfg::Data g_edit;
 
+const char *const kBoostUnitNames[3] = {"bar", "mbar", "psi"};
+const char *const kDayNightNames[3] = {"AUTO", "DAY", "NIGHT"};
+
+// One value, drawn as [-] value [+]. The cell is created already showing the
+// stored number and registers its context, so the page can re-read the whole
+// config when it opens - which is what stops a threshold from showing "-"
+// until it has been touched (#12).
 struct StepCtx {
   float *field;
   float step, min, max;
   int decimals;
   lv_obj_t *valueLabel;
 };
-StepCtx g_steps[16];
+StepCtx g_steps[24];
 int g_stepCount = 0;
 
 void fmtStepper(char *buf, size_t n, const StepCtx &c) {
@@ -769,9 +846,22 @@ void fmtStepper(char *buf, size_t n, const StepCtx &c) {
   }
 }
 
-void addStepper(lv_obj_t *parent, int y, const char *name, float *field, float step, float min,
+void nudge(StepCtx *ctx, float dir) {
+  float v = *ctx->field + dir * ctx->step;
+  if (v < ctx->min) v = ctx->min;
+  if (v > ctx->max) v = ctx->max;
+  *ctx->field = v;
+  char buf[16];
+  fmtStepper(buf, sizeof(buf), *ctx);
+  setText(ctx->valueLabel, buf);
+}
+
+// One [-] value [+] cell, `w` px wide. The value box is a label with a border,
+// not a text area: it never takes focus, so the keyboard cannot appear over the
+// half of the page it does not belong to.
+int addStepCell(lv_obj_t *parent, int x, int y, int w, float *field, float step, float min,
                 float max, int decimals) {
-  if (g_stepCount >= 16) return;
+  if (g_stepCount >= (int)(sizeof(g_steps) / sizeof(g_steps[0]))) return x + w;
   StepCtx &c = g_steps[g_stepCount++];
   c.field = field;
   c.step = step;
@@ -779,33 +869,51 @@ void addStepper(lv_obj_t *parent, int y, const char *name, float *field, float s
   c.max = max;
   c.decimals = decimals;
 
+  const int btnW = 28;
+  const int valW = w - 2 * btnW - 8;
+
+  lv_obj_t *minus = button(parent, x, y, btnW, 24, "-", nullptr);
+  lv_obj_add_event_cb(
+      minus, [](lv_event_t *e) { nudge((StepCtx *)lv_event_get_user_data(e), -1.0f); },
+      LV_EVENT_CLICKED, &c);
+
+  char buf[16];
+  fmtStepper(buf, sizeof(buf), c);
+  c.valueLabel = fixedLabel(parent, x + btnW + 4, y, valW, 24, FONT_BODY, COL_FG, "");
+  lv_obj_set_style_text_align(c.valueLabel, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_style_pad_top(c.valueLabel, 3, 0);
+  lv_obj_set_style_bg_color(c.valueLabel, lv_color_hex(0x0e1114), 0);
+  lv_obj_set_style_bg_opa(c.valueLabel, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(c.valueLabel, 1, 0);
+  lv_obj_set_style_border_color(c.valueLabel, COL_LAMP_EDGE, 0);
+  lv_obj_set_style_radius(c.valueLabel, 3, 0);
+  setText(c.valueLabel, buf);
+
+  lv_obj_t *plus = button(parent, x + btnW + 4 + valW + 4, y, btnW, 24, "+", nullptr);
+  lv_obj_add_event_cb(
+      plus, [](lv_event_t *e) { nudge((StepCtx *)lv_event_get_user_data(e), 1.0f); },
+      LV_EVENT_CLICKED, &c);
+  return x + w;
+}
+
+struct StepSpec {
+  float *field;
+  float step, min, max;
+  int decimals;
+};
+
+// A settings row: a name, then one or two value cells. Two cells make the paired
+// [VALUE]/[VALUE] rows of the layout C settings page, which is how the eleven
+// thresholds fit in half the card.
+void addStepRow(lv_obj_t *parent, int x, int y, const char *name, const StepSpec *specs, int n) {
   lv_obj_t *l = label(parent, FONT_SMALL, lv_color_hex(0xc6ced6), name);
-  lv_obj_set_pos(l, 0, y + 4);
-
-  // [-] value [+]
-  lv_obj_t *minus = button(parent, 300, y, 30, 24, "-", nullptr);
-  lv_obj_add_event_cb(minus, [](lv_event_t *e) {
-    auto *ctx = (StepCtx *)lv_event_get_user_data(e);
-    float v = *ctx->field - ctx->step;
-    if (v < ctx->min) v = ctx->min;
-    *ctx->field = v;
-    char buf[16];
-    fmtStepper(buf, sizeof(buf), *ctx);
-    setText(ctx->valueLabel, buf);
-  }, LV_EVENT_CLICKED, &c);
-
-  c.valueLabel = boxedLabel(parent, 370, y + 12, 80, 22, FONT_BODY, COL_FG, "-");
-
-  lv_obj_t *plus = button(parent, 410, y, 30, 24, "+", nullptr);
-  lv_obj_add_event_cb(plus, [](lv_event_t *e) {
-    auto *ctx = (StepCtx *)lv_event_get_user_data(e);
-    float v = *ctx->field + ctx->step;
-    if (v > ctx->max) v = ctx->max;
-    *ctx->field = v;
-    char buf[16];
-    fmtStepper(buf, sizeof(buf), *ctx);
-    setText(ctx->valueLabel, buf);
-  }, LV_EVENT_CLICKED, &c);
+  lv_obj_set_pos(l, x, y + 4);
+  int cx = x + 148;
+  for (int i = 0; i < n; i++) {
+    const StepSpec &s = specs[i];
+    addStepCell(parent, cx, y, 116, s.field, s.step, s.min, s.max, s.decimals);
+    cx += 116 + 8;
+  }
 }
 
 void refreshSteppers() {
@@ -836,7 +944,7 @@ lv_obj_t *addField(lv_obj_t *parent, int y, const char *name, const char *value,
   lv_obj_set_pos(l, 0, y + 8);
 
   lv_obj_t *ta = lv_textarea_create(parent);
-  lv_obj_set_pos(ta, 160, y);
+  lv_obj_set_pos(ta, 110, y);
   lv_obj_set_size(ta, width, 34);
   lv_textarea_set_one_line(ta, true);
   lv_textarea_set_max_length(ta, password ? 64 : 47);
@@ -855,16 +963,30 @@ lv_obj_t *addField(lv_obj_t *parent, int y, const char *name, const char *value,
 
 lv_obj_t *g_taSsid = nullptr, *g_taPass = nullptr, *g_taHost = nullptr;
 lv_obj_t *g_btnTempUnits = nullptr, *g_btnBoostUnits = nullptr;
+lv_obj_t *g_btnDistUnits = nullptr, *g_btnDayNight = nullptr;
 
 void onTempUnits(lv_event_t *) {
   g_edit.tempF = !g_edit.tempF;
-  setText(lv_obj_get_child(g_btnTempUnits, 0), g_edit.tempF ? "F" : "C");
+  setText(lv_obj_get_child(g_btnTempUnits, 0), g_edit.tempF ? "\xC2\xB0" "F" : "\xC2\xB0" "C");
 }
 
 void onBoostUnits(lv_event_t *) {
   g_edit.boostUnits = (g_edit.boostUnits + 1) % 3;
-  static const char *const names[3] = {"bar", "mbar", "psi"};
-  setText(lv_obj_get_child(g_btnBoostUnits, 0), names[g_edit.boostUnits]);
+  setText(lv_obj_get_child(g_btnBoostUnits, 0), kBoostUnitNames[g_edit.boostUnits]);
+}
+
+// Distance only: km/h and km against mph and miles. The temperature toggle above
+// is a separate setting and stays separate (#7).
+void onDistUnits(lv_event_t *) {
+  g_edit.unitsMetric = g_edit.unitsMetric ? 0 : 1;
+  setText(lv_obj_get_child(g_btnDistUnits, 0), g_edit.unitsMetric ? "km" : "mi");
+}
+
+// Auto / Day / Night. Auto is what reads Terminal 58s off the car; the two
+// overrides hold the backlight where it is put (#8).
+void onDayNight(lv_event_t *) {
+  g_edit.dayNight = (uint8_t)((g_edit.dayNight + 1) % 3);
+  setText(lv_obj_get_child(g_btnDayNight, 0), kDayNightNames[g_edit.dayNight]);
 }
 
 void onCfgSave(lv_event_t *) {
@@ -876,7 +998,10 @@ void onCfgSave(lv_event_t *) {
   const bool ssidChanged = strcmp(g_edit.ssid, cfg::get().ssid) != 0;
   cfg::apply(g_edit);
   if (ssidChanged) ohxnow::forgetController();
-  crowpanel::setBacklight((uint8_t)lroundf(cfg::get().brightness));
+  // No setBacklight() here: the backlight is now decided from the config *and*
+  // the car's Terminal 58s reading, and tick() applies it a frame later. Writing
+  // the configured brightness straight to the panel would flash the day value at
+  // night for that frame.
   syncGauge();  // the zones and the numbers move with the scale
   showSettings(false);
 }
@@ -896,6 +1021,12 @@ void onCfgDefaults(lv_event_t *) {
   lv_textarea_set_text(g_taPass, g_edit.pass);
   lv_textarea_set_text(g_taHost, g_edit.host);
   refreshSteppers();
+  // The toggles above are buttons, not steppers, so nothing re-reads them: label
+  // them here or DEFAULTS leaves them showing the settings it just replaced.
+  setText(lv_obj_get_child(g_btnTempUnits, 0), g_edit.tempF ? "\xC2\xB0" "F" : "\xC2\xB0" "C");
+  setText(lv_obj_get_child(g_btnBoostUnits, 0), kBoostUnitNames[g_edit.boostUnits]);
+  setText(lv_obj_get_child(g_btnDistUnits, 0), g_edit.unitsMetric ? "km" : "mi");
+  setText(lv_obj_get_child(g_btnDayNight, 0), kDayNightNames[g_edit.dayNight]);
   syncGauge();  // the zones and the numbers move with the scale
 }
 
@@ -933,88 +1064,131 @@ void buildSettings() {
   lv_obj_set_style_border_color(card, COL_LINE, 0);
   lv_obj_set_style_radius(card, 6, 0);
   lv_obj_set_style_pad_all(card, 12, 0);
-  lv_obj_set_scroll_dir(card, LV_DIR_VER);
-  lv_obj_add_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+  // No LV_DIR_VER and no SCROLLABLE flag: the page is laid out to fit 420 px
+  // (#9). Scrolling it on a 32 Hz panel is a full-width repaint per step, which
+  // is exactly what made this page feel slow.
+  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
 
+  // ---- left column: connection, then display ------------------------
   int y = 0;
   lv_obj_t *h = label(card, FONT_MODE, COL_FG, "SETTINGS");
   lv_obj_set_pos(h, 0, y);
-  y += 44;
+  y += 36;
 
   lv_obj_t *net = label(card, FONT_BODY, COL_DIM, "CONNECTION TO OPENHALDEX");
   lv_obj_set_pos(net, 0, y);
-  y += 26;
+  y += 18;
 
-  g_taSsid = addField(card, y, "SSID", g_edit.ssid, false, 240);
-  y += 44;
-  g_taPass = addField(card, y, "AP PASSWORD", g_edit.pass, true, 240);
-  y += 44;
-  g_taHost = addField(card, y, "HOST", g_edit.host, false, 240);
-  y += 52;
+  g_taSsid = addField(card, y, "SSID", g_edit.ssid, false, 220);
+  y += 36;
+  g_taPass = addField(card, y, "AP PASSWORD", g_edit.pass, true, 220);
+  y += 36;
+  g_taHost = addField(card, y, "HOST", g_edit.host, false, 220);
+  y += 36;
 
   // The password above is two things at once: the WPA key the station joins
   // the access point with, and the HMAC key every ESP-NOW command has to be
   // signed with. Empty is therefore not "no password needed" - it is a key
   // anyone in range can compute, against a nonce the controller broadcasts.
-  w.ctrlLine = fixedLabel(card, 0, y, 620, 20, FONT_SMALL, COL_DIM, "control: waiting");
-  y += 22;
-  w.ctrlWarn = fixedLabel(card, 0, y, 620, 20, FONT_SMALL, COL_AMBER, "");
-  y += 30;
-
-  // The update page, and which slot this image came from. Not a button: the
-  // page is served to a phone, and the dash's own glass has nothing to do
-  // with it. Shown here because this is where you look when you are standing
-  // at the car wondering how to get a new build into it.
-  lv_obj_t *upd = label(card, FONT_BODY, COL_DIM, "UPDATE (OVER THE AIR)");
-  lv_obj_set_pos(upd, 0, y);
+  w.ctrlLine = fixedLabel(card, 0, y, 340, 18, FONT_SMALL, COL_DIM, "control: waiting");
+  y += 18;
+  w.ctrlWarn = fixedLabel(card, 0, y, 340, 18, FONT_SMALL, COL_AMBER, "");
+  y += 18;
+  w.otaLine = fixedLabel(card, 0, y, 340, 18, FONT_SMALL, COL_DIM, "OTA: --");
   y += 24;
-  w.otaLine = fixedLabel(card, 0, y, 620, 20, FONT_SMALL, COL_DIM, "ota: --");
-  y += 34;
 
   lv_obj_t *disp = label(card, FONT_BODY, COL_DIM, "DISPLAY");
   lv_obj_set_pos(disp, 0, y);
-  y += 26;
+  y += 20;
 
-  addStepper(card, y, "Brightness (%)", &g_edit.brightness, 5.0f, 10.0f, 100.0f, 0);
-  y += 32;
+  {
+    const StepSpec bright[] = {{&g_edit.brightness, 5, 10, 100, 0}};
+    addStepRow(card, 0, y, "Brightness (%)", bright, 1);
+    y += 30;
+  }
 
-  lv_obj_t *tu = label(card, FONT_SMALL, lv_color_hex(0xc6ced6), "Temperature units");
-  lv_obj_set_pos(tu, 0, y + 4);
-  g_btnTempUnits = button(card, 300, y, 40, 24, g_edit.tempF ? "F" : "C", onTempUnits);
-  y += 32;
+  lv_obj_t *ul = label(card, FONT_SMALL, lv_color_hex(0xc6ced6), "Units");
+  lv_obj_set_pos(ul, 0, y + 4);
+  g_btnTempUnits =
+      button(card, 110, y, 44, 24, g_edit.tempF ? "\xC2\xB0" "F" : "\xC2\xB0" "C", onTempUnits);
+  g_btnBoostUnits = button(card, 162, y, 60, 24, kBoostUnitNames[g_edit.boostUnits], onBoostUnits);
+  g_btnDistUnits = button(card, 230, y, 56, 24, g_edit.unitsMetric ? "km" : "mi", onDistUnits);
+  y += 30;
 
-  lv_obj_t *bu = label(card, FONT_SMALL, lv_color_hex(0xc6ced6), "Boost units");
-  lv_obj_set_pos(bu, 0, y + 4);
-  g_btnBoostUnits = button(card, 300, y, 60, 24, "bar", onBoostUnits);
-  y += 40;
+  lv_obj_t *dn = label(card, FONT_SMALL, lv_color_hex(0xc6ced6), "Day / night");
+  lv_obj_set_pos(dn, 0, y + 4);
+  g_btnDayNight = button(card, 110, y, 90, 24, kDayNightNames[g_edit.dayNight], onDayNight);
+  // What automatic mode has actually decided, and the number it produced, so the
+  // two board_config numbers can be judged on the glass rather than trusted.
+  w.dayNightLine = fixedLabel(card, 208, y + 4, 148, 20, FONT_SMALL, COL_DIM, "");
+  y += 30;
 
+  // ---- right column: thresholds, two values to a row ----------------
+  const int rx = 360;
   lv_obj_t *thr = label(card, FONT_BODY, COL_DIM, "THRESHOLDS");
-  lv_obj_set_pos(thr, 0, y);
-  y += 26;
+  lv_obj_set_pos(thr, rx, 0);
 
-  addStepper(card, y, "RPM max", &g_edit.rpmMax, 250, 3000, 12000, 0); y += 30;
-  addStepper(card, y, "RPM amber", &g_edit.rpmAmber, 250, 1000, 12000, 0); y += 30;
-  addStepper(card, y, "RPM redline", &g_edit.rpmRedline, 250, 1000, 12000, 0); y += 30;
-  addStepper(card, y, "RPM shift light", &g_edit.rpmShift, 250, 1000, 12000, 0); y += 30;
-  addStepper(card, y, "Coolant warn (C)", &g_edit.coolWarn, 1, 0, 200, 0); y += 30;
-  addStepper(card, y, "Coolant crit (C)", &g_edit.coolCrit, 1, 0, 220, 0); y += 30;
-  addStepper(card, y, "Oil warn (C)", &g_edit.oilWarn, 1, 0, 200, 0); y += 30;
-  addStepper(card, y, "Oil crit (C)", &g_edit.oilCrit, 1, 0, 220, 0); y += 30;
-  addStepper(card, y, "Boost max (mbar)", &g_edit.boostMax, 100, 200, 5000, 0); y += 30;
-  addStepper(card, y, "Boost warn (mbar)", &g_edit.boostWarn, 100, 0, 5000, 0); y += 30;
-  addStepper(card, y, "Boost crit (mbar)", &g_edit.boostCrit, 100, 0, 5000, 0); y += 40;
+  int ty = 26;
+  {
+    const StepSpec a[] = {{&g_edit.rpmMax, 250, 3000, 12000, 0}, {&g_edit.rpmAmber, 250, 0, 12000, 0}};
+    addStepRow(card, rx, ty, "RPM max / amber", a, 2);
+    ty += 40;
+  }
+  {
+    const StepSpec a[] = {{&g_edit.rpmRedline, 250, 1000, 12000, 0},
+                          {&g_edit.rpmShift, 250, 1000, 12000, 0}};
+    addStepRow(card, rx, ty, "RPM redline / shift", a, 2);
+    ty += 40;
+  }
+  {
+    const StepSpec a[] = {{&g_edit.coolWarn, 1, -40, 200, 0}, {&g_edit.coolCrit, 1, -40, 250, 0}};
+    addStepRow(card, rx, ty, "Coolant warn / crit", a, 2);
+    ty += 40;
+  }
+  {
+    const StepSpec a[] = {{&g_edit.oilWarn, 1, -40, 200, 0}, {&g_edit.oilCrit, 1, -40, 250, 0}};
+    addStepRow(card, rx, ty, "Oil warn / crit", a, 2);
+    ty += 40;
+  }
+  {
+    const StepSpec a[] = {{&g_edit.boostMax, 100, 200, 5000, 0},
+                          {&g_edit.boostWarn, 100, 0, 5000, 0}};
+    addStepRow(card, rx, ty, "Boost max / warn", a, 2);
+    ty += 40;
+  }
+  {
+    const StepSpec a[] = {{&g_edit.boostCrit, 100, 0, 5000, 0}};
+    addStepRow(card, rx, ty, "Boost crit", a, 1);
+    ty += 40;
+  }
+  {
+    const StepSpec a[] = {{&g_edit.tankLitres, 1, 20, 120, 0}};
+    addStepRow(card, rx, ty, "Fuel tank (l)", a, 1);
+    ty += 34;
+  }
 
-  // Every stepper above was created showing addStepper()'s "-" placeholder and
-  // only formats itself on the first +/- press, so the page opened lying about
-  // the car's thresholds until each row was touched. All the rows exist now, so
-  // draw the stored values (#12).
+  // The clamping rule, said out loud: it is what keeps a stored threshold set
+  // self-consistent, and before the shift light was fixed, the shift point was
+  // free to sit above the redline (#10).
+  lv_obj_t *note = label(card, FONT_CAP, COL_DIM,
+                         "Saved values are clamped into order: amber <= shift <= "
+                         "redline <= max, warn <= crit.\nTemperature thresholds are "
+                         "in C; the temperature rows above follow the units toggle.");
+  lv_obj_set_pos(note, rx, ty);
+  lv_obj_set_width(note, 396);
+
+  // ---- the buttons, along the bottom of the card --------------------
+  button(card, 0, 356, 90, 30, "DEFAULTS", onCfgDefaults);
+  button(card, 100, 356, 82, 30, "RAW DATA", onCfgRaw);
+  button(card, 192, 356, 82, 30, "CAN DATA", onCfgCan);
+  button(card, 600, 356, 74, 30, "SAVE", onCfgSave);
+  button(card, 682, 356, 74, 30, "CLOSE", onCfgClose);
+
+  // Every cell above was created showing the stored value, so there is nothing
+  // to refresh before the page is first opened: the "-" placeholder is gone
+  // (#12). refreshSteppers() is still what puts the truth back after DEFAULTS or
+  // after an edit that was abandoned by closing the page.
   refreshSteppers();
-
-  button(card, 0, y, 90, 30, "DEFAULTS", onCfgDefaults);
-  button(card, 100, y, 82, 30, "RAW DATA", onCfgRaw);
-  button(card, 192, y, 82, 30, "CAN DATA", onCfgCan);
-  button(card, 600, y, 74, 30, "SAVE", onCfgSave);
-  button(card, 682, y, 70, 30, "CLOSE", onCfgClose);
 
   w.kb = lv_keyboard_create(lv_layer_top());
   lv_obj_set_size(w.kb, L::W, 200);
@@ -1038,14 +1212,79 @@ void setSuffix(lv_obj_t *valueLabel, const char *text, lv_color_t color) {
   setTextColor(valueLabel, color);
 }
 
+// ---- units -----------------------------------------------------------
+// One place that decides how a distance, a speed or a fuel volume is written, so
+// the metric / imperial setting cannot be applied twice or forgotten somewhere
+// (#7). Distance and speed only: the temperature toggle is its own setting.
+//
+// U+00B0 (degree) in UTF-8, written escaped and split into two literals: the
+// compiler would otherwise read "\xB0C" as one over-long hex escape.
+constexpr const char *kDegC = "\xC2\xB0" "C";
+constexpr const char *kDegF = "\xC2\xB0" "F";
+constexpr float kMilesPerKm = 0.621371f;
+constexpr float kGalPerLitre = 0.264172f;
+
+bool metric() { return cfg::get().unitsMetric != 0; }
+const char *speedUnitText() { return metric() ? "km/h" : "mph"; }
+float toSpeed(float kmh) { return metric() ? kmh : kmh * kMilesPerKm; }
+float toDistance(float km) { return metric() ? km : km * kMilesPerKm; }
+
+/// Write n with thousands separators: 138618 -> "138,618".
+void groupDigits(char *buf, size_t n, long v) {
+  char d[24];
+  snprintf(d, sizeof(d), "%ld", v < 0 ? -v : v);
+  char out[32];
+  int o = 0;
+  const int len = (int)strlen(d);
+  for (int i = 0; i < len && o < (int)sizeof(out) - 2; i++) {
+    if (i > 0 && ((len - i) % 3) == 0) out[o++] = ',';
+    out[o++] = d[i];
+  }
+  out[o] = '\0';
+  snprintf(buf, n, "%s%s", v < 0 ? "-" : "", out);
+}
+
+/// The temperature, with its unit: "79°C" / "175°F", or "--" for a value that
+/// has never arrived. One helper feeds the coolant and oil rows, so the unit can
+/// never disagree with the setting.
 void fmtTemp(char *buf, size_t n, float celsius) {
   if (isnan(celsius)) {
     snprintf(buf, n, "--");
     return;
   }
-  float v = celsius;
-  if (cfg::get().tempF) v = v * 9.0f / 5.0f + 32.0f;
-  snprintf(buf, n, "%d", (int)lroundf(v));
+  const bool f = cfg::get().tempF;
+  const float v = f ? celsius * 9.0f / 5.0f + 32.0f : celsius;
+  snprintf(buf, n, "%d%s", (int)lroundf(v), f ? kDegF : kDegC);
+}
+
+/// A speed in the current units, no suffix.
+void fmtSpeed(char *buf, size_t n, float kmh) {
+  if (isnan(kmh)) {
+    snprintf(buf, n, "--");
+    return;
+  }
+  snprintf(buf, n, "%d", (int)lroundf(toSpeed(kmh)));
+}
+
+/// A distance with its unit: "138,618 km" / "86,133 mi".
+void fmtDistance(char *buf, size_t n, float km) {
+  char num[24];
+  groupDigits(num, sizeof(num), lroundf(toDistance(km)));
+  snprintf(buf, n, "%s %s", num, metric() ? "km" : "mi");
+}
+
+/// The fuel level with its unit: "49.6 L" / "13.1 gal". Litres come from the car
+/// and are not converted until here.
+void fmtFuel(char *buf, size_t n, float litres) {
+  if (isnan(litres)) {
+    snprintf(buf, n, "--");
+    return;
+  }
+  if (metric()) {
+    snprintf(buf, n, "%.1f L", (double)litres);
+  } else {
+    snprintf(buf, n, "%.1f gal", (double)(litres * kGalPerLitre));
+  }
 }
 
 void fmtBoost(char *buf, size_t n, float mbar) {
@@ -1081,6 +1320,12 @@ const char *boostUnitText() {
 // moves the fill edge by one cell repaints exactly one 18x104 px rectangle
 // instead of an arc. setBgColor() is the same-value guard used everywhere
 // else, so even the state comparison is belt and braces.
+//
+// The shift cue lives here rather than on the number (#10): at or above
+// rpmShift the lit cells alternate between their zone colour and the shift
+// purple, and at the limiter they alternate with red. A 96 px number strobing
+// was hard to read; a bar pulsing is not. The colour is only recomputed while a
+// shift is on, so a steady bar costs exactly what it did before.
 void updateRevBar(const cfg::Data &c, float rpm) {
   if (!dbg(1)) return;
 
@@ -1088,33 +1333,40 @@ void updateRevBar(const cfg::Data &c, float rpm) {
   int lit = (int)lroundf(frac * L::BAR_SEG);
   if (lit < 0) lit = 0;
   if (lit > L::BAR_SEG) lit = L::BAR_SEG;
+
+  const bool have = !isnan(rpm);
+  const bool shifting = have && rpm >= c.rpmShift;
+  const bool limiter = have && rpm >= c.rpmRedline;
+  const lv_color_t flashCol = limiter ? COL_RED : COL_SHIFT;
+
   for (int i = 0; i < L::BAR_SEG; i++) {
-    const int8_t want = (i < lit) ? 1 : 0;
+    // 0 dark, 1 lit in its zone colour, 2 lit in the flash colour.
+    const int8_t want = (i < lit) ? (shifting && g_flashOn ? 2 : 1) : 0;
     if (g_revLit[i] != want) {
       g_revLit[i] = want;
-      setBgColor(w.revCell[i], want ? g_revCol[i].lit : g_revCol[i].unlit, 0);
+      const lv_color_t col = want == 0 ? g_revCol[i].unlit
+                                       : (want == 2 ? flashCol : g_revCol[i].lit);
+      setBgColor(w.revCell[i], col, 0);
     }
   }
 }
 
 // The big number. It is only repainted when its text or colour changes, so
-// this costs nothing on the frames where the value has not moved.
+// this costs nothing on the frames where the value has not moved. It does NOT
+// flash any more: the shift cue is the bar (#10).
 void updateGaugeText(const cfg::Data &c, float rpm) {
+  (void)c;
   if (!dbg(4)) return;
 
   // A missing rpm shows as "--"; a stale one keeps its last value, because
   // going stale is the status light's job.
   char buf[24];
-  const bool have = !isnan(rpm);
-  if (have) {
+  if (!isnan(rpm)) {
     snprintf(buf, sizeof(buf), "%d", (int)lroundf(rpm));
   } else {
     snprintf(buf, sizeof(buf), "--");
   }
-  // Shift cue: the rev readout flashes red. The old corner SHIFT box is
-  // gone, and a 96 px number flashing is a bigger cue than a 64 px box was.
-  const bool flash = have && (rpm >= c.rpmShift) && g_flashOn;
-  setSuffix(w.rpmVal, buf, flash ? COL_RED : COL_FG);
+  setSuffix(w.rpmVal, buf, COL_FG);
 }
 
 void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telemetry::Dash &d) {
@@ -1126,26 +1378,39 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
   const Values v = g_shown;
   char buf[32];
 
-  // Speed's and boost's peaks live in their own tiles, where the value they
-  // belong to is. The rpm peak has no tile, so it lives in the status bar.
-  {
-    char rp[16] = "--";
-    if (!isnan(g_peaks.rpm)) snprintf(rp, sizeof(rp), "%d", (int)lroundf(g_peaks.rpm));
-    snprintf(buf, sizeof(buf), "rpm peak %s", rp);
-    setText(w.peakTxt, buf);
+  // ---- indicator repeaters (#5). The frame gives the direction and the fact
+  // that something is blinking; the flash phase is ours, at the shift light's
+  // cadence, and the latch means a dropped packet cannot cancel a signal. Left
+  // and right are separate arrows, so hazards (both bits) light both.
+  if (d.indicators > 0) {
+    g_indMask = d.indicators;
+    g_indMaskMs = millis();
+  }
+  const bool indOn = g_indMask != 0 && (uint32_t)(millis() - g_indMaskMs) < kIndicatorHoldMs;
+  const bool indLit = indOn && g_indOn;
+  setTextColor(w.indLeft, (indLit && (g_indMask & 1)) ? COL_GREEN : COL_LAMP_TXT_OFF);
+  setTextColor(w.indRight, (indLit && (g_indMask & 2)) ? COL_GREEN : COL_LAMP_TXT_OFF);
+
+  // ---- odometer, where the rpm peak used to be (#6)
+  if (isnan(d.odometerKm)) {
+    setText(w.odoTxt, "ODO --");
+  } else {
+    char ob[24];
+    fmtDistance(ob, sizeof(ob), d.odometerKm);
+    snprintf(buf, sizeof(buf), "ODO %s", ob);
+    setText(w.odoTxt, buf);
   }
 
   // ---- speed
-  if (isnan(v.speed)) {
-    setSuffix(w.speedVal, "--", COL_DIM);
-  } else {
-    snprintf(buf, sizeof(buf), "%d", (int)lroundf(v.speed));
-    setSuffix(w.speedVal, buf, COL_FG);
-  }
+  fmtSpeed(buf, sizeof(buf), v.speed);
+  setSuffix(w.speedVal, buf, isnan(v.speed) ? COL_DIM : COL_FG);
+  setText(w.speedUnit, speedUnitText());
   if (isnan(g_peaks.speed)) {
     setText(w.speedPeak, "peak --");
   } else {
-    snprintf(buf, sizeof(buf), "peak %d", (int)lroundf(g_peaks.speed));
+    char sb[16];
+    fmtSpeed(sb, sizeof(sb), g_peaks.speed);
+    snprintf(buf, sizeof(buf), "peak %s", sb);
     setText(w.speedPeak, buf);
   }
 
@@ -1196,6 +1461,24 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
     }
     setBar(w.oilBar, pct);
     setBgColor(w.oilBar, colFor(v.oil, c.oilWarn, c.oilCrit), LV_PART_INDICATOR);
+  }
+
+  // ---- fuel, the third row of this panel in both tile bands (#4/#11). The bar
+  // is a percentage of the configured tank size; the number is the car's own
+  // litres. The value and the bar go amber on the car's low-fuel warning, which
+  // is read straight off the frame and never smoothed - the warning is the one
+  // thing on this row that must not lag.
+  fmtFuel(buf, sizeof(buf), v.fuel);
+  setSuffix(w.fuelVal, buf, isnan(v.fuel) ? COL_DIM : (d.fuelLow ? COL_AMBER : COL_FG));
+  {
+    int pct = 0;
+    if (!isnan(v.fuel)) {
+      pct = (int)lroundf(100.0f * v.fuel / c.tankLitres);
+      if (pct < 0) pct = 0;
+      if (pct > 100) pct = 100;
+    }
+    setBar(w.fuelBar, pct);
+    setBgColor(w.fuelBar, d.fuelLow ? COL_AMBER : COL_GREEN, LV_PART_INDICATOR);
   }
 
   // ---- haldex
@@ -1334,6 +1617,79 @@ void updateModeCmd(uint32_t now) {
   }
 }
 
+float g_fuelAcc = NAN;     // the smoothed target: the last sample the gate let through
+float g_fuelPrev = NAN;    // the previous raw sample, whatever it was
+uint32_t g_fuelPrevMs = 0; // when that sample arrived
+
+// Automatic day / night (#8). The car's Terminal 58s carries both facts at
+// once: 0 with the lights off, 7..99 % with them on following the dash dimmer
+// wheel. So one reading decides the mode and, at night, the backlight.
+//
+//   * 58s == 0 is day, 58s > 0 is night. Terminal_58d is ignored: it sits at a
+//     non-zero 24 % with the lights off, so it cannot mean night.
+//   * a *change* has to hold for kNightDebounceMs before it is believed, so one
+//     dropped or error-flagged frame cannot strobe the screen.
+//   * an absent reading (no relay) never moves the mode - the last one is held.
+constexpr uint32_t kNightDebounceMs = 400;
+bool g_night = false;
+bool g_nightValid = false;
+bool g_nightWanted = false;
+uint32_t g_nightWantedMs = 0;
+int g_term58s = -1;
+uint8_t g_backlight = 0;
+bool g_backlightValid = false;
+
+// Write the backlight, but only when the number changes: it is a PWM write and
+// the result is compared every tick.
+void applyBacklight() {
+  const cfg::Data &c = cfg::get();
+  float pct = c.brightness;
+  if (g_night) {
+    const float s = g_term58s > 0 ? (float)g_term58s : 0.0f;
+    pct = (float)DASH_NIGHT_MIN_PCT + (float)DASH_NIGHT_SPAN_PCT * s / 100.0f;
+    if (pct < (float)DASH_NIGHT_MIN_PCT) pct = (float)DASH_NIGHT_MIN_PCT;
+    if (pct > 100.0f) pct = 100.0f;
+  }
+  const uint8_t want = (uint8_t)lroundf(pct);
+  if (g_backlightValid && want == g_backlight) return;
+  g_backlight = want;
+  g_backlightValid = true;
+  crowpanel::setBacklight(want);
+}
+
+void updateDayNight(const telemetry::Dash &d, uint32_t now) {
+  g_term58s = d.term58s;  // -1 = not heard
+  bool moved = false;
+  const uint8_t mode = cfg::get().dayNight;
+  if (mode == cfg::DN_DAY) {
+    moved = g_nightValid && g_night;
+    g_night = false;
+    g_nightValid = true;
+  } else if (mode == cfg::DN_NIGHT) {
+    moved = g_nightValid && !g_night;
+    g_night = true;
+    g_nightValid = true;
+  } else if (g_term58s >= 0) {
+    const bool want = g_term58s > 0;
+    if (want != g_nightWanted) {
+      g_nightWanted = want;
+      g_nightWantedMs = now;
+    }
+    if (!g_nightValid || want == g_night) {
+      g_night = want;
+      g_nightValid = true;
+    } else if ((uint32_t)(now - g_nightWantedMs) >= kNightDebounceMs) {
+      g_night = want;
+      moved = true;
+    }
+  }
+  applyBacklight();
+  if (moved) {
+    Serial.printf("[ui] backlight %s: 58s %d%% -> %u%%\n", g_night ? "night" : "day", g_term58s,
+                  (unsigned)g_backlight);
+  }
+}
+
 void updateConn(bool stale) {
   if (!dbg(16)) return;
   const telemetry::Stats s = telemetry::stats();
@@ -1403,11 +1759,13 @@ void begin() {
   g_edit = cfg::get();
   buildSettings();
 
-  crowpanel::setBacklight((uint8_t)lroundf(cfg::get().brightness));
-  setText(w.dayLabel, (cfg::get().brightness < 70.0f) ? "NIGHT" : "DAY");
+  // The backlight is decided by the day/night rule, which needs the config it
+  // was just loaded with, so it is applied from the first tick rather than here.
+  applyBacklight();
 
   g_lastTickMs = millis();
   g_lastFlashMs = millis();
+  g_lastIndMs = millis();
 }
 
 void applyDebugMask() {
@@ -1445,11 +1803,22 @@ void tick() {
     g_flashOn = !g_flashOn;
   }
 
+  // The indicator repeaters keep their own phase, so the two cadences can be
+  // tuned apart from each other (#5). Same 4 Hz by default.
+  if ((uint32_t)(now - g_lastIndMs) >= kIndicatorFlashMs) {
+    g_lastIndMs = now;
+    g_indOn = !g_indOn;
+  }
+
   const cfg::Data &c = cfg::get();
   // The merge point: ESP-NOW while its packets are arriving, HTTP for
   // coolant and for the lamps the packet does not carry. See net/datafeed.h.
   const telemetry::Live l = feed::live();
   const telemetry::Dash d = feed::dash();
+  // The backlight runs on every page, not just the dashboard: it is a property
+  // of the panel, and automatic mode has to keep working while the settings page
+  // is open - which is where the number it produced is shown.
+  updateDayNight(d, now);
   const bool stale = !feed::fresh(c.staleMs);
   // The screen's own idea of "stale" is what the user sees, so make every
   // transition visible on the console together with how old the data was.
@@ -1493,8 +1862,25 @@ void tick() {
     g_shown.lockTarget = easeValue(g_shown.lockTarget, g_target.lockTarget, dt);
     g_shown.lockActual = easeValue(g_shown.lockActual, g_target.lockActual, dt);
 
-    // Peaks come from the raw values, not the eased ones.
-    if (!isnan(l.rpm)) g_peaks.rpm = isnan(g_peaks.rpm) ? l.rpm : fmaxf(g_peaks.rpm, l.rpm);
+    // Fuel gets the hardest smoothing on the panel: the tank sloshes, and the
+    // level is read at a glance rather than followed (#4). The gate drops any
+    // single sample that moves the level faster than kFuelMaxRate l/s - a
+    // one-sample spike is thrown away, while a real step (a fill-up) is believed
+    // on its second sample, 100 ms later. On top of that the displayed level is a
+    // 5 s low-pass. The car's own low-fuel warning is not touched by any of this.
+    if (!isnan(l.fuel)) {
+      const bool ok = isnan(g_fuelPrev) ||
+                      fabsf(l.fuel - g_fuelPrev) <=
+                          kFuelMaxRate * (float)(now - g_fuelPrevMs) / 1000.0f;
+      if (ok) g_fuelAcc = l.fuel;
+      g_fuelPrev = l.fuel;
+      g_fuelPrevMs = now;
+    }
+    g_target.fuel = g_fuelAcc;
+    g_shown.fuel = easeValue(g_shown.fuel, g_target.fuel, dt * (kTau / kFuelTau));
+
+    // Peaks come from the raw values, not the eased ones. Speed and boost only:
+    // the rpm peak lived in the status bar and the odometer has that slot now.
     if (!isnan(l.speed))
       g_peaks.speed = isnan(g_peaks.speed) ? l.speed : fmaxf(g_peaks.speed, l.speed);
     if (!isnan(l.boost))
@@ -1559,9 +1945,22 @@ void updateControlStatus() {
   if (!w.ctrlLine) return;
   if (w.otaLine) {
     char ubuf[128];
-    snprintf(ubuf, sizeof ubuf, "%s  |  page %s", ota::stateLine(), ota::url());
+    snprintf(ubuf, sizeof ubuf, "%s | page %s", ota::stateLine(), ota::url());
     setText(w.otaLine, ubuf);
     setTextColor(w.otaLine, ota::onTrial() ? COL_AMBER : COL_DIM);
+  }
+  // What automatic day / night has decided, and the number it produced, so the
+  // two board_config numbers can be judged on the glass (#8).
+  if (w.dayNightLine) {
+    char db[48];
+    if (g_term58s < 0) {
+      snprintf(db, sizeof db, "58s -- / %s", g_night ? "night" : "day");
+    } else {
+      snprintf(db, sizeof db, "58s %d%% / %s %u%%", g_term58s, g_night ? "night" : "day",
+               (unsigned)g_backlight);
+    }
+    setText(w.dayNightLine, db);
+    setTextColor(w.dayNightLine, g_night ? COL_AMBER : COL_DIM);
   }
   const ohxnow::Status s = ohxnow::last();
   char buf[160];
@@ -1593,8 +1992,13 @@ void showSettings(bool visible) {
     // The steppers are the same story as the text areas: g_edit has just been
     // reloaded from the config, so the numbers on screen have to be redrawn to
     // match, or an edit abandoned by closing the page leaves stale values in
-    // front of the fields they no longer describe (#12).
+    // front of the fields they no longer describe (#12). The three toggles and
+    // the day/night button are not steppers, so they are re-labelled here too.
     refreshSteppers();
+    setText(lv_obj_get_child(g_btnTempUnits, 0), g_edit.tempF ? "\xC2\xB0" "F" : "\xC2\xB0" "C");
+    setText(lv_obj_get_child(g_btnBoostUnits, 0), kBoostUnitNames[g_edit.boostUnits]);
+    setText(lv_obj_get_child(g_btnDistUnits, 0), g_edit.unitsMetric ? "km" : "mi");
+    setText(lv_obj_get_child(g_btnDayNight, 0), kDayNightNames[g_edit.dayNight]);
   } else if (w.kb) {
     lv_keyboard_set_textarea(w.kb, nullptr);
     lv_obj_add_flag(w.kb, LV_OBJ_FLAG_HIDDEN);
