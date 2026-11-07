@@ -28,6 +28,11 @@
 #define COL_DIM lv_color_hex(0x7c8894)
 #define COL_GREEN lv_color_hex(0x22c55e)
 #define COL_GREEN_DIM lv_color_hex(0x15803d)  // lamp "armed" state: on, but not doing anything
+// The cruise lamp's "armed" background, taken much darker than COL_GREEN_DIM so
+// a switch that is merely on cannot compete with the lamp that means the car is
+// actually holding a speed. Deliberately a colour, not an opacity: lampPaint()
+// compares packed colours to decide whether a repaint is needed.
+#define COL_GREEN_DIMMER lv_color_hex(0x0a3d1f)
 #define COL_AMBER lv_color_hex(0xf59e0b)
 #define COL_RED lv_color_hex(0xef4444)
 #define COL_CYAN lv_color_hex(0x22d3ee)
@@ -58,8 +63,15 @@
 // would. '-' is what draws "--" for a value that has never arrived.
 LV_FONT_DECLARE(lv_font_dash_rpm_96);
 LV_FONT_DECLARE(lv_font_dash_num_56);
+LV_FONT_DECLARE(lv_font_dash_name_80);
+LV_FONT_DECLARE(lv_font_dash_arrow_52);
 #define FONT_RPM (&lv_font_dash_rpm_96)       // the big rev readout
 #define FONT_NUM (&lv_font_dash_num_56)       // the boost tile's value
+#define FONT_NAME (&lv_font_dash_name_80)     // the boot splash's "CAN DASH"
+// The indicator repeaters: two solid block arrows (FontAwesome 4.7 U+F060/F061).
+// LVGL ships no filled arrow - LV_SYMBOL_LEFT/RIGHT are chevrons - so the two
+// glyphs are converted from FontAwesome into a face of their own.
+#define FONT_ARROW (&lv_font_dash_arrow_52)
 
 // ------------------------------------------------------------- layout
 // All in pixels, evaluated once for the 800x480 panel.

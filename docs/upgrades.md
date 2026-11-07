@@ -208,6 +208,21 @@ corners, green when lit. Stale data: both off, and the NO DATA overlay covers it
 does now. The controller also reports a `hazard` flag in its status packet — worth
 showing as a cross-check on the RAW page, but the repeaters themselves read the bus.
 
+**As built (0.6.1), three changes against the plan above:**
+
+* The arrows are **FontAwesome 4.7's solid block arrows** (U+F060 / U+F061), converted
+  by `tools/make_fonts.sh` into a two-glyph LVGL face (`FONT_ARROW`). LVGL ships no
+  filled arrow — its `LV_SYMBOL_LEFT` / `_RIGHT` are chevrons (0xF053 / 0xF054) — and
+  the mockup draws a solid one. Two glyphs, so the face costs a couple of KB and the
+  arrow is a single label: a blit, cheaper than the six `lv_line` objects the first
+  open-outline attempt used.
+* The oscillator runs at **`kIndicatorFlashMs = 333` ms** (~1.5 Hz), *not* the shift
+  light's 4 Hz. On the glass 4 Hz read as a strobe next to the car's own ~1.5 Hz
+  blink. The two cadences are separate constants so they stay tunable apart.
+* An arrow is on the glass **only during its side's lit phase** — the dark phase hides
+  it. Nothing greets a dark dashboard, which is what the plan's "green when lit"
+  turned into once the constant grey arrows were seen in the car.
+
 ---
 
 ## 6. Odometer in the status bar — P2

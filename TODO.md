@@ -151,18 +151,29 @@ and measuring `[stats] esp-now … Hz` before and after.
 
 ## 3. Requested, and worth doing
 
-### 3.1 Choose your own boot splash
+### 3.1 Boot splash
 At the moment the panel is blank for the second between power and the first
 frame. A splash could cover that and say something useful: version, build
 date, board, the update address, maybe "waiting for the controller".
 
-Design questions to settle first: is it a static image compiled in, or a file
-on the unused 128 KB LittleFS partition; does "choosable" mean a setting on
-the device, or at build time; and does it stay up until the first data arrives
-(which is also a nice "the controller is not talking to me" indicator).
-
-Cost: an LVGL image widget plus a decoded image in flash. The partition has
-room; the app slot has ~290 KB.
+> **As built (0.6.0, redesigned 0.6.2, simplified 0.6.3):** a *fixed* splash,
+> not a choosable one. It is plain LVGL widgets built at boot and takes its
+> shape from `docs/mockups/splash.html`: the `CAN DASH` name in an 80 px face, a
+> rule that fills as the hold elapses, the tagline and the version.
+>
+> The 0.6.2 redesign also copied the mockup's gradient background - a linear wash
+> with red and cyan radial glows - but 0.6.3 dropped it: LVGL's complex gradients
+> are drawn by the S3's software renderer in visible bands, and slowly enough
+> that the fill visibly outran the paint (the panel spent 0.6.2 at ~19 fps on the
+> splash, and 61 fps once the glows went). The splash is now a flat black field
+> with no gradients at all - just the name and a flat 3 px green fill on the rule.
+> Deliberately simple: no image asset and no animation beyond the rule fill. It
+> holds for a fixed **3 seconds** and then
+> deletes itself and hands the panel to the dashboard - time-based, not
+> data-based, so the panel always reaches the dashboard whether or not a
+> controller is talking. The remaining open question - a splash the user can
+> *choose* (a LittleFS file, a settings entry) - is still not built, and is now
+> the only part of this item left.
 
 ### 3.2 Display scaling / other panel sizes
 Currently out of scope, and worth stating precisely why: `theme.h` is a

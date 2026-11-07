@@ -74,8 +74,8 @@ predate the fuel row, the repeaters and the odometer.*
 
 | Band | Contents |
 |---|---|
-| Rev bar | One segmented bar across the full 800 px, `1`–`7` above it and `x1000` at the right, then the rpm as a large centred number on its own row — with a **turn-indicator arrow at each end of that row**, dark until the car blinks |
-| Tiles | `SPEED` (km/h or mph + peak) · `BOOST` (value, unit, a bar, peak) · `TEMPERATURES` (coolant, oil and **fuel**, each with its unit and a bar) · `HALDEX` (mode, coupling state, lock requested / actual, throttle) — **tap it to step the Haldex mode** |
+| Rev bar | One segmented bar across the full 800 px, `1`–`7` above it and `x1000` at the right, then the rpm as a large centred number on its own row — with a **turn-indicator arrow at each end of that row**, hidden until the car blinks, then flashing green |
+| Tiles | `SPEED` (km/h or mph + peak) · `BOOST` (value, unit, a bar, peak) · the **temperatures card** (`COOLANT`, `OIL` and `FUEL`, each with its unit and a bar; no caption of its own — its first row lines up with the other cards' captions) · `HALDEX` (mode, coupling state, lock requested / actual, throttle) — **tap it to step the Haldex mode** |
 | Status bar | Data-state dot, the BRAKE / HAND / TC / ASR / **CC** lamps, the **odometer**, and the RESET PEAKS / SETTINGS buttons |
 
 The tile band follows the same geometry as the browser page, from one unit:

@@ -1,0 +1,11 @@
+FontAwesome-4.7.ttf is Font Awesome 4.7.0 by Dave Gandy
+(https://fontawesome.com, https://github.com/FortAwesome/Font-Awesome).
+
+The font files are licensed under the SIL Open Font License, Version 1.1
+(https://scripts.sil.org/OFL); the standard OFL 1.1 text is reproduced in
+OFL.txt beside this file. The Font Awesome CSS and documentation are licensed
+under the MIT License.
+
+Only two glyphs are used by this project - U+F060 (arrow-left) and U+F061
+(arrow-right), the indicator repeaters' block arrows - converted at build time
+by tools/make_fonts.sh into src/ui/fonts/font_arrow_52.c, which is committed.

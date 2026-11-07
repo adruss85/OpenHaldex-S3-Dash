@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Boot Splash</title>
+<style>
+/* 800x480 splash, scaled to fit. Plain CSS gradients only; no filters or external assets. */
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;background:#000;overflow:hidden;font-family:"DejaVu Sans",Arial,Helvetica,sans-serif}
+#stage{position:absolute;left:50%;top:50%;width:800px;height:480px;transform-origin:0 0;overflow:hidden;
+ background:
+  radial-gradient(ellipse 520px 300px at 50% 46%,rgba(239,68,68,.30),rgba(239,68,68,0) 70%),
+  radial-gradient(ellipse 700px 260px at 100% 100%,rgba(34,192,240,.16),rgba(34,192,240,0) 70%),
+  linear-gradient(160deg,#0f1424 0%,#12090f 55%,#000 100%)}
+#mark{position:absolute;left:0;top:162px;width:800px;text-align:center;color:#eceff4;
+ animation:in 1s ease-out both}
+@keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+#name{font-size:96px;font-weight:700;font-style:italic;letter-spacing:6px;line-height:100px}
+#name b{color:#ef4444}
+#rule{width:380px;height:3px;margin:22px auto 0;background:rgba(255,255,255,.12);position:relative;overflow:hidden}
+#rule i{position:absolute;left:0;top:0;height:3px;width:0;
+ background:linear-gradient(90deg,#22c55e,#22c0f0);animation:ld 2.6s ease-out forwards .5s}
+@keyframes ld{to{width:100%}}
+#tag{margin-top:20px;font-size:15px;font-weight:700;letter-spacing:5px;color:#9aa3ad}
+</style></head><body>
+<div id="stage">
+ <div id="mark">
+  <div id="name"></div>
+  <div id="rule"><i></i></div>
+  <div id="tag"></div>
+ </div>
+</div>
+<script>
+/* ---- Edit these ---- */
+var NAME_A='CAN', NAME_B='DASH';   /* A is white, B is red */
+var TAGLINE='TRACK DASH FOR OPENHALDEX';
+/* -------------------- */
+var $=function(i){return document.getElementById(i)};
+$('name').innerHTML=NAME_A+'<b>'+NAME_B+'</b>';$('tag').textContent=TAGLINE;
+function fit(){var k=Math.min(innerWidth/800,innerHeight/480),st=$('stage').style;
+ st.transform='scale('+k+')';st.marginLeft=(-400*k)+'px';st.marginTop=(-240*k)+'px'}
+fit();onresize=fit;
+</script></body></html>

@@ -8,7 +8,13 @@
 // =====================================================================
 #pragma once
 
-#define OHX_DASH_VERSION "0.6.0"  // Layout C: fuel + odometer + indicator repeaters, metric/imperial,
+#define OHX_DASH_VERSION "0.6.1"  // Layout C tweaks: boot splash (fixed 3 s hold, 80 px
+// CAN DASH, a flat fill that tracks the hold - gradients dropped, the panel bands
+// them); indicator repeaters are solid block arrows, hidden when idle and
+// flashing green/off at the car's ~1.5 Hz; shift flash purple/off, not
+// purple/gradient; the CC "armed" lamp is much darker; the temperatures card
+// loses its title so its three rows fill the tile
+// 0.6.0 - Layout C: fuel + odometer + indicator repeaters, metric/imperial,
 // auto day/night, shift flash on the bar, settings page without scrolling
 // 0.5.1 - internal RAM: LVGL pool and relay tables in PSRAM, [ram] reports
 // 0.5.0 - CAN relay receiver, DBC tables, CAN DATA page, less HTTP

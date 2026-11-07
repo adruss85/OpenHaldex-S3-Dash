@@ -39,6 +39,7 @@
 #include "app/ota.h"
 #include "theme.h"
 #include "ohx_proto.h"
+#include "version.h"
 #include "ui/can_ui.h"
 #include "ui/raw_ui.h"
 
@@ -56,14 +57,21 @@ constexpr float kTau = 0.11f;  // interpolation time constant, as in dash.html
 // 8 Hz was a strobe rather than a cue (#10).
 constexpr uint32_t kFlashMs = 125;
 
-// The indicator repeaters flash at the same cadence. One constant, because on
-// the glass 4 Hz is noticeably quicker than the car's own ~1.5 Hz blink - if it
-// looks wrong next to the cluster, this is the number to change (#5).
-constexpr uint32_t kIndicatorFlashMs = 125;
+// The indicator repeaters blink at the car's own rate, not the shift light's.
+// A VAG indicator flashes at about 1.5 Hz, so a 333 ms half-period matches what
+// the cluster beside it is doing; the earlier 125 ms (4 Hz) read as a strobe.
+// Kept separate from kFlashMs because the shift cue and a turn signal are not
+// the same cue and must be tunable apart (#5).
+constexpr uint32_t kIndicatorFlashMs = 333;
 // How long a seen indicator bit keeps the repeater alive. A VW indicator's dark
 // phase is ~330 ms, so a 1 s latch rides through it, and a lost frame (the relay
 // is 9/s and lossy) cannot cancel a signal that is still going.
 constexpr uint32_t kIndicatorHoldMs = 1000;
+
+// The repeater glyph box. FONT_ARROW is a 52 px face whose arrow glyphs measure
+// 44 x 46, so the box is that plus a little slack for the label to centre in.
+constexpr int kArrowW = 56;
+constexpr int kArrowH = 56;
 
 // Fuel smoothing (#4): the tank sloshes, so the displayed level is a 5 s
 // exponential low-pass (kFuelTau) and a sample that would move it faster than
@@ -165,6 +173,10 @@ struct Widgets {
   // settings card would be redrawn with it on every scroll step.
   lv_obj_t *root = nullptr;
   lv_obj_t *top = nullptr;  // the whole top band; long-press opens settings
+  // The boot splash, a sibling of root and on top of it. It is built once and
+  // deleted the first time real data arrives; until then it owns the glass and
+  // the dashboard is hidden underneath it.
+  lv_obj_t *splash = nullptr;
 
   // The rev bar, its cells, the row of numbers under it and the big number's
   // row. A group each, so the debug mask can hide them one at a time.
@@ -176,8 +188,12 @@ struct Widgets {
 
   lv_obj_t *rpmVal = nullptr;  // the big number, centred on its own row
 
-  // The indicator repeaters: two arrows flanking that number (#5). Always
-  // present, dark when nothing is blinking, so the row never re-lays out.
+  // The indicator repeaters: a left and a right arrow flanking that number
+  // (#5). One glyph each, from the FontAwesome face (see FONT_ARROW), because
+  // LVGL's built-in LEFT/RIGHT symbols are chevrons and its symbol font carries
+  // no filled block arrow - the shape the mockup draws. Both are hidden when
+  // nothing is blinking, so a dark dash shows no arrow furniture at all; a
+  // blink shows the arrow in green and hides it again for the "off" phase.
   lv_obj_t *indLeft = nullptr, *indRight = nullptr;
 
   lv_obj_t *speedVal = nullptr, *speedPeak = nullptr, *speedUnit = nullptr;
@@ -236,6 +252,17 @@ uint32_t g_lastTickMs = 0;
 // Which page is on the glass; Page::Dashboard means the dashboard is.
 Page g_page = Page::Dashboard;
 bool g_stale = true;
+
+// The boot splash owns the glass until the first real data arrives, then it is
+// removed for good. While it is up the dashboard is hidden underneath it, so the
+// panel draws one static mark instead of a full dashboard it has no data for.
+bool g_splashUp = false;
+
+// How long the splash holds before the dashboard takes over. Time-based, not
+// data-based: the panel always reaches the dashboard, controller or not.
+constexpr uint32_t kSplashMs = 3000;
+uint32_t g_splashStartMs = 0;
+lv_obj_t *g_splashRule = nullptr;  // the progress fill under the name
 
 // Which cells of the rev bar are currently lit: 1 lit, 0 dark, -1 unknown.
 // -1 is the state after start-up and after the zone colours change, so the
@@ -440,13 +467,14 @@ void lampState(lv_obj_t *l, bool on, bool red) {
 
 // The cruise lamp: three states rather than two, because "armed" (the column
 // switch is on) and "regulating" (the engine is holding a speed) are different
-// facts and telling them apart is the whole point of showing it. Dark green
-// armed, the indicator green when it is actually working.
+// facts and telling them apart is the whole point of showing it. A very dark
+// green when armed, the indicator green when it is actually working: the armed
+// state is a reminder that the system exists, not a call to look at it.
 void lampStateCruise(lv_obj_t *l, const int state) {  // 0 off, 1 armed, 2 regulating
   if (state <= 0) {
     lampPaint(l, false, COL_GREEN, lv_color_black());
   } else if (state == 1) {
-    lampPaint(l, true, COL_GREEN_DIM, lv_color_white());
+    lampPaint(l, true, COL_GREEN_DIMMER, lv_color_white());
   } else {
     lampPaint(l, true, COL_GREEN, lv_color_black());
   }
@@ -505,6 +533,41 @@ void syncGauge() {
   }
 }
 
+// Indicator repeaters. LVGL's built-in LV_SYMBOL_LEFT/RIGHT are chevrons (0xF053
+// / 0xF054), and its symbol font carries no filled block arrow, which is the
+// shape the approved layout C mockup draws. FontAwesome 4.7 has exactly that
+// shape at 0xF060 / 0xF061, so those two glyphs are converted into their own
+// face (FONT_ARROW) and drawn as plain labels - a glyph blit, which is the
+// cheapest thing the panel can draw, and nothing like the cost of the six
+// lv_line objects the open-outline version needed.
+constexpr const char *kArrowLeft = "\xEF\x81\xA0";   // U+F060, FA arrow-left
+constexpr const char *kArrowRight = "\xEF\x81\xA1";  // U+F061, FA arrow-right
+
+// One arrow label. Hidden at build: an arrow is on the glass only while its
+// side is actually blinking, so the number's row carries no permanent
+// grey furniture.
+lv_obj_t *buildIndicatorArrow(lv_obj_t *parent, int x, int y, const char *glyph) {
+  lv_obj_t *a = fixedLabel(parent, x, y, kArrowW, kArrowH, FONT_ARROW, COL_GREEN, glyph);
+  lv_obj_set_style_text_align(a, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_add_flag(a, LV_OBJ_FLAG_HIDDEN);
+  return a;
+}
+
+// Lit -> the arrow is on the glass in green. Dark -> it is gone entirely. The
+// flag is checked first because LVGL invalidates on the way in either way, and
+// this runs every frame.
+void setIndicator(lv_obj_t *arrow, bool lit) {
+  if (!arrow) return;
+  const bool hidden = lv_obj_has_flag(arrow, LV_OBJ_FLAG_HIDDEN);
+  if (lit == !hidden) return;
+  if (lit) {
+    setTextColor(arrow, COL_GREEN);
+    lv_obj_remove_flag(arrow, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(arrow, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 // The rev bar: 40 opaque cells, painted once at build and then only ever
 // recoloured where the fill edge has moved. Nothing is resized, moved or
 // re-laid-out, which is what keeps a frame cheap.
@@ -540,14 +603,12 @@ void buildGauge(lv_obj_t *parent) {
   lv_obj_set_style_text_align(w.rpmVal, LV_TEXT_ALIGN_CENTER, 0);
 
   // The indicator repeaters: an arrow at each end of the number's row, as in
-  // layout C. They are always there, dark when nothing is blinking, so the row
-  // never re-lays-out and a lit arrow is the only thing that repaints (#5).
-  const int altH = FONT_MODE->line_height > 0 ? FONT_MODE->line_height : 32;
-  w.indLeft = fixedLabel(w.numGrp, 2 * L::TILE_PAD_H, (L::RPM_NUM_H - altH) / 2, 56, altH,
-                         FONT_MODE, COL_LAMP_TXT_OFF, LV_SYMBOL_LEFT);
-  w.indRight = fixedLabel(w.numGrp, L::W - 2 * L::TILE_PAD_H - 56, (L::RPM_NUM_H - altH) / 2, 56,
-                          altH, FONT_MODE, COL_LAMP_TXT_OFF, LV_SYMBOL_RIGHT);
-  lv_obj_set_style_text_align(w.indRight, LV_TEXT_ALIGN_RIGHT, 0);
+  // layout C. Both are created hidden and left that way unless a side is
+  // blinking, so the row shows nothing but the number at rest (#5).
+  const int arrowY = (L::RPM_NUM_H - kArrowH) / 2;
+  w.indLeft = buildIndicatorArrow(w.numGrp, 2 * L::TILE_PAD_H, arrowY, kArrowLeft);
+  w.indRight = buildIndicatorArrow(w.numGrp, L::W - 2 * L::TILE_PAD_H - kArrowW, arrowY,
+                                   kArrowRight);
 
   syncGauge();
 }
@@ -565,13 +626,25 @@ layout::Variant g_variant = layout::Variant::Full;
 bool g_placed = false;
 
 // The temperatures panel's three rows (coolant / oil / fuel) share one pitch,
-// so the build pass and the placement pass cannot drift apart: the value box
-// starts at the row, the caption is centred against it, and the bar runs under
-// it. 3 x 64 px plus the caption fits the 220 px tile exactly (#11).
+// so the build pass and the placement pass cannot drift apart.
+//
+// The card carries no title of its own - "coolant", "oil" and "fuel" say what
+// the card is - so its first row has to sit where every other card's caption
+// sits, TILE_PAD_V, and the three rows then fill the tile (#11). The anchor per
+// row is therefore the *caption's* box top, not a notional row top.
+//
+// The caption and the value share a baseline. At montserrat_12 (FONT_CAP) the
+// caption's baseline is 12 px below its box top; at montserrat_22 (FONT_TEMP)
+// the value's is 20 px below its. So a value box 8 px above the caption's puts
+// the two on one line - the relationship the Haldex tile's LOCK REQ / LOCK ACT
+// rows already use. The bar runs 30 px below the caption.
 constexpr int kTempRows = 3;
-constexpr int kTempRowY[kTempRows] = {30, 94, 158};
+constexpr int kTempPitch = 80;
+constexpr int kTempCapY[kTempRows] = {L::TILE_PAD_V, L::TILE_PAD_V + kTempPitch,
+                                      L::TILE_PAD_V + 2 * kTempPitch};
+constexpr int kTempValDY = -8;   // value box top, from the caption's
 constexpr int kTempValH = 30;
-constexpr int kTempBarDY = 40;
+constexpr int kTempBarDY = 30;   // bar top, from the caption's
 
 void buildTiles(lv_obj_t *parent) {
   const int y = L::TILE_Y;
@@ -618,33 +691,31 @@ void buildTiles(lv_obj_t *parent) {
   lv_obj_set_style_border_width(t2, 1, 0);
   lv_obj_set_style_border_color(t2, COL_LINE, 0);
 
-  cap = label(t2, FONT_CAP, COL_DIM, "TEMPERATURES");
-  lv_obj_set_pos(cap, L::TILE_PAD_H, L::TILE_PAD_V);
-
-  // Three rows now: coolant, oil and fuel (layout C). The unit rides in the
-  // value label - "79 °C", "49.6 L" - so a reading is never ambiguous: the
-  // temperatures follow the C/F toggle and the fuel is always litres (the
-  // metric/imperial toggle is about distance). Row pitch 64 px, which is what
-  // lets three of them plus the caption fit the 220 px tile with no scrolling and
-  // no shrinking of FONT_TEMP (#11).
+  // Three rows: coolant, oil and fuel (layout C), with no caption above them -
+  // the card is named by its contents, so the first row starts where the cards
+  // beside it put their captions. The unit rides in the value label - "79 °C",
+  // "49.6 L" - so a reading is never ambiguous: the temperatures follow the C/F
+  // toggle and the fuel is always litres (the metric/imperial toggle is about
+  // distance). The 80 px pitch is what fills the tile without scrolling and
+  // without shrinking FONT_TEMP (#11).
   const int tw = L::COL2_W - 2 * L::TILE_PAD_H;
-  const int *const rowY = kTempRowY;
+  const int *const rowY = kTempCapY;
 
   lv_obj_t *cl = label(t2, FONT_CAP, COL_DIM, "COOLANT");
-  lv_obj_set_pos(cl, L::TILE_PAD_H, rowY[0] + 12);
-  w.coolVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[0] + 2, 100, kTempValH, FONT_TEMP, COL_FG, "--");
+  lv_obj_set_pos(cl, L::TILE_PAD_H, rowY[0]);
+  w.coolVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[0] + kTempValDY, 100, kTempValH, FONT_TEMP, COL_FG, "--");
   lv_obj_set_style_text_align(w.coolVal, LV_TEXT_ALIGN_RIGHT, 0);
   w.coolBar = bar(t2, L::TILE_PAD_H, rowY[0] + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
 
   lv_obj_t *ol = label(t2, FONT_CAP, COL_DIM, "OIL");
-  lv_obj_set_pos(ol, L::TILE_PAD_H, rowY[1] + 12);
-  w.oilVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[1] + 2, 100, kTempValH, FONT_TEMP, COL_FG, "--");
+  lv_obj_set_pos(ol, L::TILE_PAD_H, rowY[1]);
+  w.oilVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[1] + kTempValDY, 100, kTempValH, FONT_TEMP, COL_FG, "--");
   lv_obj_set_style_text_align(w.oilVal, LV_TEXT_ALIGN_RIGHT, 0);
   w.oilBar = bar(t2, L::TILE_PAD_H, rowY[1] + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
 
   lv_obj_t *fl = label(t2, FONT_CAP, COL_DIM, "FUEL");
-  lv_obj_set_pos(fl, L::TILE_PAD_H, rowY[2] + 12);
-  w.fuelVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[2] + 2, 100, kTempValH, FONT_TEMP, COL_FG, "--");
+  lv_obj_set_pos(fl, L::TILE_PAD_H, rowY[2]);
+  w.fuelVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[2] + kTempValDY, 100, kTempValH, FONT_TEMP, COL_FG, "--");
   lv_obj_set_style_text_align(w.fuelVal, LV_TEXT_ALIGN_RIGHT, 0);
   w.fuelBar = bar(t2, L::TILE_PAD_H, rowY[2] + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
 
@@ -707,11 +778,11 @@ void placeTempsTile(lv_obj_t *t, int x, int width, int height) {
   lv_obj_set_pos(t, x, L::TILE_Y);
   lv_obj_set_size(t, width, height);
   const int tw = width - 2 * L::TILE_PAD_H;
-  lv_obj_set_pos(w.coolVal, L::TILE_PAD_H + tw - 100, kTempRowY[0] + 2);
+  lv_obj_set_pos(w.coolVal, L::TILE_PAD_H + tw - 100, kTempCapY[0] + kTempValDY);
   lv_obj_set_width(w.coolBar, tw);
-  lv_obj_set_pos(w.oilVal, L::TILE_PAD_H + tw - 100, kTempRowY[1] + 2);
+  lv_obj_set_pos(w.oilVal, L::TILE_PAD_H + tw - 100, kTempCapY[1] + kTempValDY);
   lv_obj_set_width(w.oilBar, tw);
-  lv_obj_set_pos(w.fuelVal, L::TILE_PAD_H + tw - 100, kTempRowY[2] + 2);
+  lv_obj_set_pos(w.fuelVal, L::TILE_PAD_H + tw - 100, kTempCapY[2] + kTempValDY);
   lv_obj_set_width(w.fuelBar, tw);
 }
 
@@ -1323,10 +1394,13 @@ const char *boostUnitText() {
 // else, so even the state comparison is belt and braces.
 //
 // The shift cue lives here rather than on the number (#10): at or above
-// rpmShift the lit cells alternate between their zone colour and the shift
-// purple, and at the limiter they alternate with red. A 96 px number strobing
-// was hard to read; a bar pulsing is not. The colour is only recomputed while a
-// shift is on, so a steady bar costs exactly what it did before.
+// rpmShift the lit cells alternate between the shift purple and a flat dark, and
+// at the limiter between red and that same dark. Flashing to a flat off - not
+// back to the zone colour - is deliberate: pulsing between two lit colours read
+// as a colour change, and pulsing to the per-zone tints still carried a
+// green/amber/red gradient through the blink. A 96 px number strobing was hard
+// to read; a bar pulsing is not. The colour is only recomputed while a shift is
+// on, so a steady bar costs exactly what it did before.
 void updateRevBar(const cfg::Data &c, float rpm) {
   if (!dbg(1)) return;
 
@@ -1341,12 +1415,23 @@ void updateRevBar(const cfg::Data &c, float rpm) {
   const lv_color_t flashCol = limiter ? COL_RED : COL_SHIFT;
 
   for (int i = 0; i < L::BAR_SEG; i++) {
-    // 0 dark, 1 lit in its zone colour, 2 lit in the flash colour.
-    const int8_t want = (i < lit) ? (shifting && g_flashOn ? 2 : 1) : 0;
+    // 0 = empty (faint zone tint), 1 = lit in its zone colour, 2 = lit in the
+    // flash colour, 3 = the dark half of a shift flash: a flat dark, not the
+    // zone tint, so nothing of the zone gradient shows through the blink.
+    int8_t want;
+    if (i >= lit) {
+      want = 0;
+    } else if (!shifting) {
+      want = 1;
+    } else {
+      want = g_flashOn ? 2 : 3;
+    }
     if (g_revLit[i] != want) {
       g_revLit[i] = want;
-      const lv_color_t col = want == 0 ? g_revCol[i].unlit
-                                       : (want == 2 ? flashCol : g_revCol[i].lit);
+      const lv_color_t col = (want == 0)   ? g_revCol[i].unlit
+                             : (want == 1) ? g_revCol[i].lit
+                             : (want == 2) ? flashCol
+                                           : COL_TRACK;
       setBgColor(w.revCell[i], col, 0);
     }
   }
@@ -1380,17 +1465,19 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
   char buf[32];
 
   // ---- indicator repeaters (#5). The frame gives the direction and the fact
-  // that something is blinking; the flash phase is ours, at the shift light's
-  // cadence, and the latch means a dropped packet cannot cancel a signal. Left
-  // and right are separate arrows, so hazards (both bits) light both.
+  // that something is blinking; the flash phase is ours, at the car's own ~1.5 Hz,
+  // and the latch means a dropped packet cannot cancel a signal. Left and right
+  // are separate arrows, so hazards (both bits) light both. An arrow is on the
+  // glass only during its side's lit phase - the dark phase hides it, so there
+  // is no grey arrow sitting on the dash between blinks.
   if (d.indicators > 0) {
     g_indMask = d.indicators;
     g_indMaskMs = millis();
   }
   const bool indOn = g_indMask != 0 && (uint32_t)(millis() - g_indMaskMs) < kIndicatorHoldMs;
   const bool indLit = indOn && g_indOn;
-  setTextColor(w.indLeft, (indLit && (g_indMask & 1)) ? COL_GREEN : COL_LAMP_TXT_OFF);
-  setTextColor(w.indRight, (indLit && (g_indMask & 2)) ? COL_GREEN : COL_LAMP_TXT_OFF);
+  setIndicator(w.indLeft, indLit && (g_indMask & 1));
+  setIndicator(w.indRight, indLit && (g_indMask & 2));
 
   // ---- odometer, where the rpm peak used to be (#6)
   if (isnan(d.odometerKm)) {
@@ -1717,6 +1804,79 @@ void updateConn(bool stale) {
   }
 }
 
+// ---------------------------------------------------------- boot splash
+// The panel is blank for the second between power-on and the first frame. The
+// splash covers that gap and then hands over after a fixed three seconds -
+// always, controller or not, so the panel can never be left sitting on it.
+//
+// Deliberately plain: a flat black field, the name, a rule that fills as the
+// hold elapses, and the version. The mockup in docs/mockups/splash.html layers
+// complex gradients behind the mark, but the S3's software renderer draws those
+// in visible bands and slowly enough that the fill outruns the paint, so the
+// glows were dropped for something the panel draws in one pass.
+//
+// It is built once and deleted when it drops, so its widgets go back to the LVGL
+// pool and cost nothing for the rest of the drive.
+void buildSplash(lv_obj_t *parent) {
+  w.splash = opaque(parent, 0, 0, L::W, L::H, COL_BG);
+
+  // ---- the name: CAN (white) + DASH (red), one centred row in the 80 px face.
+  lv_obj_t *nameRow = plain(w.splash, 0, 150, L::W, 104);
+  lv_obj_set_flex_flow(nameRow, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(nameRow, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(nameRow, 26, 0);
+  label(nameRow, FONT_NAME, COL_WHITE, "CAN");
+  label(nameRow, FONT_NAME, COL_RED, "DASH");
+
+  // ---- the rule: a dim track with a flat green fill that grows left to right
+  // as the three-second hold elapses (updateSplash() below drives the width).
+  const int ruleW = 380;
+  const int ruleX = (L::W - ruleW) / 2;
+  const int ruleY = 272;
+  opaque(w.splash, ruleX, ruleY, ruleW, 3, lv_color_hex(0x2a2f36));
+  g_splashRule = opaque(w.splash, ruleX, ruleY, 1, 3, COL_GREEN);
+
+  // ---- tagline and version. The version is the one thing here worth reading off
+  // the glass at boot.
+  lv_obj_t *tag =
+      fixedLabel(w.splash, 0, 292, L::W, 20, FONT_BODY, COL_DIM, "TRACK DASH FOR OPENHALDEX");
+  lv_obj_set_style_text_align(tag, LV_TEXT_ALIGN_CENTER, 0);
+  char vbuf[32];
+  snprintf(vbuf, sizeof(vbuf), "v%s", OHX_DASH_VERSION);
+  lv_obj_t *ver = fixedLabel(w.splash, 0, 316, L::W, 18, FONT_SMALL, COL_DIM, vbuf);
+  lv_obj_set_style_text_align(ver, LV_TEXT_ALIGN_CENTER, 0);
+}
+
+// Hide the splash and hand the glass to the dashboard. Called once, when the
+// three-second hold elapses. The splash is never shown again, so it is deleted
+// rather than left hidden: its widgets - logo, rule, labels - go straight back
+// to the LVGL pool, which is what keeps it from costing anything for the rest of
+// the drive.
+void hideSplash() {
+  if (!g_splashUp) return;
+  g_splashUp = false;
+  g_splashRule = nullptr;
+  if (w.splash) {
+    lv_obj_delete(w.splash);
+    w.splash = nullptr;
+  }
+  if (w.root) lv_obj_remove_flag(w.root, LV_OBJ_FLAG_HIDDEN);
+  Serial.println("[ui] splash down: dashboard up");
+}
+
+// Advance the splash: fill the rule with the elapsed time and, at three seconds,
+// hand the glass to the dashboard. Called every tick while the splash is up.
+void updateSplash(uint32_t now) {
+  if ((uint32_t)(now - g_splashStartMs) >= kSplashMs) {
+    hideSplash();
+    return;
+  }
+  if (g_splashRule) {
+    const int w = (int)((380u * (now - g_splashStartMs)) / kSplashMs);
+    lv_obj_set_width(g_splashRule, w < 1 ? 1 : w);
+  }
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------- API
@@ -1767,6 +1927,15 @@ void begin() {
   g_lastTickMs = millis();
   g_lastFlashMs = millis();
   g_lastIndMs = millis();
+
+  // The splash goes up last, on top of the whole dashboard, and the dashboard
+  // stays hidden underneath it until the hold elapses. Nothing else needs to
+  // know: tick() takes both back down together.
+  buildSplash(scr);
+  g_splashUp = true;
+  g_splashStartMs = g_lastTickMs;
+  if (w.root) lv_obj_add_flag(w.root, LV_OBJ_FLAG_HIDDEN);
+  Serial.printf("[ui] splash up (v%s), %lu ms\n", OHX_DASH_VERSION, (unsigned long)kSplashMs);
 }
 
 void applyDebugMask() {
@@ -1804,8 +1973,8 @@ void tick() {
     g_flashOn = !g_flashOn;
   }
 
-  // The indicator repeaters keep their own phase, so the two cadences can be
-  // tuned apart from each other (#5). Same 4 Hz by default.
+  // The indicator repeaters blink at the car's own rate, slower than the shift
+  // cue, so the two cadences are tuned apart (#5).
   if ((uint32_t)(now - g_lastIndMs) >= kIndicatorFlashMs) {
     g_lastIndMs = now;
     g_indOn = !g_indOn;
@@ -1842,6 +2011,14 @@ void tick() {
                   (unsigned long)staleEvents);
   }
   g_stale = stale;
+
+  // The splash owns the glass for a fixed three seconds, controller or not, so
+  // the panel always reaches the dashboard. updateSplash() fills the rule and,
+  // at the end of the hold, deletes the splash and reveals the dashboard.
+  if (g_splashUp) {
+    updateSplash(now);
+    return;
+  }
 
   // Targets -> interpolated values.
   g_target.rpm = l.rpm;
@@ -2027,9 +2204,11 @@ void setPage(Page p) {
     lv_obj_add_flag(w.kb, LV_OBJ_FLAG_HIDDEN);
   }
   // Hidden rather than merely covered: a covered object is still drawn
-  // first, which is the whole cost this avoids.
+  // first, which is the whole cost this avoids. While the boot splash is up the
+  // dashboard stays hidden whatever page is asked for, so a stray console
+  // command cannot put it on the glass behind the splash.
   if (w.root) {
-    if (p == Page::Dashboard) {
+    if (p == Page::Dashboard && !g_splashUp) {
       lv_obj_remove_flag(w.root, LV_OBJ_FLAG_HIDDEN);
     } else {
       lv_obj_add_flag(w.root, LV_OBJ_FLAG_HIDDEN);
