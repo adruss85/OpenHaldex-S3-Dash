@@ -2,11 +2,14 @@
 
 Drawn up from the drive of 2026-11-06 (0.5.1) and the code as it stands.
 
-> **This batch is delivered.** Items **1–12 all shipped in 0.6.0** (commits
-> `7017271`, `0062487`, `1eb4930`, `7260267`), so this document is kept as the
-> plan and the evidence behind them rather than as a to-do list. The only live
-> items are **13** (paused by decision) and **14** (a placeholder waiting for a
-> bus the relay does not carry). What is still unbuilt or unproven lives in
+> **This batch is delivered.** Items **1–12 all shipped** (1–12 in 0.6.0,
+> commits `7017271`, `0062487`, `1eb4930`, `7260267`; the boot splash, real
+> block-arrow indicator repeaters, the 1.5 Hz flash cadence, the purple/off
+> shift flash, the dimmer CC lamp and the repositioned temperatures rows in
+> 0.6.1, commit `35f763a`), so this document is kept as the plan and the
+> evidence behind them rather than as a to-do list. The only live items are
+> **13** (paused by decision) and **14** (a placeholder waiting for a bus the
+> relay does not carry). What is still unbuilt or unproven lives in
 > [TODO.md](../TODO.md).
 
 The short version:
@@ -380,7 +383,10 @@ is also the answer to your question:
 and `validate()` gains `amber ≤ shift ≤ redline ≤ max`, so stored values are clamped
 into a sensible order on load rather than silently disagreeing with each other.
 
----
+**As built (0.6.1):** the shift cells flash between the flash colour (purple
+`0x8b5cf6` at the shift point, red at the limiter) and a flat dark
+(`COL_TRACK`) — no per-zone green/amber/red gradient bleeds through the off
+phase, and a dedicated cell state 3 keeps the unlit cells dark.
 
 ## 11. Dashboard layout C — P2
 
@@ -416,6 +422,11 @@ reusing `bar()` and the placement pass) and its two existing rows gain a unit su
 the status-bar label is renamed and reformatted (#6), and the two arrows are two small
 labels added beside the rev number. The `Full` band gets the same fuel row as a fourth
 entry beside boost.
+
+**As built (0.6.1):** the card's `TEMPERATURES` caption was dropped — the card is named
+by its contents — and the three rows were re-anchored to `TILE_PAD_V` on an 80 px pitch,
+so `COOLANT` lines up horizontally with `SPEED`, `BOOST` and `HALDEX` (the caption had
+sat ~19 px low).
 
 ---
 
