@@ -152,7 +152,7 @@ const RowDef kRowsC[] = {
     {F_DCAN, "chassis / haldex", false},
     {F_DBRAKE, "brakeIn / handbrIn", false},
     {F_DBRKCAN, "brkCAN/hand/bar", false},
-    {F_DSTEER, "steerAngle", false},
+    {F_DSTEER, "steerAngle (merged)", false},
     {F_DTC, "tc/asr/lamp/act", false},
     {F_DAWD, "awd/coup/tempPr", false},
     {F_DAGE, "age ms", false},
@@ -533,8 +533,9 @@ void refresh() {
   snprintf(s, sizeof s, "%s/%s/%sbar", fint(a, dd.brakeFromCAN), fint(b, dd.handbrakeFromCAN),
            fnum(c, dd.brakeBar, 1));
   setText(g_val[F_DBRKCAN], s);
-  // Gen1 gating: the packet carries a steering angle, the JSON path reports
-  // this one as null. Seeing them disagree is the point of the row.
+  // Merged, not HTTP: on Gen1 the JSON path reports null while the packet
+  // carries the angle, and datafeed prefers the packet. The disagreement
+  // itself is what 'e' on the console still shows, side by side.
   setText(g_val[F_DSTEER], fnum(a, dd.steeringAngle, 0));
   // tc / asr are the controller's enabled flags; lamp / act are the car's own
   // tell-tale (BR1_Lamp_ASR) and its intervention bit (BR1_ASR_Req). The

@@ -126,6 +126,11 @@ telemetry::Dash dash() {
   v.haldexState = (int)p.haldexState;
   v.lockTarget = pickInt(p.lockTarget, http.lockTarget);
   v.lockActual = pickInt(p.lockActual, http.lockActual);
+  // Steering: packet first, because /api/dashboard gates steeringAngle on the
+  // Haldex generation and reports null on Gen1 while the same angle is in every
+  // packet (see docs/upstream-steering-report.md). Merged here, not in the
+  // transport, so the JSON's own null is still what 'e' compares.
+  v.steeringAngle = pick(p.steering, http.steeringAngle);
   v.chassisCAN = p.chassisCan;
   v.haldexCAN = p.haldexCan;
   v.brakeIn = p.brake;
