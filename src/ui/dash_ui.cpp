@@ -1219,12 +1219,15 @@ void buildSettings() {
   // the access point with, and the HMAC key every ESP-NOW command has to be
   // signed with. Empty is therefore not "no password needed" - it is a key
   // anyone in range can compute, against a nonce the controller broadcasts.
-  w.ctrlLine = fixedLabel(card, 0, y, 340, 18, FONT_SMALL, COL_DIM, "control: waiting");
-  y += 18;
-  w.ctrlWarn = fixedLabel(card, 0, y, 340, 18, FONT_SMALL, COL_AMBER, "");
-  y += 18;
-  w.otaLine = fixedLabel(card, 0, y, 340, 18, FONT_SMALL, COL_DIM, "OTA: --");
-  y += 24;
+
+  // Ten pixels of air under the HOST box. At two it sat flush against the
+  // field's bottom border, and because the line is 340 px wide - the whole way
+  // under the field - it read as part of it on the glass (seen in a photo of
+  // 0.6.2, where "control:" looked like it was inside the HOST box).
+  w.ctrlLine = fixedLabel(card, 0, y + 10, 340, 18, FONT_SMALL, COL_DIM, "control: waiting");
+  w.ctrlWarn = fixedLabel(card, 0, y + 28, 340, 18, FONT_SMALL, COL_AMBER, "");
+  w.otaLine = fixedLabel(card, 0, y + 46, 340, 18, FONT_SMALL, COL_DIM, "OTA: --");
+  y += 66;  // was 54: the 10 px above, three 18 px lines, and 2 below
 
   lv_obj_t *disp = label(card, FONT_BODY, COL_DIM, "DISPLAY");
   lv_obj_set_pos(disp, 0, y);
