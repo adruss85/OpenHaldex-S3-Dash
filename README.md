@@ -82,7 +82,7 @@ predate the fuel row, the repeaters and the odometer.*
 
 | Band | Contents |
 |---|---|
-| Rev bar | One segmented bar across the full 800 px, `1`–`7` above it and `x1000` at the right, then the rpm as a large centred number on its own row — with a **turn-indicator arrow at each end of that row**, hidden until the car blinks, then flashing green |
+| Rev bar | One continuous bar across the full 800 px (80 cells drawn edge to edge), one number per 1000 rpm above it and `x1000` at the right, then the rpm as a large centred number on its own row — with a **turn-indicator arrow at each end of that row**, hidden until the car blinks, then flashing green |
 | Tiles | `SPEED` (km/h or mph + peak) · `BOOST` (value, unit, a bar, peak) · the **temperatures card** (`COOLANT`, `OIL` and `FUEL`, each with its unit and a bar; no caption of its own — its first row lines up with the other cards' captions) · `HALDEX` (mode, coupling state, lock requested / actual, throttle) — **tap it to step the Haldex mode** |
 | Status bar | Data-state dot, the BRAKE / HAND / TC / ASR / **CC** lamps, the **odometer**, and the RESET PEAKS / SETTINGS buttons |
 
@@ -361,10 +361,22 @@ Defaults match the browser page:
 | Brightness (day) | 100 % |
 | Poll live / dash / stale | 1000 / 1000 / 1500 ms |
 
+The rev bar's scale is a setting: **max, amber, redline and shift all move in
+100 rpm** on the Settings page (max 1000–12000). The tick numbers are placed
+from the scale when it is saved, so a 7000 max spreads them wider than an 8000
+one, and `x1000` at the right-hand end is always shown — a tick label that would
+run under it is dropped rather than overprinted. The bar is 80 cells drawn edge
+to edge, so a cell is exactly 100 rpm at the default 8000; the zone tints
+quantise to a cell, which at other scales is at most ~75 rpm (about 5 px) away
+from the requested edge and not visible at arm's length.
+
 The thresholds are clamped into a sensible order on load and on save —
-`amber ≤ shift ≤ redline ≤ max`, `warn ≤ crit` — so a stored set can never
-disagree with itself. The shift point used to be free, and the shipped default
-sat *above* the redline, which meant the shift cue fired after the limiter.
+`amber ≤ redline ≤ max`, `warn ≤ crit` — so a stored set can never disagree with
+itself. The shift point is deliberately **independent** and only clamped to the
+scale: it starts the bar flash rather than marking a cell, so it can sit
+anywhere on the scale, including above the redline. (Up to 0.6.x it was clamped
+between amber and redline, which was protecting a default that sat above the
+redline — the default was the bug, not the freedom.)
 
 All of it is editable on the device's Settings page — two columns, no scrolling —
 and stored in NVS (`Preferences`, namespace `ohxdash`) as one versioned blob.

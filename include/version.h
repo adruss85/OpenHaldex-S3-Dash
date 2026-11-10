@@ -8,7 +8,12 @@
 // =====================================================================
 #pragma once
 
-#define OHX_DASH_VERSION "0.7.1"  // The cruise lamp's armed state, quietened: dim green
+#define OHX_DASH_VERSION "0.7.2"  // The rev bar again: 80 cells drawn edge to edge (was 40
+// with a 2 px gap) and the scale a setting once more - max, amber, redline and shift all
+// in 100 rpm, with the tick numbers placed from the scale on save. One cell is exactly
+// 100 rpm at the default 8000. The 0.7.1 clamp that held shift between amber and redline
+// is gone: shift only starts the flash and marks no cell, so it is free on the scale.
+// 0.7.1 - The cruise lamp's armed state, quietened: dim green
 // letters on a darker plate. It was white text on 0x0a3d1f, which a 16-bit panel
 // renders as (255,255,255) on (8,60,24) - brighter per pixel than the regulating
 // lamp's fill, so the reminder outshouted the state worth looking at. 0.7.0's code

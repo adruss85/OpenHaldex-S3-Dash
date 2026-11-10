@@ -123,13 +123,16 @@ constexpr int TILE_PAD_H = (U * 11) / 10; // 8
 // bar's moving edge is an opaque rectangle, so a change repaints only the
 // cells that crossed the edge instead of a 279 px anti-aliased arc.
 //
-// The bar is BAR_SEG opaque cells with a BAR_GAP between them. 40 cells over
-// the full 800 px is 20 px per cell, which still reads as a continuous bar at
-// arm's length and keeps the per-frame repaint to about one cell.
+// The bar is BAR_SEG opaque cells, drawn edge to edge so it reads as one
+// continuous bar. 80 cells over the full 800 px is 10 px per cell: the moving
+// edge lands within 5 px of the real fraction (20 px cells were visibly steppy),
+// and because a change repaints only the cell that crossed the edge, narrower
+// cells are cheaper, not dearer (about 1k px per step against 1.9k). It also
+// makes a cell exactly 100 rpm on the default 8000 scale, which is the step the
+// settings page uses.
 constexpr int BAR_X = 0;
 constexpr int BAR_W = W;                  // 0 .. 800: the only full-width item
-constexpr int BAR_SEG = 40;
-constexpr int BAR_GAP = 2;
+constexpr int BAR_SEG = 80;
 
 constexpr int REV_BAR_Y = 6;
 constexpr int REV_BAR_H = 104;            // fat: it is the one the eye tracks

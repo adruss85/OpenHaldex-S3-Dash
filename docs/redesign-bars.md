@@ -60,7 +60,10 @@ the four original tiles below that:
 
 - **40 opaque cells** (`BAR_SEG 40`, `BAR_GAP 2`, `BAR_W` = the full 800 px, so
   20 px per cell). A change of value moves the edge by one cell, so one
-  rectangle is repainted instead of an arc.
+  rectangle is repainted instead of an arc. *(Historical: this is the 0.6.0
+  measurement. The bar is now 80 cells with no gap, drawn edge to edge — the
+  edge step halves to 10 px, and because a step repaints one cell it costs about
+  1k px rather than 1.9k, so it is cheaper as well as smoother.)*
 - **Per-cell state is cached.** `g_revLit[]` holds the last lit/unlit state per
   cell with `-1` meaning "unknown" (forces a repaint after the build and after
   a settings change); `setBgColor()` also guards on the current value. There is

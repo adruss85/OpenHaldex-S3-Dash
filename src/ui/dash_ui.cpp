@@ -553,8 +553,10 @@ void syncGauge() {
     g_revLit[i] = -1;  // force the next update to paint this cell
   }
 
-  // One number per 1000 rpm. The left end (0) has no number and the top of
-  // the scale is where the unit tag sits, so the count is perK - 1.
+  // One number per 1000 rpm, placed in proportion to the scale, so a 7000 scale
+  // spreads them wider than an 8000 one. The left end (0) has no number, and a
+  // label that would run under the "x1000" tag at the right-hand end is dropped:
+  // with a free scale the top label can land there (12000 hides the "11").
   const int perK = (int)lroundf(c.rpmMax / 1000.0f);
   int n = perK - 1;
   if (n < 1) n = 1;
@@ -562,25 +564,30 @@ void syncGauge() {
     n = (int)(sizeof(w.tickLabel) / sizeof(w.tickLabel[0]));
   }
   const int labelW = 40;
+  const int tagW = 48;  // the unit tag, drawn at BAR_W - tagW
   char buf[8];
+  int shown = 0;
   for (int i = 0; i < n; i++) {
+    const float f = (float)((i + 1) * 1000) / c.rpmMax;
+    const int x = (int)lroundf(f * L::BAR_W) - labelW / 2;
+    if (x + labelW > L::BAR_W - tagW) {
+      lv_obj_add_flag(w.tickLabel[i], LV_OBJ_FLAG_HIDDEN);
+      continue;
+    }
     snprintf(buf, sizeof(buf), "%d", i + 1);  // thousands
     setText(w.tickLabel[i], buf);
-    const float f = (float)((i + 1) * 1000) / c.rpmMax;
-    lv_obj_set_x(w.tickLabel[i], (int)lroundf(f * L::BAR_W) - labelW / 2);
+    lv_obj_set_x(w.tickLabel[i], x);
     lv_obj_remove_flag(w.tickLabel[i], LV_OBJ_FLAG_HIDDEN);
+    shown++;
   }
   for (int i = n; i < (int)(sizeof(w.tickLabel) / sizeof(w.tickLabel[0])); i++) {
     lv_obj_add_flag(w.tickLabel[i], LV_OBJ_FLAG_HIDDEN);
   }
-  w.tickLabels = n;
+  w.tickLabels = shown;
 
-  // "x1000" only means something if the scale lands on whole thousands.
-  if (fmodf(c.rpmMax, 1000.0f) == 0.0f) {
-    lv_obj_remove_flag(w.tickUnit, LV_OBJ_FLAG_HIDDEN);
-  } else {
-    lv_obj_add_flag(w.tickUnit, LV_OBJ_FLAG_HIDDEN);
-  }
+  // The unit tag is always shown now: the scale is free, so the labels are
+  // rarely whole thousands and bare "1..7" would mean nothing without it.
+  lv_obj_remove_flag(w.tickUnit, LV_OBJ_FLAG_HIDDEN);
 }
 
 // Indicator repeaters. LVGL's built-in LV_SYMBOL_LEFT/RIGHT are chevrons (0xF053
@@ -631,7 +638,7 @@ void buildGauge(lv_obj_t *parent) {
 
   for (int i = 0; i < L::BAR_SEG; i++) {
     const int x0 = (i * L::BAR_W) / L::BAR_SEG;
-    const int x1 = ((i + 1) * L::BAR_W) / L::BAR_SEG - L::BAR_GAP;
+    const int x1 = ((i + 1) * L::BAR_W) / L::BAR_SEG;
     w.revCell[i] = opaque(w.revGrp, x0, 0, x1 - x0, L::REV_BAR_H, COL_ZONE_GREEN);
   }
 
@@ -1313,13 +1320,21 @@ void buildSettings() {
   // font 12 in 388 px, so 338 + 60 = 398.
   int ty = 60;
   {
-    const StepSpec a[] = {{&g_edit.rpmMax, 250, 3000, 12000, 0}, {&g_edit.rpmAmber, 250, 0, 12000, 0}};
+    // The scale is free again: every rpm threshold moves in 100 rpm, and the
+    // tick numbers and the bar's zone tints are recomputed from it on save
+    // (syncGauge). A zone edge quantises to one bar cell - 100 rpm at the
+    // default 8000, since BAR_SEG is 80 - so at ordinary scales a 100 rpm step
+    // is effectively exact.
+    const StepSpec a[] = {{&g_edit.rpmMax, 100, 3000, 12000, 0},
+                          {&g_edit.rpmAmber, 100, 0, 12000, 0}};
     addStepRow(card, rx, ty, "RPM max / amber", a, 2);
     ty += 40;
   }
   {
-    const StepSpec a[] = {{&g_edit.rpmRedline, 250, 1000, 12000, 0},
-                          {&g_edit.rpmShift, 250, 1000, 12000, 0}};
+    // Shift only starts the bar flash: it sits on no cell and is independent of
+    // amber and redline, so it is free anywhere on the scale.
+    const StepSpec a[] = {{&g_edit.rpmRedline, 100, 1000, 12000, 0},
+                          {&g_edit.rpmShift, 100, 0, 12000, 0}};
     addStepRow(card, rx, ty, "RPM redline / shift", a, 2);
     ty += 40;
   }
@@ -1351,12 +1366,12 @@ void buildSettings() {
   }
 
   // The clamping rule, said out loud: it is what keeps a stored threshold set
-  // self-consistent, and before the shift light was fixed, the shift point was
-  // free to sit above the redline (#10).
+  // self-consistent. The shift point is deliberately not in it - it marks no
+  // cell, so it is free anywhere on the scale.
   lv_obj_t *note = label(card, FONT_CAP, COL_DIM,
-                         "Saved values are clamped into order: amber <= shift <= "
-                         "redline <= max, warn <= crit.\nTemperature thresholds are "
-                         "in C; the temperature rows above follow the units toggle.");
+                         "Saved values are clamped into order: amber <= redline <= max, "
+                         "warn <= crit.\nRPM shift is independent. Temperatures are in C "
+                         "per the units toggle.");
   lv_obj_set_pos(note, rx, ty);
   lv_obj_set_width(note, 388);
 

@@ -391,6 +391,16 @@ into a sensible order on load rather than silently disagreeing with each other.
 (`COL_TRACK`) — no per-zone green/amber/red gradient bleeds through the off
 phase, and a dedicated cell state 3 keeps the unlit cells dark.
 
+**Reversed later, by decision (0.7.2):** the shift point is independent again —
+clamped only to the scale, not between amber and redline. The bad interaction
+this section describes came from the *default* (7300 above a 6800 redline), not
+from the freedom, and the default is what changed. The push to clamp it was
+protecting the wrong thing. The scale is a setting again and every rpm threshold
+moves in 100 rpm; the bar is 80 cells edge to edge, so a cell is exactly 100 rpm
+at the default 8000. (Within 0.7.x the scale was briefly fixed at 8000 in 40
+cells of 200 rpm; on the glass that read as too coarse, which is why it went
+back.) See README section 6.
+
 ## 11. Dashboard layout C — P2
 
 ![layout C](../docs/mockups/C.%20Updated%20layout.png)

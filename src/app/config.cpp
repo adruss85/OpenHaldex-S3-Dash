@@ -69,14 +69,17 @@ void validate(Data &d) {
   if (d.port == 0) d.port = 80;
 
   // --- thresholds ----------------------------------------------------
-  d.rpmMax = clampv(d.rpmMax, 1000.0f, 20000.0f);
+  // The scale is free: the tick numbers and the bar's zone tints are recomputed
+  // from it (syncGauge), so a 7000 rpm car can use the whole width. The zone
+  // edges quantise to one bar cell (rpmMax / BAR_SEG), which is 100 rpm at the
+  // default 8000 - the step the settings page uses.
+  d.rpmMax = clampv(d.rpmMax, 1000.0f, 12000.0f);
   d.rpmAmber = clampv(d.rpmAmber, 0.0f, d.rpmMax);
   d.rpmRedline = clampv(d.rpmRedline, d.rpmAmber, d.rpmMax);
-  // The shift flash is meant to start *before* the limiter, so it is clamped
-  // between the amber zone and the redline. Before this the stored order was
-  // free, and the shipped defaults (shift 7300, redline 6800) had the shift
-  // light firing 500 rpm after the limiter (#10).
-  d.rpmShift = clampv(d.rpmShift, d.rpmAmber, d.rpmRedline);
+  // The shift point is deliberately independent of amber and redline: it starts
+  // the bar flash and sits on no cell, so it is free to be anywhere from 0 to the
+  // top of the scale (100 rpm steps on the settings page).
+  d.rpmShift = clampv(d.rpmShift, 0.0f, d.rpmMax);
   d.coolWarn = clampv(d.coolWarn, -40.0f, 200.0f);
   d.coolCrit = clampv(d.coolCrit, d.coolWarn, 250.0f);
   d.oilWarn = clampv(d.oilWarn, -40.0f, 200.0f);
