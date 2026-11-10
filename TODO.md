@@ -151,12 +151,7 @@ and measuring `[stats] esp-now … Hz` before and after.
 
 ## 3. Requested, and worth doing
 
-### 3.1 Boot splash
-At the moment the panel is blank for the second between power and the first
-frame. A splash could cover that and say something useful: version, build
-date, board, the update address, maybe "waiting for the controller".
-
-### 3.2 Display scaling / other panel sizes
+### 3.1 Display scaling / other panel sizes
 Currently out of scope, and worth stating precisely why: `theme.h` is a
 list of absolute pixel positions derived from the browser page's geometry
 (`u = min(w/100, h/56)`, 8 px at 800×480). Nothing scales.
@@ -172,25 +167,25 @@ For a genuinely different resolution, the honest options are (a) express
 LVGL flex/grid, or (c) accept per-resolution variants. (a) is the smallest
 change and keeps the "one file holds the geometry" property.
 
-### 3.3 Internal SD / logging
+### 3.2 Internal SD / logging
 A short CSV log of a drive — rpm, speed, throttle, boost, locks, mode over
 time — written to the LittleFS partition and dumped over serial or from the
 update page. That would turn "the boost reading looks wrong" into a graph, and
 it is the kind of thing that makes a drive test worth three drive tests.
 
-### 3.4 More of the controller's own controls
+### 3.3 More of the controller's own controls
 The mode switch is the thin end of a wedge. The same signed-command path
 already carries learn start/cancel/clear, generation, and controller on/off
 (see `ohx_proto.h`). Each one is a decision, not a port: generation and learn
 need the car stopped, and "controller off" while driving is a conversation.
 
-### 3.5 Things that arrive for free and have nowhere to go
+### 3.4 Things that arrive for free and have nowhere to go
 Per-wheel slip (`slip[4]`), steering angle (packet-only on Gen1), supply
 voltage, Haldex clutch/oil/module temperatures. All decoded, all shown on the
 raw page, none on the dashboard — because this car cannot fill them. Space
 them once a Gen4/5 tester exists (see 2.1).
 
-### 3.6 Smaller polish
+### 3.5 Smaller polish
 * Scale up the big SPEED number — noted as not urgent, since speed matters
   least on a racecar-style dash, but it is inconsistent with rpm.
 * A QR code on the SETTINGS page for the update URL, to kill the last bit of
@@ -247,5 +242,5 @@ changes and this copy does not, the `static_assert` on the packet size will
 catch it — but only if someone looks. Worth a note in the release checklist.
 
 ### 4.6 LittleFS partition
-128 KB, allocated, unused. Either it earns its place (3.1 splash, 3.3 logging)
+128 KB, allocated, unused. Either it earns its place (3.2 logging)
 or it should be given back to the app slots.

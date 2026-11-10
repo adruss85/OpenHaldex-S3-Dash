@@ -6,7 +6,8 @@ Drawn up from the drive of 2026-11-06 (0.5.1) and the code as it stands.
 > commits `7017271`, `0062487`, `1eb4930`, `7260267`; the boot splash, real
 > block-arrow indicator repeaters, the 1.5 Hz flash cadence, the purple/off
 > shift flash, the dimmer CC lamp and the repositioned temperatures rows in
-> 0.6.1, commit `35f763a`), so this document is kept as the plan and the
+> 0.6.1, commit `35f763a`; the splash became a pre-rendered picture in 0.6.2),
+> so this document is kept as the plan and the
 > evidence behind them rather than as a to-do list. The only live items are
 > **13** (paused by decision) and **14** (a placeholder waiting for a bus the
 > relay does not carry). What is still unbuilt or unproven lives in

@@ -873,9 +873,11 @@ src/
     raw_ui.h/.cpp           raw telemetry page: both transports, no
                             interpretation, "--" for a field with no value
     can_ui.h/.cpp           CAN DATA page: every id heard, decoded from the DBC
+    splash_img.h/.cpp       the boot splash's JPEG, decoded by the mask ROM
     fonts/
       font_rpm_96.c         96 px rev digits, generated (tools/make_fonts.sh)
       font_num_56.c         56 px boost value, generated
+      font_arrow_52.c       52 px indicator arrows, generated
 
 tools/
   make_fonts.sh             regenerate src/ui/fonts from tools/fonts/*.ttf
@@ -895,7 +897,9 @@ docs/
   can-relay-test.md         how to measure the CAN relay in the car
   redesign-bars.md          why the top band is a bar, and its measurements
   esp-now-plan.md           the ESP-NOW transport, its risks and phases
-  mockups/                  the mock-ups the layout was chosen from
+  mockups/                  the mock-ups the layout was chosen from, plus the
+                            boot splash's candash-splash-base-92.jpg (which is
+                            *embedded in the app image* - see below)
 ```
 
 `tools/make_fonts.sh` is only needed to *regenerate* the two big fonts. LVGL
@@ -903,11 +907,44 @@ ships Montserrat up to 48 px, so the 96 px rev digits and 56 px boost value are
 generated from the TTF in `tools/fonts/`; the output is committed, so a normal
 build needs neither node nor the script.
 
+### The boot splash's picture
+
+The splash is a pre-rendered 800x480 JPEG (`docs/mockups/candash-splash-base-92.jpg`,
+30 395 B) with the progress rule, the tagline and the version drawn over it by
+LVGL. It is put in the app image, not the file system, by
+
+```ini
+board_build.embed_files = docs/mockups/candash-splash-base-92.jpg
+```
+
+which the linker turns into `_binary_docs_mockups_candash_splash_base_92_jpg_start`
+/ `_end` symbols ([`src/ui/splash_img.cpp`](src/ui/splash_img.cpp) is the only
+thing that refers to them; without a reference the linker drops the data again).
+In the app image rather than LittleFS on purpose: it can then be replaced by an
+over-the-air update, and the OTA page cannot write LittleFS.
+
+Decoding is the **ESP32-S3 mask ROM's** TJpgDec, reached through
+`esp32s3/rom/tjpgd.h`. The S3 has no JPEG peripheral (`esp_driver_jpeg` is gated
+on `CONFIG_SOC_JPEG_CODEC_SUPPORTED`, which the S3 does not set) and linking a
+decoder would cost tens of KB of a slot that is 92 % full, but the ROM ships the
+algorithm for free — `jd_prepare` and `jd_decomp` are in `esp32s3.rom.ld`. The
+ROM's build is fixed at RGB888 output, so each MCU band is converted to RGB565 as
+it arrives and a full-size RGB888 image is never materialised. Measured on the
+board: 800x480 in **416 ms**, 768 000 B of PSRAM held for the 3 s the splash is up
+and freed with it.
+
+The rule is the picture's own, at y 284, x 210-589 (380x3). Its gradient is fixed
+across the full 380 px and *revealed*, not stretched: a 1 px-wide parent is grown
+to 380 px and clips a child that is always full width. A child that grew instead
+would recompute the gradient over its own width, so the colour at the leading edge
+would crawl as the bar filled.
+
 ---
 
 ## 14. Status
 
-This is **0.6.0**: the layout C batch, built and run on the bench, on top of the
+This is **0.6.2**: layout C (0.6.0), the boot splash (0.6.1) and the splash's
+move to a pre-rendered picture (0.6.2), built and run on the bench, on top of the
 earlier work that was verified in the car.
 
 **In the car** (0.5.x):
@@ -935,6 +972,12 @@ earlier work that was verified in the car.
 **On the bench, 0.6.0** (panel attached, controller powered off, so every relay-fed
 value correctly reads `--`):
 
+* The **boot splash** (0.6.1, re-done in 0.6.2): the picture decodes in 416 ms and
+  the panel is never blank; the rule fills over a fixed 3 s and the version is on
+  the glass, bottom-right. The hold's clock starts *after* the decode, so the rule
+  begins empty - counting the decode showed it already ~13 % filled on its first
+  frame and dropped the splash 0.4 s early. Its storage cost is in
+  [§13](#the-boot-splashs-picture).
 * Flashed over USB and left running for minutes: the fuel row, the two indicator
   repeaters, the odometer in the status bar, the day/night backlight and the
   rewritten settings page all draw as intended, and the settings page no longer
@@ -965,14 +1008,15 @@ Next: [TODO.md](TODO.md) — what is deliberately not built yet, and why.
 Build result:
 
 ```
-RAM:   58 516 / 327 680 B   (17.9%)   <- LVGL's pool and the relay tables are in PSRAM
-Flash: 1 772 398 / 1 966 080 B (90.1%) <- of the 1.875 MB OTA slot
+RAM:   58 556 / 327 680 B   (17.9%)   <- LVGL's pool and the relay tables are in PSRAM
+Flash: 1 805 170 / 1 966 080 B (91.8%) <- of the 1.875 MB OTA slot
 ```
 
 The RAM line came down from 0.5.0's 50.1 % (164 060 B) when the pool and the relay
 tables moved to PSRAM (see [Internal RAM](#internal-ram) below). The flash line is
-within ~194 KB of the OTA slot's limit, which is the number to watch if another
-page or table is added.
+within ~161 KB of the OTA slot's limit, which is the number to watch if another
+page or table is added; 28 KB of it is the splash's JPEG, bought back by dropping
+the 80 px "CAN DASH" face the drawn splash needed (§13).
 
 ### Memory, exactly
 

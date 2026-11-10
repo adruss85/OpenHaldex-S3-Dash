@@ -61,13 +61,15 @@
 // tools/make_fonts.sh. Only the glyphs they need are in there (digits, '-',
 // '.'), which is why 96 px costs 43 KB rather than the ~150 KB a full size
 // would. '-' is what draws "--" for a value that has never arrived.
+//
+// There was a third: an 80 px face for the boot splash's "CAN DASH". The splash
+// is a pre-rendered picture since 0.6.2 and the wordmark is in it, so the face
+// went with it - it had no other user, and it was 2.8 KB of flash.
 LV_FONT_DECLARE(lv_font_dash_rpm_96);
 LV_FONT_DECLARE(lv_font_dash_num_56);
-LV_FONT_DECLARE(lv_font_dash_name_80);
 LV_FONT_DECLARE(lv_font_dash_arrow_52);
 #define FONT_RPM (&lv_font_dash_rpm_96)       // the big rev readout
 #define FONT_NUM (&lv_font_dash_num_56)       // the boost tile's value
-#define FONT_NAME (&lv_font_dash_name_80)     // the boot splash's "CAN DASH"
 // The indicator repeaters: two solid block arrows (FontAwesome 4.7 U+F060/F061).
 // LVGL ships no filled arrow - LV_SYMBOL_LEFT/RIGHT are chevrons - so the two
 // glyphs are converted from FontAwesome into a face of their own.

@@ -42,6 +42,7 @@
 #include "version.h"
 #include "ui/can_ui.h"
 #include "ui/raw_ui.h"
+#include "ui/splash_img.h"
 
 namespace ui {
 namespace {
@@ -174,8 +175,9 @@ struct Widgets {
   lv_obj_t *root = nullptr;
   lv_obj_t *top = nullptr;  // the whole top band; long-press opens settings
   // The boot splash, a sibling of root and on top of it. It is built once and
-  // deleted the first time real data arrives; until then it owns the glass and
-  // the dashboard is hidden underneath it.
+  // deleted when the hold elapses, so it costs nothing for the rest of the
+  // drive. Its picture is a child of it; the rule, tagline and version are
+  // siblings drawn over that.
   lv_obj_t *splash = nullptr;
 
   // The rev bar, its cells, the row of numbers under it and the big number's
@@ -262,7 +264,15 @@ bool g_splashUp = false;
 // data-based: the panel always reaches the dashboard, controller or not.
 constexpr uint32_t kSplashMs = 3000;
 uint32_t g_splashStartMs = 0;
-lv_obj_t *g_splashRule = nullptr;  // the progress fill under the name
+lv_obj_t *g_splashRule = nullptr;  // the clip whose width is the progress fill
+
+// The rule's geometry, taken from the artwork rather than chosen: the splash
+// picture paints the empty track at exactly this place, and the fill has to land
+// inside it. 380 px wide, rows 284 to 286, starting at x 210.
+constexpr int kRuleX = 210;
+constexpr int kRuleY = 284;
+constexpr int kRuleW = 380;
+constexpr int kRuleH = 3;
 
 // Which cells of the rev bar are currently lit: 1 lit, 0 dark, -1 unknown.
 // -1 is the state after start-up and after the zone colours change, so the
@@ -1809,42 +1819,65 @@ void updateConn(bool stale) {
 // splash covers that gap and then hands over after a fixed three seconds -
 // always, controller or not, so the panel can never be left sitting on it.
 //
-// Deliberately plain: a flat black field, the name, a rule that fills as the
-// hold elapses, and the version. The mockup in docs/mockups/splash.html layers
-// complex gradients behind the mark, but the S3's software renderer draws those
-// in visible bands and slowly enough that the fill outruns the paint, so the
-// glows were dropped for something the panel draws in one pass.
+// The field, the wordmark and the rule's empty track are one pre-rendered JPEG,
+// decoded at boot by the mask ROM (src/ui/splash_img.cpp). That is not a
+// shortcut: the gradients in that art are exactly what the S3's software
+// renderer bands and paints slowly enough for the fill to outrun the paint, and
+// the 0.6.1 splash dropped them and drew a flat black field instead.
+//
+// Only the parts that must not be baked into a picture are drawn here: the
+// progress fill, and the version, which would go stale in the art the first time
+// it moved.
 //
 // It is built once and deleted when it drops, so its widgets go back to the LVGL
-// pool and cost nothing for the rest of the drive.
+// pool and the picture goes back to PSRAM, costing nothing for the rest of the
+// drive.
 void buildSplash(lv_obj_t *parent) {
   w.splash = opaque(parent, 0, 0, L::W, L::H, COL_BG);
 
-  // ---- the name: CAN (white) + DASH (red), one centred row in the 80 px face.
-  lv_obj_t *nameRow = plain(w.splash, 0, 150, L::W, 104);
-  lv_obj_set_flex_flow(nameRow, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(nameRow, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(nameRow, 26, 0);
-  label(nameRow, FONT_NAME, COL_WHITE, "CAN");
-  label(nameRow, FONT_NAME, COL_RED, "DASH");
+  // The picture is the size of the panel and sits underneath everything else
+  // here. If the decode failed, decode() has said why and the flat field stays -
+  // the rule, tagline and version below are drawn either way, so even that
+  // fallback says what is running.
+  if (splashimg::decode()) {
+    lv_obj_t *pic = lv_image_create(w.splash);
+    lv_obj_remove_style_all(pic);
+    lv_obj_remove_flag(pic, LV_OBJ_FLAG_CLICKABLE);
+    lv_image_set_src(pic, splashimg::image());
+    lv_obj_set_pos(pic, 0, 0);
+  }
 
-  // ---- the rule: a dim track with a flat green fill that grows left to right
-  // as the three-second hold elapses (updateSplash() below drives the width).
-  const int ruleW = 380;
-  const int ruleX = (L::W - ruleW) / 2;
-  const int ruleY = 272;
-  opaque(w.splash, ruleX, ruleY, ruleW, 3, lv_color_hex(0x2a2f36));
-  g_splashRule = opaque(w.splash, ruleX, ruleY, 1, 3, COL_GREEN);
+  // ---- the rule, at the picture's own coordinates: y 284, x 210 to 589.
+  //
+  // The gradient is fixed across the full 380 px and *revealed*, not stretched:
+  // the parent grows and clips a child that is always full width. A child that
+  // grew instead would recompute the gradient over its own width, so the colour
+  // at the leading edge would crawl as the bar filled.
+  lv_obj_t *clip = plain(w.splash, kRuleX, kRuleY, 1, kRuleH);
+  lv_obj_t *grad = lv_obj_create(clip);
+  lv_obj_remove_style_all(grad);
+  lv_obj_remove_flag(grad, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_radius(grad, 0, 0);
+  lv_obj_set_style_bg_opa(grad, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(grad, lv_color_hex(0x22c55e), 0);
+  lv_obj_set_style_bg_grad_color(grad, lv_color_hex(0x22c0f0), 0);
+  lv_obj_set_style_bg_grad_dir(grad, LV_GRAD_DIR_HOR, 0);
+  lv_obj_set_pos(grad, 0, 0);
+  lv_obj_set_size(grad, kRuleW, kRuleH);
+  g_splashRule = clip;
 
-  // ---- tagline and version. The version is the one thing here worth reading off
-  // the glass at boot.
+  // ---- tagline under the rule, and the version in the bottom-right corner,
+  // where it is out of the artwork's way. The version is the one thing here
+  // worth reading off the glass at boot: it is what says which build an
+  // over-the-air trial actually booted.
   lv_obj_t *tag =
-      fixedLabel(w.splash, 0, 292, L::W, 20, FONT_BODY, COL_DIM, "TRACK DASH FOR OPENHALDEX");
+      fixedLabel(w.splash, 0, 302, L::W, 20, FONT_BODY, COL_DIM, "TRACK DASH FOR OPENHALDEX");
   lv_obj_set_style_text_align(tag, LV_TEXT_ALIGN_CENTER, 0);
   char vbuf[32];
   snprintf(vbuf, sizeof(vbuf), "v%s", OHX_DASH_VERSION);
-  lv_obj_t *ver = fixedLabel(w.splash, 0, 316, L::W, 18, FONT_SMALL, COL_DIM, vbuf);
-  lv_obj_set_style_text_align(ver, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_t *ver =
+      fixedLabel(w.splash, L::W - 172, L::H - 30, 160, 18, FONT_SMALL, COL_DIM, vbuf);
+  lv_obj_set_style_text_align(ver, LV_TEXT_ALIGN_RIGHT, 0);
 }
 
 // Hide the splash and hand the glass to the dashboard. Called once, when the
@@ -1857,9 +1890,13 @@ void hideSplash() {
   g_splashUp = false;
   g_splashRule = nullptr;
   if (w.splash) {
-    lv_obj_delete(w.splash);
+    lv_obj_delete(w.splash);  // takes the picture widget with it
     w.splash = nullptr;
   }
+  // The picture's buffer is ours, not LVGL's: the widget only ever pointed at it.
+  // Delete the widget first, then the buffer, so nothing is left holding a
+  // pointer into freed PSRAM.
+  splashimg::release();
   if (w.root) lv_obj_remove_flag(w.root, LV_OBJ_FLAG_HIDDEN);
   Serial.println("[ui] splash down: dashboard up");
 }
@@ -1872,7 +1909,7 @@ void updateSplash(uint32_t now) {
     return;
   }
   if (g_splashRule) {
-    const int w = (int)((380u * (now - g_splashStartMs)) / kSplashMs);
+    const int w = (int)(((uint32_t)kRuleW * (now - g_splashStartMs)) / kSplashMs);
     lv_obj_set_width(g_splashRule, w < 1 ? 1 : w);
   }
 }
@@ -1933,7 +1970,10 @@ void begin() {
   // know: tick() takes both back down together.
   buildSplash(scr);
   g_splashUp = true;
-  g_splashStartMs = g_lastTickMs;
+  // The hold's clock starts *here*, not before buildSplash(). Decoding the
+  // picture is the head of the wait, so counting it would put the rule already
+  // part filled on the splash's first visible frame and then drop it early.
+  g_lastTickMs = g_splashStartMs = millis();
   if (w.root) lv_obj_add_flag(w.root, LV_OBJ_FLAG_HIDDEN);
   Serial.printf("[ui] splash up (v%s), %lu ms\n", OHX_DASH_VERSION, (unsigned long)kSplashMs);
 }
