@@ -1,5 +1,15 @@
 # The bar redesign
 
+> **Historical design note — pre-layout C.** This documents the 0.6.0-era
+> replacement of the tach ring with the segmented rev bar. Its layout sketch
+> still shows the four-tile Full band (with BOOST), the **DAY** button and the
+> **AWD** lamp; layout C later added the fuel row, indicator repeaters and the
+> odometer, moved day/night into Settings, and replaced the AWD lamp with CC.
+> The measurements in this file — what
+> the ring cost, what the bar costs, and why the fps counter is a loop rate — are
+> still the evidence behind the bar and remain valid. The widget sketch is not
+> the current dashboard; see the [README](../README.md#1-what-it-shows) for that.
+
 Replaces the top band of the dashboard — the tach ring, its needle and the
 9 tick marks — with one full-width segmented bar and a large rev number on a
 row of its own. The four original tiles and the status bar keep their

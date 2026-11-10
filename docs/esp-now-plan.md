@@ -1,8 +1,11 @@
 # Plan: take the live data over ESP-NOW instead of HTTP
 
-Status: **Phase 1 implemented and verified on the bench** (see §7). Phases
-2-3 are still proposals. Written so the steps and the risks are reviewable
-before any code changes.
+Status: **all three phases are implemented.** Phase 1, the listen-only
+receiver, was verified on the bench (§7); phase 2, ESP-NOW feeding the glass,
+was verified on the bench across all three paths (§8); phase 3, the signed mode
+switch, was verified in the car (§9). The steps and risks below are kept as the
+design rationale and the record of what was built, not as a to-do list.
+Unverified work lives in [TODO.md](../TODO.md).
 
 ## 1. What ESP-NOW is, in plain terms
 
