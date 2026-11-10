@@ -115,6 +115,7 @@ not facts about the current build.
 | **Boot splash** | in `src/ui/dash_ui.cpp`; background JPEG is `assets/candash-splash-base-92.jpg`, embedded via `board_build.embed_files` in `platformio.ini` |
 | **Console key** | the `switch` in `src/main.cpp` and the table in `docs/console.md` |
 | **Version bump** | `include/version.h` (the history comment is the changelog) |
+| **Cut a release** | section "Cutting a release": tag + `gh release` with both `.bin` assets. Never a `releases/` folder |
 
 `src/ui/dash_ui.cpp` is ~2,200 lines (dashboard, settings page, splash). Search by function
 name from the table above instead of reading it top to bottom.
@@ -136,6 +137,47 @@ structs; keep it that way and do not touch LVGL from core 0.
 | OTA | Console `o` shows slot and trial state; `O` arms a deliberately failing trial |
 
 Console keys are listed in `docs/console.md`.
+
+## Cutting a release (only when the user asks for one)
+
+A push is **not** a release. There is no CI in this repository, so nothing is published until
+a tag exists *and* a release object is attached to it; `main` can be many commits ahead of the
+last release and GitHub will show nothing. Never create one unprompted — "push" means push.
+
+1. **Agree the version.** `OHX_DASH_VERSION` in `include/version.h` must already name it, and
+   its history comment must already describe the change (that comment *is* the changelog).
+   Do not bump the number to match a build, and do not ship a second binary under a version
+   that is already published: two images sharing one version string cannot be told apart in
+   the boot banner, on the raw page, or in the OTA trial log. A docs-only diff legitimately
+   stays on the current version. If the user has not named a version, ask.
+2. **Make the recorded numbers true first.** `./.venv/bin/python tools/doc_status.py` rewrites
+   the block in `docs/status.md` from a real build; `tools/check_docs_links.py` must pass.
+   Commit that before tagging so the docs and the release notes cannot disagree.
+3. **Build from the tagged tree, from clean.** `pio run -e s3-dash -t clean` then
+   `pio run -e s3-dash`. Keep `.pio/build/s3-dash/firmware.bin` and `firmware.factory.bin`,
+   and record both size lines and `sha256sum` of both files. A stale `.pio/` artifact from an
+   earlier tree is the usual way a wrong binary gets published.
+4. **Tag and push the tag**, annotated, in the existing style:
+   ```bash
+   git tag -a v0.6.2 -m "0.6.2: <the one-line reason>"
+   git push origin v0.6.2
+   ```
+5. **Publish with both assets.** Copy them to the release names first, because `gh` uses the
+   filename on disk: `OpenHaldex-S3-Dash-<ver>-firmware.bin` (OTA, what the update page takes)
+   and `OpenHaldex-S3-Dash-<ver>-factory.bin` (first USB flash, written at `0x0`).
+   ```bash
+   gh release create v0.6.2 --verify-tag --title "v0.6.2 — <short>" --notes-file notes.md \
+     OpenHaldex-S3-Dash-0.6.2-firmware.bin OpenHaldex-S3-Dash-0.6.2-factory.bin
+   ```
+   Notes follow the shape of `v0.6.2` and `v0.4.1`: which file to pick and why the app-only
+   image alone can lose to stale `otadata`, the OTA/trial/fall-back paragraph, what is new,
+   **what was and was not verified** (never imply the board), the size lines, and the hashes.
+6. **Confirm**: `gh release list` shows it as *Latest*; `gh release view v0.6.2 --json assets`
+   lists both files with digests.
+
+Binaries never go in git — `.gitignore` blocks `*.bin`, and 1.8 MB per version would live in
+history forever. Release assets are the distribution channel; `README.md` already links the
+releases page. No `releases/` folder.
 
 ## Conventions
 
