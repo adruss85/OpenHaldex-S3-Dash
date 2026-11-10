@@ -11,8 +11,8 @@ things.
 | Runs | always | only when started |
 | Where | PSRAM, ~19 KB | `/littlefs/drive.csv` in the 128 KB data partition |
 | Rate | 5 Hz | 5 Hz |
-| Depth | last ~40 s | up to 100 KB, ~5 minutes of driving |
-| Cost | nothing measurable: no flash, no stall | one ~1 KB flash write every ~3 s while running |
+| Depth | last ~40 s | up to 100 KB, ~8 minutes of driving |
+| Cost | nothing measurable: no flash, no stall | one ~900 B flash write every ~4 s while running |
 | Start / stop | nothing to do | SETTINGS → **START LOG**, or `l` on the console |
 
 Starting a session dumps the ring into the file first, so the file begins with
@@ -20,10 +20,11 @@ the seconds *before* the button was pressed.
 
 ## Why not log to flash all the time
 
-The partition is **128 KB** (`partitions_4mb_ota.csv`, offset `0x3d0000`). At
-5 Hz a row is ~65 bytes, so a rolling log would hold about six minutes and then
-rewrite the whole partition — roughly 7 000 erase cycles per block for a year of
-two-hour driving days, on a 100 000-cycle part, for a trace nobody asked for.
+The partition is **128 KB** (`partitions_4mb_ota.csv`, offset `0x3d0000`). A row
+from the car measures **42 B** including its newline, so a rolling log would
+hold about eight minutes and then rewrite the whole partition — some five
+thousand rewrites of the partition a year for a two-hour driving day, on a
+100 000-cycle part, for a trace nobody asked for.
 
 The second cost is stalls, not wear: every flash erase or program turns the
 instruction cache off for both cores for tens of ms. That is a dropped frame on
@@ -105,8 +106,10 @@ while the download holds the filesystem, then carries on.
 
 ## What has been checked, and on what
 
-On the bench, on a CrowPanel 7.0 with no controller in range (so every value is
-absent and every `src` is 0):
+Two runs on a CrowPanel 7.0, both flashed over USB.
+
+**On the bench, with no controller in range** (every value absent, every `src`
+`0`):
 
 * The blank partition formatted itself at boot and mounted; 8 KB of the 128 KB
   is metadata, which is why `usedBytes()` reads 8192 with no log in it.
@@ -120,9 +123,31 @@ absent and every `src` is 0):
 * The dashboard kept 68 fps while the ring was sampling, and internal RAM did
   not move (160 KB free).
 
-Still unverified: **the HTTP side** — `/log.csv`, the start/stop/delete/
-format buttons, and a download from a phone all need the dash joined to the
-controller's access point, which needs the controller. Also unmeasured: the
-flash stall with a real frame stream under it, and whether a 100 KB session
-really holds five minutes of a driving car (a row with real values is ~65 B
-where a row of empty fields is ~28 B).
+**With the car powered up** (ignition on, engine off, so `rpm` and road speed
+are 0 but the controller and the CAN bus are live):
+
+* The dash joined `OpenHaldex-C6` on its fallback static address
+  (`192.168.1.203`, no DHCP on that access point) at rssi −59…−68 dBm.
+* ESP-NOW ran at 7–9 Hz and the CAN relay at 104–124 frames/s over 17 ids, with
+  17–34 % air loss through a wall — enough for this test, not a car test.
+* A session wrote **122 rows of pre-trigger** (the ring held no more: opening
+  the console port resets the board), then 8853 B by 0:19, and closed at
+  **10 057 B with 0 rows lost**. Render rate stayed at 66–68 fps throughout.
+* The CSV dumped out of flash has `src=1` on the sampled rows and an **empty**
+  `boost_mbar` — a Gen1 car has no boost frame, and the empty field says so
+  instead of the row reading `0`.
+* Row size: header 126 B, mean row **42.0 B** including the newline. The sample
+  interval measured 199–316 ms, mean **207 ms**, so the real rate is ~4.8 Hz and
+  100 KB is about **8 minutes** — which stops the session before the ten-minute
+  cap does. With nothing connected the rows shrink to ~20 B, and then the clock
+  binds instead, at about 60 KB.
+* A 42 B row is a row with short numbers. A moving car has a 4-digit rpm, a
+  3-digit speed and 2-digit temperatures, so expect rows a little longer and a
+  session a little shorter than eight minutes — not longer.
+
+Still unverified: **the HTTP side** — `/log.csv`, the start/stop/delete/format
+buttons, and a download from a phone. That needs a client on the controller's
+access point, and the bench machine cannot join it (its own LAN already uses
+`192.168.1.0/24`, the same subnet as the dash's fallback address). Also
+unmeasured: the flash stall with a heavy frame stream under it — 66–68 fps is
+what a car sending 17 CAN ids produced, not the worst case.

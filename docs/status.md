@@ -18,12 +18,14 @@ to a pre-rendered picture (0.6.2) and the drive log (0.7.0). The status below
 separates what was verified in the car, what has been exercised on the bench,
 and what is still unproven; measured figures carry the version they came from.
 
-**0.7.0 has been run on the bench, not in a car.** The drive log's flash half
-works: the blank partition formats itself, a session starts, writes and stops,
-and the CSV reads back correctly out of a raw flash dump. What has *not* been
-exercised is its HTTP half — `/log.csv` and the buttons on the update page —
-because that needs the controller's access point, and a drive-log trace needs a
-car actually sending values. See [Drive logging](logging.md) for the list.
+**0.7.0 has been run on the bench and against a live controller, not driven.**
+The drive log works end to end on the flash side: the blank partition formats
+itself, a session starts, writes and stops, and the CSV reads back correctly out
+of a raw flash dump — including a session with the car powered up, where the
+rows carry `src=1` and real values. What has *not* been exercised is its HTTP
+half — `/log.csv` and the buttons on the update page — because that needs a
+client on the controller's access point, which is a network the bench machine
+cannot join. See [Drive logging](logging.md) for the list.
 
 **In the car** (0.5.x):
 
@@ -67,8 +69,16 @@ version:
   1544 B in ten seconds with nothing dropped; `F` formats it back to a clean
   8192/131072 B. The file dumped straight out of flash holds the header and one
   row per sample with empty fields rather than zeros. The dashboard held 68 fps
-  throughout. Its HTTP download is still unverified - see
-  [Drive logging](logging.md).
+  throughout.
+* The **drive log against the live controller** (0.7.0), car powered up with the
+  engine off: the dash joined the controller's access point at −59…−68 dBm,
+  ESP-NOW ran at 7–9 Hz and the CAN relay at 104–124 frames/s over 17 ids. A
+  session wrote 122 rows of pre-trigger and closed at 10 057 B with **0 rows
+  lost**, at 66–68 fps. The CSV out of flash carries real values with `src=1`
+  and an empty `boost_mbar` (Gen1). Measured row: 42.0 B including the newline
+  against a 126 B header, samples every 199–316 ms — so 100 KB is about eight
+  minutes, and that cap stops the session before the clock does. Its HTTP
+  download is still unverified - see [Drive logging](logging.md).
 * The **settings page** (0.7.0) was checked on the glass with `d` (the ASCII
   frame dump), which is how the two defects were found: the connection status
   overlapped the HOST field, and its warning and OTA lines were being clipped
