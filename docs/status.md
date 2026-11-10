@@ -3,20 +3,21 @@ Read this when you need to know what has actually been verified, on which firmwa
 # Status
 
 <!-- status:start -->
-Firmware version: 0.7.0
+Firmware version: 0.7.1
 Flash: 1 845 186 / 1 966 080 B (93.9%)
 Internal RAM (static): 59 868 / 327 680 B
-Measured: 2026-11-10, build e1e5b5b
+Measured: 2026-11-10, build d84d689
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
 about the current build. `tools/doc_status.py` regenerates the block above from
 a real `pio run` (or a saved log / a `firmware.elf`).
 
-This is **0.7.0**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
-to a pre-rendered picture (0.6.2) and the drive log (0.7.0). The status below
-separates what was verified in the car, what has been exercised on the bench,
-and what is still unproven; measured figures carry the version they came from.
+This is **0.7.1**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
+to a pre-rendered picture (0.6.2), the drive log (0.7.0) and a quieter cruise
+lamp (0.7.1). The status below separates what was verified in the car, what has
+been exercised on the bench, and what is still unproven; measured figures carry
+the version they came from.
 
 **0.7.0 has been run on the bench and against a live controller, not driven.**
 The drive log works end to end: the blank partition formats itself, a session
@@ -26,6 +27,11 @@ real values — and the HTTP controls were exercised from a phone on the
 controller's access point (download, start, stop, delete). What is still unproven
 is a trace taken while the car is actually moving. See
 [Drive logging](logging.md) for the list.
+
+**0.7.1 changes one lamp's colours and nothing else** — the cruise lamp's armed
+plate and lettering, plus the version string. Every 0.7.0 observation below
+therefore still describes this image, and the lamp itself was checked on the
+glass in 0.7.1.
 
 **In the car** (0.5.x):
 
@@ -83,6 +89,9 @@ version:
   **Delete** all worked. The **Format partition** button was correctly absent —
   it is only drawn when the partition holds no readable filesystem — and that
   path was checked on the console instead (`F`, above).
+* The **cruise lamp** (0.7.1) was looked at on the glass with the car reporting
+  `cruise main 1 regulating 0`, i.e. in the armed state that was changed: dim
+  green letters on a dark plate, with regulating still the only lit block.
 * The **settings page** (0.7.0) was checked on the glass with `d` (the ASCII
   frame dump), which is how the two defects were found: the connection status
   overlapped the HOST field, and its warning and OTA lines were being clipped
@@ -112,7 +121,7 @@ the reason so it can be caught if it happens again.
 
 Next: [TODO.md](../TODO.md) — what is deliberately not built yet, and why.
 
-Build result, measured on 0.7.0:
+Build result, measured on 0.7.1:
 
 ```
 RAM:   59 868 / 327 680 B   (18.3%)   <- LVGL's pool and the relay tables are in PSRAM
