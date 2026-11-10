@@ -89,8 +89,12 @@ while the download holds the filesystem, then carries on.
   it once`. This is what a new board needs — it ships with the region erased,
   and LittleFS reports that as corruption (`Corrupted dir pair at {0x0,0x1}`).
 * To format on purpose — a partition holding something that is not a readable
-  filesystem — use **`F`** on the console or the **Format partition** button on
-  the update page (`POST /log/format`). That erases it.
+  filesystem — use **`F`** on the console (always available) or the **Format
+  partition** button on the update page (`POST /log/format`). The button is only
+  drawn in that state: while the filesystem is mounted the page offers Start,
+  Stop, Delete and Download instead, because erasing a partition that may hold
+  the log you are about to download should not be one tap away. The route
+  itself is always registered.
 * A short write (the partition is full) closes the session cleanly and reports
   it rather than retrying the tail forever.
 * Rows lost while the filesystem was busy are counted and printed when the
@@ -145,9 +149,20 @@ are 0 but the controller and the CAN bus are live):
   3-digit speed and 2-digit temperatures, so expect rows a little longer and a
   session a little shorter than eight minutes — not longer.
 
-Still unverified: **the HTTP side** — `/log.csv`, the start/stop/delete/format
-buttons, and a download from a phone. That needs a client on the controller's
-access point, and the bench machine cannot join it (its own LAN already uses
-`192.168.1.0/24`, the same subnet as the dash's fallback address). Also
-unmeasured: the flash stall with a heavy frame stream under it — 66–68 fps is
-what a car sending 17 CAN ids produced, not the worst case.
+**From a phone on the controller's access point** (`http://192.168.1.203/`, the
+owner's check, same 0.7.0 build):
+
+* **Download drive.csv** — the file came down with the rows in it.
+* **Start log** and **Stop log** — the session started and stopped from the page.
+* **Delete** — the stored file went away and the page said so.
+* **Format partition** was not offered, which is correct rather than missing: the
+  button is only drawn when the partition holds no readable filesystem, and this
+  one was mounted and holding a log. The format path itself was exercised on the
+  console (`F`, bench run above) and the route is registered unconditionally.
+
+The bench machine still cannot reach the dash's access point (its own LAN is
+`192.168.1.0/24`, the same subnet as the dash's fallback address), so every HTTP
+check above was a person with a phone, not a script. Unmeasured: the flash stall
+with a heavier frame stream under it — 66–68 fps is what a car sending 17 CAN
+ids produced, not the worst case — and nothing has yet been logged while the car
+is actually moving.

@@ -474,7 +474,7 @@ String logHtml() {
     s += "<form method='post' action='/log/delete' style='display:inline'>"
          "<button>Delete</button></form>";
   }
-  s += "<p>Stops by itself at 100 KB (about six minutes at 5 Hz) or ten minutes.</p>";
+  s += "<p>Stops by itself at 100 KB (about eight minutes at 5 Hz) or ten minutes.</p>";
   return s;
 }
 

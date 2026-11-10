@@ -19,13 +19,13 @@ separates what was verified in the car, what has been exercised on the bench,
 and what is still unproven; measured figures carry the version they came from.
 
 **0.7.0 has been run on the bench and against a live controller, not driven.**
-The drive log works end to end on the flash side: the blank partition formats
-itself, a session starts, writes and stops, and the CSV reads back correctly out
-of a raw flash dump — including a session with the car powered up, where the
-rows carry `src=1` and real values. What has *not* been exercised is its HTTP
-half — `/log.csv` and the buttons on the update page — because that needs a
-client on the controller's access point, which is a network the bench machine
-cannot join. See [Drive logging](logging.md) for the list.
+The drive log works end to end: the blank partition formats itself, a session
+starts, writes and stops, the CSV reads back correctly out of a raw flash dump —
+including a session with the car powered up, where the rows carry `src=1` and
+real values — and the HTTP controls were exercised from a phone on the
+controller's access point (download, start, stop, delete). What is still unproven
+is a trace taken while the car is actually moving. See
+[Drive logging](logging.md) for the list.
 
 **In the car** (0.5.x):
 
@@ -77,8 +77,12 @@ version:
   lost**, at 66–68 fps. The CSV out of flash carries real values with `src=1`
   and an empty `boost_mbar` (Gen1). Measured row: 42.0 B including the newline
   against a 126 B header, samples every 199–316 ms — so 100 KB is about eight
-  minutes, and that cap stops the session before the clock does. Its HTTP
-  download is still unverified - see [Drive logging](logging.md).
+  minutes, and that cap stops the session before the clock does.
+* The **update page** (0.7.0) was exercised from a phone on the controller's
+  access point: **Download drive.csv**, **Start log**, **Stop log** and
+  **Delete** all worked. The **Format partition** button was correctly absent —
+  it is only drawn when the partition holds no readable filesystem — and that
+  path was checked on the console instead (`F`, above).
 * The **settings page** (0.7.0) was checked on the glass with `d` (the ASCII
   frame dump), which is how the two defects were found: the connection status
   overlapped the HOST field, and its warning and OTA lines were being clipped
