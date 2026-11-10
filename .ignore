@@ -1,0 +1,10 @@
+# Paths no tool should crawl or index. This is the .ignore convention that
+# ripgrep honours by default, and that several editors and coding agents read.
+# It mirrors the ignore list in AGENTS.md and the build-output rules in
+# .gitignore: vendored libraries under .pio/ are the expensive one.
+.pio/
+.venv/
+.backup/
+.shots/
+.dummy/
+compile_commands.json
