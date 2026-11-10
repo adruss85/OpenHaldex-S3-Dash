@@ -277,7 +277,7 @@ void handleSerial() {
         continue;
       case 'h':
         Serial.println("1..5=redraw groups 0=all 9=none p=pclk b=bounce d=dump k=chassis "
-                       "n=polling e=esp-now f=forget controller v=tile band r/t=touch "
+                       "n=polling e=esp-now f=forget controller v=tile band r/t=touch s=settings "
                        "x=raw page c=can page C=can dump m=mode o=ota O=ota-fail-test "
                        "l/L=drive log F=format log partition");
         break;
@@ -296,6 +296,12 @@ void handleSerial() {
         // transports, with absent fields shown as "--".
         if (canui::visible()) canui::show(false);
         rawui::toggle();
+        continue;
+      case 's':
+        // The settings page. It is the one page with no way in except touch,
+        // so without this its layout could not be checked from the console -
+        // and `d` is the bench substitute for a camera.
+        ui::showSettings(!ui::settingsOpen());
         continue;
       case 'c':
         // The CAN DATA page: every id the controller is relaying, decoded.

@@ -406,6 +406,16 @@ lv_obj_t *fixedLabel(lv_obj_t *parent, int x, int y, int w, int h, const lv_font
   return l;
 }
 
+// A 1 px horizontal rule. On the settings page this is what keeps the
+// structure the card's border used to give, for one thin object instead of
+// 12 px of padding on every side of the page.
+lv_obj_t *rule(lv_obj_t *parent, int x, int y, int w) {
+  lv_obj_t *r = plain(parent, x, y, w, 1);
+  lv_obj_set_style_bg_color(r, COL_LINE, 0);
+  lv_obj_set_style_bg_opa(r, LV_OPA_COVER, 0);
+  return r;
+}
+
 lv_obj_t *bar(lv_obj_t *parent, int x, int y, int width, int height, lv_color_t fill,
               int32_t min, int32_t max) {
   lv_obj_t *b = lv_bar_create(parent);
@@ -1156,6 +1166,14 @@ void updateLogStatus() {
   setText(lv_obj_get_child(w.btnLog, 0), rec ? "STOP LOG" : "START LOG");
   setBgColor(w.btnLog, rec ? COL_RED : lv_color_hex(0x12161b), 0);
   if (w.logLine) {
+    // With no filesystem there is nothing this button or its counter can say,
+    // so it says that instead of a confident "stored 0 KB" (seen on the bench:
+    // the partition was blank and the button did nothing).
+    if (!logbook::ready()) {
+      setText(w.logLine, "no filesystem");
+      setTextColor(w.logLine, COL_AMBER);
+      return;
+    }
     char b[40];
     snprintf(b, sizeof b, "%s %u KB", rec ? "REC" : "stored",
              (unsigned)((logbook::fileBytes() + 512) / 1024));
@@ -1184,16 +1202,27 @@ void buildSettings() {
   lv_obj_set_style_pad_all(w.settings, 0, 0);
   lv_obj_add_flag(w.settings, LV_OBJ_FLAG_HIDDEN);
 
+  // The page body is the whole screen, not a 780x420 card floating on it.
+  // The card was a border, 12 px of padding on every side and 10 px of margin,
+  // and it bought nothing: this page already owns the glass (the dashboard is
+  // hidden, not merely covered), so the frame was decoration drawn in the one
+  // currency that is scarce here - pixels. Removing it gave the two columns
+  // 60 px of height and 44 px of width, which is what the connection block
+  // needs now that its lines wrap instead of being clipped.
+  //
+  // Two 1 px rules (under the title and above the buttons) keep the structure
+  // the border used to give, for the cost of two thin objects.
   lv_obj_t *card = lv_obj_create(w.settings);
-  lv_obj_set_size(card, 780, 420);
-  lv_obj_align(card, LV_ALIGN_TOP_MID, 0, 10);
-  lv_obj_set_style_bg_color(card, COL_PANEL, 0);
-  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(card, 1, 0);
-  lv_obj_set_style_border_color(card, COL_LINE, 0);
-  lv_obj_set_style_radius(card, 6, 0);
-  lv_obj_set_style_pad_all(card, 12, 0);
-  // No LV_DIR_VER and no SCROLLABLE flag: the page is laid out to fit 420 px
+  lv_obj_set_size(card, L::W, L::H);
+  lv_obj_set_pos(card, 0, 0);
+  lv_obj_set_style_bg_opa(card, LV_OPA_TRANSP, 0);  // the page behind it is opaque
+  lv_obj_set_style_border_width(card, 0, 0);
+  lv_obj_set_style_radius(card, 0, 0);
+  lv_obj_set_style_pad_all(card, 0, 0);
+  lv_obj_set_style_pad_left(card, 12, 0);
+  lv_obj_set_style_pad_right(card, 12, 0);
+  lv_obj_set_style_pad_top(card, 10, 0);
+  // No LV_DIR_VER and no SCROLLABLE flag: the page is laid out to fit as it is
   // (#9). Scrolling it on a 32 Hz panel is a full-width repaint per step, which
   // is exactly what made this page feel slow.
   lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
@@ -1202,32 +1231,44 @@ void buildSettings() {
   int y = 0;
   lv_obj_t *h = label(card, FONT_MODE, COL_FG, "SETTINGS");
   lv_obj_set_pos(h, 0, y);
-  y += 36;
+  y += 32;
+
+  rule(card, 0, y, L::W - 24);
+  y += 10;
 
   lv_obj_t *net = label(card, FONT_BODY, COL_DIM, "CONNECTION TO OPENHALDEX");
   lv_obj_set_pos(net, 0, y);
-  y += 18;
+  y += 20;
 
   g_taSsid = addField(card, y, "SSID", g_edit.ssid, false, 220);
   y += 36;
   g_taPass = addField(card, y, "AP PASSWORD", g_edit.pass, true, 220);
   y += 36;
   g_taHost = addField(card, y, "HOST", g_edit.host, false, 220);
-  y += 36;
+  y += 48;  // 14 px of air under the HOST box: see the note below
 
   // The password above is two things at once: the WPA key the station joins
   // the access point with, and the HMAC key every ESP-NOW command has to be
   // signed with. Empty is therefore not "no password needed" - it is a key
   // anyone in range can compute, against a nonce the controller broadcasts.
 
-  // Ten pixels of air under the HOST box. At two it sat flush against the
-  // field's bottom border, and because the line is 340 px wide - the whole way
-  // under the field - it read as part of it on the glass (seen in a photo of
-  // 0.6.2, where "control:" looked like it was inside the HOST box).
-  w.ctrlLine = fixedLabel(card, 0, y + 10, 340, 18, FONT_SMALL, COL_DIM, "control: waiting");
-  w.ctrlWarn = fixedLabel(card, 0, y + 28, 340, 18, FONT_SMALL, COL_AMBER, "");
-  w.otaLine = fixedLabel(card, 0, y + 46, 340, 18, FONT_SMALL, COL_DIM, "OTA: --");
-  y += 66;  // was 54: the 10 px above, three 18 px lines, and 2 below
+  // The status block sat 2 px under the HOST box and, being 340 px wide, ran
+  // the whole way past the field's edge, so on the glass it read as part of the
+  // field (seen in a photo of 0.6.2). It now has 14 px of air.
+  //
+  // The two long lines get two rows each and wrap. They were 18 px boxes with
+  // LV_LABEL_LONG_CLIP, so their ends were cut off: measured against
+  // lv_font_montserrat_14's advance widths, the open-access-point warning is
+  // 484 px and the trial OTA line 349 px, against a 340 px box. The warning is
+  // the one that matters - it was losing "can send commands".
+  w.ctrlLine = fixedLabel(card, 0, y, 368, 18, FONT_SMALL, COL_DIM, "control: waiting");
+  y += 18;
+  w.ctrlWarn = fixedLabel(card, 0, y, 368, 36, FONT_SMALL, COL_AMBER, "");
+  lv_label_set_long_mode(w.ctrlWarn, LV_LABEL_LONG_WRAP);
+  y += 36;
+  w.otaLine = fixedLabel(card, 0, y, 368, 36, FONT_SMALL, COL_DIM, "OTA: --");
+  lv_label_set_long_mode(w.otaLine, LV_LABEL_LONG_WRAP);
+  y += 46;
 
   lv_obj_t *disp = label(card, FONT_BODY, COL_DIM, "DISPLAY");
   lv_obj_set_pos(disp, 0, y);
@@ -1256,11 +1297,15 @@ void buildSettings() {
   y += 30;
 
   // ---- right column: thresholds, two values to a row ----------------
-  const int rx = 360;
+  const int rx = 386;
   lv_obj_t *thr = label(card, FONT_BODY, COL_DIM, "THRESHOLDS");
-  lv_obj_set_pos(thr, rx, 0);
+  lv_obj_set_pos(thr, rx, 42);
 
-  int ty = 26;
+  // 60 rather than 26: the column now starts level with CONNECTION, and the
+  // seven rows plus the note below have to end above the button rule at 404.
+  // Measured: 6 rows at 40 + one at 34 = 274, and the note wraps to 4 lines at
+  // font 12 in 388 px, so 338 + 60 = 398.
+  int ty = 60;
   {
     const StepSpec a[] = {{&g_edit.rpmMax, 250, 3000, 12000, 0}, {&g_edit.rpmAmber, 250, 0, 12000, 0}};
     addStepRow(card, rx, ty, "RPM max / amber", a, 2);
@@ -1307,19 +1352,22 @@ void buildSettings() {
                          "redline <= max, warn <= crit.\nTemperature thresholds are "
                          "in C; the temperature rows above follow the units toggle.");
   lv_obj_set_pos(note, rx, ty);
-  lv_obj_set_width(note, 396);
+  lv_obj_set_width(note, 388);
 
-  // ---- the buttons, along the bottom of the card --------------------
-  button(card, 0, 356, 90, 30, "DEFAULTS", onCfgDefaults);
-  button(card, 100, 356, 82, 30, "RAW DATA", onCfgRaw);
-  button(card, 192, 356, 82, 30, "CAN DATA", onCfgCan);
+  // ---- the buttons, along the bottom of the screen -------------------
+  // Pinned to the bottom edge with a rule above them, so the page reads as a
+  // page: content above, actions below.
+  rule(card, 0, 404, L::W - 24);
+  button(card, 0, 414, 90, 30, "DEFAULTS", onCfgDefaults);
+  button(card, 100, 414, 82, 30, "RAW DATA", onCfgRaw);
+  button(card, 192, 414, 82, 30, "CAN DATA", onCfgCan);
   // The drive log is a session, not a setting: started here or with 'l' on the
-  // console, and it stops itself at 100 KB. It lives in the free space between
-  // the page buttons and SAVE rather than in a new column.
-  w.btnLog = button(card, 290, 356, 96, 30, "START LOG", onLogToggle);
-  w.logLine = fixedLabel(card, 396, 362, 196, 18, FONT_SMALL, COL_DIM, "");
-  button(card, 600, 356, 74, 30, "SAVE", onCfgSave);
-  button(card, 682, 356, 74, 30, "CLOSE", onCfgClose);
+  // console, and it stops itself at 100 KB. It sits between the page buttons
+  // and SAVE, with the line that says whether a session is running.
+  w.btnLog = button(card, 290, 414, 96, 30, "START LOG", onLogToggle);
+  w.logLine = fixedLabel(card, 396, 420, 216, 18, FONT_SMALL, COL_DIM, "");
+  button(card, 620, 414, 74, 30, "SAVE", onCfgSave);
+  button(card, 702, 414, 74, 30, "CLOSE", onCfgClose);
 
   // Every cell above was created showing the stored value, so there is nothing
   // to refresh before the page is first opened: the "-" placeholder is gone
@@ -2262,8 +2310,11 @@ void updateControlStatus() {
     setText(w.ctrlWarn, "");
     return;
   }
-  snprintf(buf, sizeof buf, "control: %s | signing key: %s",
-           s.ctrlAccept ? "accepted over ESP-NOW" : "refused (off on the controller)",
+  // "signing key" does not fit: this line is 300 px at font 14 and the long
+  // form was 357-411 px, so its end was cut off in both states. The warning
+  // below says what the key is for.
+  snprintf(buf, sizeof buf, "control: %s | key: %s",
+           s.ctrlAccept ? "accepted over ESP-NOW" : "refused (controller off)",
            s.keyed ? "set" : "NONE");
   setText(w.ctrlLine, buf);
   setTextColor(w.ctrlLine, s.ctrlAccept ? COL_GREEN : COL_AMBER);
