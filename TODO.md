@@ -212,7 +212,8 @@ dumps, and a way to read one back out (over the update page would be neat),
 would turn a field crash from "it rebooted" into a stack trace.
 
 ### 4.3 Render performance
-The loop is PSRAM-bandwidth bound, not HTTP bound (see §8 of the README), so the
+The loop is PSRAM-bandwidth bound, not HTTP bound (see
+[`docs/display-and-memory.md`](docs/display-and-memory.md)), so the
 rate follows the radio: 16–35 fps while a phone or the controller is pushing
 traffic through WiFi, and **61.8 fps on the bench with nothing in range** (0.6.0,
 which also cut the polling to a single cross-check request a second). What it does

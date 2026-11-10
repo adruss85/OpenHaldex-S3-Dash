@@ -26,18 +26,24 @@ controller already publishes, so it can keep taking upstream updates.
 
 ---
 
+
+
 ## Contents
 
-| | | |
-|---|---|---|
-| [Credits](#credits) | [6. Updating it in the car](#6-updating-it-in-the-car-over-the-air) | [11. ESP-NOW](#11-esp-now) |
-| [1. What it shows](#1-what-it-shows) | [7. Configuration](#7-configuration) | [12. What this device cannot show](#12-what-this-device-cannot-show) |
-| [2. Hardware](#2-hardware) | [8. Display tuning](#8-display-tuning) | [13. Repository layout](#13-repository-layout) |
-| [3. Data flow](#3-data-flow) | [9. Serial console](#9-serial-console) | [14. Status](#14-status) |
-| [4. Build](#4-build) | [10. What the car can fill](#10-what-the-car-can-fill) | [Licence](#licence) |
-| [5. Before you flash: back up the board](#5-before-you-flash-back-up-the-board) | | [What is not built yet](TODO.md) |
+| | |
+|---|---|
+| [Credits](#credits) | [Architecture and data flow](docs/architecture.md) |
+| [1. What it shows](#1-what-it-shows) | [Display and memory](docs/display-and-memory.md) |
+| [2. Hardware](#2-hardware) | [Serial console](docs/console.md) |
+| [3. Build](#3-build) | [Status and what is verified](docs/status.md) |
+| [4. Before you flash: back up the board](#4-before-you-flash-back-up-the-board) | [What is not built yet](TODO.md) |
+| [5. Updating it in the car](#5-updating-it-in-the-car-over-the-air) | |
+| [6. Configuration](#6-configuration) | |
+| [7. Repository layout](#7-repository-layout) | [Licence](#licence) |
 
 ---
+
+
 
 ## Credits
 
@@ -63,6 +69,8 @@ see [`dbc/SOURCE.md`](dbc/SOURCE.md). Bug fixes, the CAN relay receiver and the 
 DATA page were contributed by **Adam Forbes**.
 
 ---
+
+
 
 ## 1. What it shows
 
@@ -128,13 +136,15 @@ the link itself is down. Nothing is blanked and no overlay covers the screen.
 
 ---
 
+
+
 ## 2. Hardware
 
 | | |
 |---|---|
 | Board | Elecrow **CrowPanel 7.0"** HMI, `ESP32 Display-7.0` |
 | MCU | ESP32-S3 QFN56 rev v0.2, dual core @ 240 MHz |
-| PSRAM | 8 MB **OPI** (octal) — mandatory, see §4 |
+| PSRAM | 8 MB **OPI** (octal) — mandatory, see §3 |
 | Flash | 4 MB quad |
 | Panel | 800x480 RGB565 parallel (16 data lines + DE/VSYNC/HSYNC/PCLK) |
 | Touch | GT911 capacitive, I2C on SDA 19 / SCL 20 at 400 kHz |
@@ -167,125 +177,9 @@ if a differently-mounted panel needs another one.
 
 ---
 
-## 3. Data flow
 
-Three things feed the dashboard. **ESP-NOW is the primary** — the
-controller broadcasts a packed status packet every 100 ms with no web stack
-involved, so there is no association, no socket and no TCP in that path. With
-its **CAN relay** switched on, it broadcasts the car's frames the same way. HTTP
-is the fallback, and it still carries what neither of those has.
 
-```
-        core 0                                 core 1
-+-----------------------------+        +---------------------------+
-| "ohxnet" task               |        | loop()                    |
-|   WiFi STA -> C6 HTTP API   | struct |   ui::tick()     ~30 Hz   |
-|   GET /api/live     0-1 Hz  | --+    |   feed::poll()            |
-|   GET /api/dashboard ~1 Hz  |   |    |   lv_timer_handler()      |
-| ESP-NOW receive (radio, no  |   +--> |---------------------------|
-|   association, no sockets)  |        | net/datafeed.cpp: choose  |
-+-----------------------------+        |   source, merge fields    |
-      ^  ~10 Hz, no HTTP              | LVGL -> 2x 800x480 PSRAM  |
-      |                               | frame buffers -> RGB DMA  |
-   C6 broadcasts OHX_STATUS           +---------------------------+
-   (and CAN relay packets)
-   to FF:FF:FF:FF:FF:FF
-```
-
-`src/net/datafeed.{h,cpp}` is the single place that decides provenance:
-
-| Field | Source |
-|---|---|
-| `rpm`, `speed`, `throttle`, `boost`, `lockTarget`, `lockActual` | ESP-NOW while packets arrive (holds 500 ms), else HTTP |
-| `mode`, `haldexState`, `chassisCAN`, `haldexCAN`, `brakeIn`, `handbrakeIn`, `couplingOpen`, `tempProtection` | ESP-NOW — the packet has real bits for all of these |
-| `coolant`, `oil`, `fuel`, `odometerKm`, `brakeFromCAN`, `handbrakeFromCAN` | the CAN relay while it is carrying them, else HTTP. The packet has none of these: its `oilTemp` is the Haldex's oil, not the engine's |
-| `fuelLow`, `indicators`, `term58s`, `asrLamp`, `asrActive`, `cruise` | the CAN relay only — the cluster's own frame, with no HTTP equivalent at all |
-| `tcOn`, `asrOn` | the relay's `BR1_Lamp_ASR`; the packet's `TC_FORCE` / `ASR_OFF` flags (which is how the controller's API works them out) are only the fallback while the frame is quiet |
-| `awdWarning` | always HTTP — it comes from Haldex data, which is on the bus the relay does not carry. Kept and shown on the raw page; nothing on the dashboard uses it |
-| packets stopped | everything falls back to HTTP, and says so on the console |
-
-A numeric field the packet marks as "no data" falls back to the HTTP value if
-HTTP has one, so a field this Haldex generation never fills in cannot make the
-dashboard worse than it was. The source in use is printed in the stats line
-and on every change (`[feed] values now come from esp-now`), and `e` on the
-console dumps both transports side by side.
-
-HTTP is only asked for what nothing else is delivering, because every request
-costs the panel frames and costs the controller's single core time:
-
-| | `/api/live` | `/api/dashboard` |
-|---|---|---|
-| Packets stopped | 1000 ms: everything | 1000 ms: everything |
-| Packets, no relay | 5000 ms: coolant and oil | 1000 ms: brake, handbrake, AWD flag |
-| Packets and relay | 1000 ms: coolant, as a cross-check | 2000 ms: nothing the glass needs |
-
-The rate in force is on the `[stats] source` line. The fallback starts within
-100 ms of the packets stopping, however slow the previous rate was.
-
-**With the relay on, `/api/live` is still polled at 1 Hz for one reason: it is
-the cross-check.** Everything on the glass arrives over the relay, so the HTTP
-value is only there for `e` to compare against — and it costs one request a
-second, against the eleven a second (10 + 1) the 0.5.0 build made.
-
-`/api/dashboard` is polled at 2 s even though the glass needs nothing from it:
-it is the only handler that calls `otaNoteWebActivity()` on the controller, and
-the controller drops its access point after about five minutes without it.
-
-Because ESP-NOW needs no association, the dashboard goes **LIVE before the WiFi
-join completes** — `[ui] LIVE (data age 21 ms, source esp-now)` while
-`http down`.
-
-### Why HTTP is still there
-
-Three reasons, all deliberate: without the relay, coolant, engine oil, the fuel
-level and the odometer are not on the air at all; if the controller stops
-broadcasting (older firmware, ESP-NOW disabled, out of range) the dashboard
-keeps working at 1 Hz instead of going dark; and the station has to stay joined
-because the over-the-air update page lives on the controller's address.
-
-### Why two poll rates
-
-`/api/dashboard` on the controller calls `getCPUUsagePercent()`, which mallocs
-and walks every task on the controller's **single** core. Polling that faster
-buys no extra visual resolution. Splitting fast and slow data keeps the same
-look for roughly 90 % less CPU on the controller.
-
-`/api/dashboard` is also never polled slower than **2 s**: it is the only
-handler that calls `otaNoteWebActivity()`, and the controller drops its access
-point after about five minutes without it. The settings page clamps
-`pollDashMs` to 250..2000 ms for exactly this reason.
-
-### Joining the controller's access point
-
-The OpenHaldex-C6 publishes an **open** access point by default, which two
-defaults in the Arduino core have to be worked around:
-
-* `WiFi.setMinSecurity(WIFI_AUTH_WPA2_PSK)` is the core's default, so an open
-  network is *below* the threshold. The station is therefore told
-  `WIFI_AUTH_OPEN` before `WiFi.begin()`.
-* Association and DHCP are separate problems. The board associates fine and
-  then never gets a lease, which looks identical to "AP is dead" from outside.
-  The cause is that the controller is usually *also* on a home LAN already
-  using `192.168.1.0/24` — its softAP and station interfaces then share a
-  subnet, and its DHCP server cannot hand out an address that looks free. The
-  firmware logs `associated but no DHCP lease` and retries with a static
-  address derived from the configured host (`192.168.1.203`), skipping DHCP
-  entirely. That suits a fixed install: the dash talks to one AP at one
-  address.
-
-The join loop prints BSSID, channel and RSSI, which only read back once the
-station is associated, so the two failure modes can be told apart.
-
-### Connection reuse
-
-Both pollers use `HTTPClient::setReuse(true)`, so the two requests per second
-share one TCP connection instead of opening two. That matters: the controller
-runs with `CONFIG_LWIP_MAX_SOCKETS=8`, and a handshake-per-request pattern
-would fill its socket table with `TIME_WAIT` entries.
-
----
-
-## 4. Build
+## 3. Build
 
 ```bash
 cd OpenHaldex-S3-Dash
@@ -327,7 +221,9 @@ and nothing is drawn.
 
 ---
 
-## 5. Before you flash: back up the board
+
+
+## 4. Before you flash: back up the board
 
 The CrowPanel ships with a factory application. Reading the flash is
 read-only and risk-free, and it is worth having:
@@ -374,7 +270,9 @@ the flashing side of OTA needs no new partition to be useful.
 
 ---
 
-## 6. Updating it in the car (over the air)
+
+
+## 5. Updating it in the car (over the air)
 
 Once the dash is screwed into a pod there is no USB cable, so it can update
 itself from a phone. The dash is **already** a station on the controller's
@@ -441,7 +339,9 @@ device reaches out on its own.
 
 ---
 
-## 7. Configuration
+
+
+## 6. Configuration
 
 Defaults match the browser page:
 
@@ -501,344 +401,9 @@ figure. So the fuel row reads `22.4 L` whichever distance unit is chosen.
 
 ---
 
-## 8. Display tuning
 
-The RGB panel configuration in `src/hal/crowpanel.cpp` is Elecrow's own 7.0"
-description. Symptoms and where to look if a board is reworked or is a
-different revision:
 
-| Symptom | Fix |
-|---|---|
-| Colours swapped (red shows as blue) | build with `-DDASH_USE_50_PINMAP=1`, or permute `kDataPins` |
-| Image shifted / wrapped | `LCD_HSYNC_*` / `LCD_VSYNC_*` porches in `board_config.h` |
-| Whole image jitters / shifts | panel DMA starved of PSRAM bandwidth: raise `LCD_BOUNCE_LINES`, then lower `LCD_PCLK_HZ` |
-| Image tears or rolls | LVGL is drawing into the buffer being scanned: keep `LCD_USE_DOUBLE_FB 1` and `LV_DISPLAY_RENDER_MODE_DIRECT` |
-| Panel blank, no backlight | the PCA9557 was not found — check the I2C scan line in the boot log |
-
-### The real limit is PSRAM bandwidth
-
-Whatever else is tuned, this is the number that decides how the dash behaves.
-The panel reads its frame buffer out of PSRAM continuously, and this board
-measures only ~35–44 MB/s in total, with ~19 MB/s of that left for the CPU
-while the panel is scanning:
-
-| pclk | refresh | panel needs |
-|---|---|---|
-| 24 MHz | 49 Hz | 37.9 MB/s — starves everything else |
-| 20 MHz | 41 Hz | 31.6 MB/s |
-| **16 MHz** | **32 Hz** | **25.3 MB/s — what this build uses** |
-| 12 MHz | 24.6 Hz | 19.0 MB/s |
-
-(One frame is `htotal x vtotal` = 928 x 525 = 487 200 pixel clocks, so the refresh
-is `pclk / 487 200` — which is why the boot line prints `32 Hz` for 16 MHz.)
-
-Two things make it worse. WiFi's buffers are allocated in PSRAM
-(`CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y`, baked into the prebuilt IDF
-libraries), so network traffic competes with the panel directly — pausing the
-HTTP polling alone took the render rate from 16 fps to 42 fps on the bench.
-
-Symptoms are easy to misread: with a starved DMA the whole image rolls, which
-looks like a badly tuned television rather than a software bug.
-
-### Two frame buffers, and DIRECT mode
-
-LVGL renders into one full-screen PSRAM buffer while the RGB peripheral scans
-the other, and `esp_lcd_panel_draw_bitmap()` only returns once the swap has
-happened at a frame boundary — so a frame is never half old and half new.
-
-The render mode that pairs with it is **DIRECT**: a full-screen buffer, but
-only the invalidated rectangles are drawn.
-`LV_DISPLAY_RENDER_MODE_FULL` looks tempting but forces a whole 800x480 render
-*and* a 768 KB PSRAM write every frame, which both wastes the CPU and starves
-the panel.
-
-When the DMA's prefetch falls behind, the peripheral loses sync with the DMA
-and the picture shifts. Espressif ships `esp_lcd_rgb_panel_restart()` for it
-and `CONFIG_LCD_RGB_RESTART_IN_VSYNC` is enabled in this build, which turns a
-permanent shift into a jitter. `LCD_BOUNCE_LINES` is the margin against that:
-the driver refills an internal-SRAM bounce buffer from PSRAM in bursts, and
-the deeper it is, the longer a WiFi burst can run without emptying it. Two of
-them are allocated, so the shipped 24 lines cost 2 x 38 400 B = 76 800 B.
-(The `b` console key still toggles between 0 and 16 lines for a quick A/B
-comparison; 16 lines would be 2 x 25 600 B.)
-
-The pixel clock is **16 MHz taken from PLL_D2 (240 MHz)**, which it divides by an
-exact 15 — `[board] ... 16000000 Hz pclk (32 Hz refresh, PLL_D2/240M, exact)`.
-On `PLL_F160M` the same rate needs a fractional divider, and the code falls back
-to that rather than leave the screen dark; the exact divider removes any
-pixel-clock jitter from the picture. The source is printed at boot, and `p` on
-the serial console cycles the clock through 24 → 20 → 16 → 12 MHz at runtime to
-test the bandwidth theory live — the first press goes *up* to 24 MHz, which is
-right at the outer edge for this panel, so treat anything above 16 as a bench
-experiment.
-
-### Where the layout lives
-
-Bar cell size, the big number's row, tile widths and padding are all derived
-in `include/theme.h`, so geometry is adjusted in one place. The reasoning
-behind the top band is in `docs/redesign-bars.md`, and the mock-up tool that
-draws the layout at panel size before it is coded is `tools/mockup_dash.py`.
-
----
-
-## 9. Serial console
-
-115200 baud on UART0 (the CH340). Besides the boot banner:
-
-| Key | Effect |
-|---|---|
-| `1`..`5` | toggle redraw groups: rev bar, tick numbers, big number, tile readouts, status bar |
-| `0` / `9` | all redraw groups on / off |
-| `p` | cycle the pixel clock: 24 → 20 → 16 → 12 MHz (the first press goes up from 16) |
-| `d` | print the frame buffer the panel is scanning as an ASCII luminance map |
-| `n` | pause / resume the HTTP polling |
-| `e` | ESP-NOW vs HTTP, every field side by side |
-| `f` | forget the remembered controller (see [Which controller](#which-controller)) |
-| `x` | open / close the raw telemetry page (all of the above on the glass) |
-| `c` | open / close the CAN DATA page |
-| `C` | print every CAN id heard, and the selected one's signals |
-| `v` | force the other tile band, for bench work (see 'What the car can fill') |
-| `m` | step the Haldex mode — the same as tapping the HALDEX panel |
-| `E` | enable / disable the ESP-NOW listener (A/B its cost on one boot) |
-| `k` | decode the latest chassis CAN frames: fuel, indicators, odometer, 58s, brake, lamps, cruise |
-| `b` | toggle the bounce buffer between 0 and 16 lines |
-| `r` | try the next GT911 axis mapping |
-| `t` | reset the touch probe |
-| `o` | where the update page is, which slot is running, whether it is on trial |
-| `O` | arm the next boot as a deliberately failing trial (see [OTA](#6-updating-it-in-the-car-over-the-air)) |
-| `h` | the list above |
-
-`d` is the bench substitute for a camera: `tools/serial_cmd.py d 34` prints
-what is on the glass, which is how the layout was verified without a screen in
-front of you. `tools/serial_seq.py "35:d,42:n,48:d,56:n"` drives a whole timed
-scene in one run.
-
-`x` (or **SETTINGS → RAW DATA**) opens the **raw telemetry page**: every value
-the dash can see, on both transports, with a field the C6 marks as "no value"
-drawn as `--` rather than `0`. It is the instrument for a road test — what the
-packet carries versus what the JSON carries, side by side — so a problem can be
-read off the panel or pasted from the console instead of being described.
-
-The page prints itself to the console when it opens and whenever **FREEZE** is
-pressed, which holds the last reading on the glass long enough to photograph.
-
-To stage a **stale** screen, both transports have to be stopped — `E` (stop
-listening) then `n` (stop polling). Either one alone leaves the dashboard live,
-which is the point of the fallback; `[stats] source ...` says which one is
-carrying it.
-
-> **Opening this board's serial port reboots the ESP32.** That is measured,
-> not assumed: with a 12 s gap between two runs, the second still begins with a
-> full boot banner, so the reset comes from the kernel asserting DTR/RTS as the
-> port is opened, before any userspace code can touch the lines. Nothing held in
-> RAM survives it. `tools/serial_shell.py` therefore opens the port **once** and
-> keeps it, so a whole session of gestures and console keys is not reset halfway
-> through, and `tools/serial_capture.py` is the one to use when a reset is
-> exactly what you want.
-
----
-
-## 10. What the car can fill
-
-The dashboard's shape is decided once at boot from what the controller says it
-can feed, not fixed for every car. Two ways of finding out, and which was used
-is shown on the raw page so it can be argued with:
-
-| | How | Why |
-|---|---|---|
-| **detected** | the packet marks a field it has no value for with a sentinel, which arrives as NaN | the car is telling us, rather than us assuming |
-| **table** | the Haldex generation | boost is the one field with no sentinel: a car with no boost frame reads a confident `0.00`, so it cannot be detected |
-
-Measured on the Gen1 car this was built against, and logged as one line at
-boot:
-
-```
-[cap] gen 1 | boost no (table) | supply no (detected) | haldex temps no
-(detected) | steering yes (detected) | NoBoost (A) | 20 pkts
-```
-
-| Capability | This car | Consequence |
-|---|---|---|
-| boost | absent | the BOOST panel is not built into the band |
-| supply voltage | absent | not shown |
-| Haldex oil / clutch / module temps | absent | not shown |
-| steering angle | **packet only** | the packet is authoritative; the JSON path gates it off for Gen1 |
-| handbrake | **chassis CAN only** | the lamp lights from the CAN bit; the wired input never moves on this car |
-| brake | wire, and CAN | the lamp lights from either |
-
-Two tile bands exist, both approved as mock-ups in `docs/mockups/`:
-
-* **NoBoost (A)** — SPEED | TEMPERATURES | HALDEX, three equal panels (266 / 266
-  / 268), for a car with no boost source. What this car gets.
-* **Full (B)** — SPEED | BOOST | TEMPERATURES | HALDEX, the widths `dash.html`
-  gives them, for a car that has one. **Unverified**: no Gen4/5 car has been
-  available to test it on.
-
-The decision latches. It is not re-evaluated per frame, because a layout that
-changed shape while the car was moving would be worse than a widget that reads
-`--`, and an unsettled dashboard keeps the full band rather than hiding a widget
-on a guess. `v` on the console forces either band, which is how the unverified
-one gets looked at.
-
-## 11. ESP-NOW
-
-The controller broadcasts a packed `OhxStatus` struct to the broadcast address
-every 100 ms with **no web stack involved** — no access-point association, no
-sockets, no HTTP. This firmware listens to it and it carries most of the numbers
-on the glass; HTTP stays for the values the packet has no field for — coolant,
-oil, the fuel level and the odometer arrive over the CAN relay instead
-(see [Data flow](#3-data-flow)) — and as the fallback if the packets stop.
-
-| | |
-|---|---|
-| Wire format | `include/ohx_proto.h`, a **verbatim copy** of the controller's shared header (`b54d9a1d`). Refresh it from upstream; never edit it. |
-| Listener | `src/net/ohx_now.{h,cpp}` — init, receive callback, decode, counters |
-| Source choice | `src/net/datafeed.{h,cpp}` — ESP-NOW while packets arrive, HTTP otherwise |
-| Build switch | `-DOHX_USE_ESP_NOW=1`; `0` compiles a build that only ever uses HTTP, and the listener is not initialised at all |
-| Console | `e` = every field, ESP-NOW beside HTTP. `E` = enable/disable the listener at runtime |
-| Stats | `[stats] source esp-now (packet age 27 ms, http up)` and `[stats] esp-now 418 pkt (9.7 Hz), rej 0 dup 0 gap 3, ch 1, rssi -33 dBm` |
-| Every change | `[feed] values now come from esp-now` / `... from http` |
-
-84-byte packets arrive at 9.7–10.6 Hz with 0 rejects and ~0.5 % sequence gaps
-— broadcast has no retransmission, so gaps are expected. Listening costs
-nothing in render rate: the loop stays at ~60.2 ms busy out of a 61.0 ms
-period with the listener on or off.
-
-### Which controller
-
-A broadcast reaches every dash in range, and two controllers can share the
-default SSID. So the first one heard whose name matches the configured SSID is
-remembered by MAC, in NVS, and from then on:
-
-* packets from anyone else are counted (`ignored`) and dropped, with one console
-  line per MAC;
-* commands are only ever sent to that MAC;
-* the station's join is aimed at that MAC, so the HTTP values cannot come from a
-  different car than the ESP-NOW ones.
-
-A replaced controller is picked up by changing the SSID, pressing **DEFAULTS** in
-Settings, or `f` on the console. The first boot takes whichever matching
-controller it hears first, so do it away from other cars.
-
-### In the car
-
-`e` is the cross-check that matters: it prints both transports
-field by field, so any field whose scaling differs — `boost` is the one to
-watch, since the packet documents it as "mbar above ambient" — is visible
-rather than guessed at.
-
-### Sending: the mode switch
-
-The same wire format carries the other way. **Tap anywhere on the HALDEX
-panel** and the mode steps on: Stock → FWD → 50:50 → 60:40 → 75:25 → Expert →
-Stock. A standalone controller has no Stock to go to (it answers by staying on
-its last mode), so there the step goes from Expert back to FWD. One tap, one
-step — no list, no confirmation, no modal. `m` on the
-console does exactly the same thing, which is how the path gets exercised
-without touching the glass.
-
-The command is 22 bytes — magic, type, proto, the controller's nonce, a
-per-dash sequence, the command byte and its arguments — signed with
-**HMAC-SHA256**, truncated to 8 bytes. The key is the controller's
-access-point password: the same string the station joins with. It is unicast
-to the [remembered controller](#which-controller), and this is the only thing
-this firmware ever transmits.
-
-The controller does not reply directly. It publishes the answer in the ack
-fields of its next broadcast (`ackSrc`, `ackSeq`, `ackResult`), so the
-verdict arrives with the same 10 Hz stream as the data, and the panel's
-sub-line reports both halves of the exchange:
-
-```
-[ui] mode -> FWD (sent)
-[ui] mode FWD: ok (ack after 60 ms)
-```
-
-| On the panel | Meaning |
-|---|---|
-| `FWD ...` | sent, waiting for the controller |
-| `FWD ok` | accepted and applied |
-| `FWD control off` | ESP-NOW commands are switched off on the controller |
-| `FWD wrong key` | the password here differs from the one on the controller |
-| `FWD no link` | nothing was sent: no packet heard from the controller yet |
-| `FWD no reply` | sent, but nothing came back within 1.5 s |
-
-A `stale` result (another command — the web UI, a second gauge — used the
-nonce first) earns **one** silent retry, because the nonce is refilled every
-100 ms and a second race would just lose the same way.
-
-**An open access point is a warning, not a gate.** With no password the HMAC
-is keyed with an empty string, and the controller accepts commands signed that
-way if it has commands enabled — this is the state the reference car was in
-when the table above was captured. Settings says so in plain words (`signing
-key: NONE` plus a warning line) and leaves the switch working, because whether
-a command is obeyed is the controller's decision and the result code reports
-it honestly. The nonce is broadcast, so on an open access point anyone in
-range can compute a signature; the visible, immediate mode change on the panel
-is what makes that noticeable.
-
-Full plan, risks and phase notes: [`docs/esp-now-plan.md`](docs/esp-now-plan.md).
-
-### The CAN relay
-
-Switch on **Relay CAN Frames to Gauges** in the controller's web UI (Controller
-Options; it is off by default) and it broadcasts the frames it receives on its
-chassis bus, batched into packets. The dash needs no setting: it picks them up
-as soon as they arrive, from its own controller only. That gives it:
-
-* **less HTTP**, because the tiles and lamps can read the car directly (see
-  [Data flow](#3-data-flow));
-* **coolant and oil on MQB**, which the controller's API does not report. Read from
-  `Motor_07` (0x640), and not yet checked on a car;
-* **what the packet and the API have no field for at all**: the fuel level and its
-  low-fuel warning, the odometer, the turn-indicator bits and Terminal 58s (the
-  lighting switch and dimmer, which drives [day/night](#8-display-tuning));
-* **the CAN DATA page**: **SETTINGS → CAN DATA**, or `c` on the console. Every id on
-  the bus with its name and rate. Tap one to see every signal in it, decoded.
-
-The names and scaling come from tables compiled into the firmware: `vw_pq` (Gen1,
-Gen2, Gen4, 0AY) and `vw_mqb` (Gen5), about 72 KB of flash for 199 messages and 2612
-signals. They are generated by `tools/make_dbc_tables.py` from `dbc/`. Other makes
-show raw bytes. A compiled table beats a file on the LittleFS partition because the
-update page only updates the app.
-
-The tiles and lamps do **not** go through the DBC. They read the same bytes the
-controller reads, because those have been proved on a car and a DBC can be wrong:
-`vw_pq` lumps the handbrake in with the brake-fluid warning as one 2-bit field.
-
-What the relay does not carry:
-
-* **Bus 1**, so the Haldex's own frames. Its lock and status arrive in the status
-  packet instead.
-* Anything the controller transmits itself, including the edited frames it sends
-  the Haldex. What is shown is what the car sent.
-
-Broadcast has no retransmission, so this is a live view, not a lossless log. The
-counters say how much went missing: `air lost` is packets that never arrived,
-`sender lost` is frames the controller could not fit in its queue.
-
-**Not yet measured in a car**: what the relay costs in render rate and how much it
-loses. The test is written up in [`docs/can-relay-test.md`](docs/can-relay-test.md).
-
----
-
-## 12. What this device cannot show
-
-Data the controller does not expose, or has no room for here:
-
-* On the dashboard itself: engine oil **pressure**, fuel pressure, individual wheel
-  speeds, gear position and clutch state. Where the car's powertrain CAN has them,
-  the CAN DATA page shows them with the relay on.
-* Battery voltage — this *is* available, but only in the ESP-NOW broadcast
-  (`supplyMv`), not over HTTP. The dash receives it; it has no space on the
-  layout yet.
-* Anything at all while the chassis CAN is silent: on the bench with no
-  vehicle, the controller reports `rpm`/`speed`/`throttle`/`boost` as JSON
-  `null`, and this firmware correctly shows `--`.
-
----
-
-## 13. Repository layout
+## 7. Repository layout
 
 ```
 platformio.ini              build: ESP32-S3, OPI PSRAM, 4 MB OTA layout
@@ -909,6 +474,10 @@ dbc/
   LICENSE                   opendbc's MIT licence
 
 docs/
+  architecture.md           data flow, capability, transports, limits
+  display-and-memory.md     panel tuning, the splash picture, internal RAM
+  console.md                serial console keys and the tools around them
+  status.md                 what is verified where, and the build size
   can-relay-test.md         how to measure the CAN relay in the car
   can-relay-sample*.txt     recorded relay dumps for decode_can_snapshot.py
   redesign-bars.md          why the top band is a bar, and its measurements
@@ -924,192 +493,6 @@ LVGL ships Montserrat up to 48 px and no filled arrow, so the 96 px rev digits,
 56 px boost value and two FontAwesome block arrows are generated from the TTFs
 in `tools/fonts/`; the output is committed, so a normal build needs neither node
 nor the script.
-
-### The boot splash's picture
-
-The splash is a pre-rendered 800x480 JPEG (`assets/candash-splash-base-92.jpg`,
-30 395 B) with the progress rule, the tagline and the version drawn over it by
-LVGL. It is put in the app image, not the file system, by
-
-```ini
-board_build.embed_files = assets/candash-splash-base-92.jpg
-```
-
-which the linker turns into `_binary_assets_candash_splash_base_92_jpg_start`
-/ `_end` symbols ([`src/ui/splash_img.cpp`](src/ui/splash_img.cpp) is the only
-thing that refers to them; without a reference the linker drops the data again).
-In the app image rather than LittleFS on purpose: it can then be replaced by an
-over-the-air update, and the OTA page cannot write LittleFS.
-
-Decoding is the **ESP32-S3 mask ROM's** TJpgDec, reached through
-`esp32s3/rom/tjpgd.h`. The S3 has no JPEG peripheral (`esp_driver_jpeg` is gated
-on `CONFIG_SOC_JPEG_CODEC_SUPPORTED`, which the S3 does not set) and linking a
-decoder would cost tens of KB of a slot that is 92 % full, but the ROM ships the
-algorithm for free — `jd_prepare` and `jd_decomp` are in `esp32s3.rom.ld`. The
-ROM's build is fixed at RGB888 output, so each MCU band is converted to RGB565 as
-it arrives and a full-size RGB888 image is never materialised. Measured on the
-board: 800x480 in **416 ms**, 768 000 B of PSRAM held for the 3 s the splash is up
-and freed with it.
-
-The rule is the picture's own, at y 284, x 210-589 (380x3). Its gradient is fixed
-across the full 380 px and *revealed*, not stretched: a 1 px-wide parent is grown
-to 380 px and clips a child that is always full width. A child that grew instead
-would recompute the gradient over its own width, so the colour at the leading edge
-would crawl as the bar filled.
-
----
-
-## 14. Status
-
-This is **0.6.2**: layout C (0.6.0), the boot splash (0.6.1) and the splash's
-move to a pre-rendered picture (0.6.2). The status below separates what was
-verified in the car, what has been exercised on the bench, and what is still
-unproven; measured figures carry the version they came from.
-
-**In the car** (0.5.x):
-
-* Panel, touch and the PCA9557 expander all come up; tearing and jitter are
-  dealt with (two frame buffers, DIRECT mode, push only on
-  `lv_display_flush_is_last()`, PLL_D2 clock, 24-line bounce buffer, 16 MHz).
-* Both transports are live: HTTP at 1 Hz and the ESP-NOW broadcast at ~10 Hz,
-  with the source printed and switchable.
-* Stale behaviour, the settings page, the touch mapping and all five redraw
-  groups were measured on the bench.
-* The raw telemetry page renders and every field matches what the controller
-  reports; the BRAKE and HAND lamps light from the source that actually moves on
-  this car; the capability decision settles to the NoBoost band; and **the mode
-  switch works** — a tap on the HALDEX panel, and `m` on the console, each got
-  `ok` back from the controller in ~60 ms.
-* **Over the air**: a real 1.7 MB upload from a browser wrote the other slot,
-  rebooted into it *on trial*, and stood the trial down once the panel had
-  held for 20 s. The fall-back was then exercised for real — a trial told to
-  fail handed the car back to the previous slot in both directions
-  (app0 → app1 → app0). A file that is not a firmware image is refused with
-  HTTP 500 and nothing written. Confirmed from a phone on the controller's own
-  access point as well.
-
-**On the bench** (panel attached, controller powered off, so every relay-fed
-value correctly reads `--`). Figures are 0.6.0 unless the line names a later
-version:
-
-* The **boot splash** (0.6.1, re-done in 0.6.2): the picture decodes in 416 ms and
-  the panel is never blank; the rule fills over a fixed 3 s and the version is on
-  the glass, bottom-right. The hold's clock starts *after* the decode, so the rule
-  begins empty - counting the decode showed it already ~13 % filled on its first
-  frame and dropped the splash 0.4 s early. Its storage cost is in
-  [§13](#the-boot-splashs-picture).
-* Flashed over USB and left running for minutes: the fuel row, the two indicator
-  repeaters, the odometer in the status bar, the day/night backlight and the
-  rewritten settings page all draw as intended, and the settings page no longer
-  scrolls.
-* The settings blob was **migrated in place, v4 → v5** — SSID, brightness, the
-  metric flag and the static-IP flag all survived the update (read back out of the
-  NVS partition to confirm). The stored shift point was 5800 rpm, below the amber
-  zone, so the new `amber ≤ shift ≤ redline` clamp raised it to 6000 on load.
-* Render rate is **61.8 fps** idle (`0.74 ms/loop, 1.19 ms/busy of a 16.2 ms
-  period`); while the station is still hunting for the controller's access point it
-  settles at 32 fps, which is the WiFi buffers competing for PSRAM as described in
-  [§8](#8-display-tuning).
-* Internal RAM holds at **163.5 KB free, 162.9 KB lowest**, with LVGL's pool at
-  46 % of its 256 KB. See [Internal RAM](#internal-ram).
-
-**Still to be exercised in the car:** the CAN relay and the CAN DATA page
-([test procedure](docs/can-relay-test.md)) — which now also covers the fuel,
-odometer, indicator and 58s values, since those arrive the same way; and the value
-scaling for `boost` — none of the reference car's data has come from a boost source
-yet, since a Gen1 Haldex has no boost frame at all, and the Full band itself
-remains unverified. One unexplained chip reset was seen 8 s after the first
-post-update boot while the station was re-associating (no panic, clean ROM banner);
-180 s of idle running afterwards showed no repeats, and the boot banner now prints
-the reason so it can be caught if it happens again.
-
-Next: [TODO.md](TODO.md) — what is deliberately not built yet, and why.
-
-Build result, measured on 0.6.2:
-
-```
-RAM:   58 556 / 327 680 B   (17.9%)   <- LVGL's pool and the relay tables are in PSRAM
-Flash: 1 805 202 / 1 966 080 B (91.8%) <- of the 1.875 MB OTA slot
-```
-
-The RAM line came down from 0.5.0's 50.1 % (164 060 B) when the pool and the relay
-tables moved to PSRAM (see [Internal RAM](#internal-ram) below). The flash line is
-within ~161 KB of the OTA slot's limit, which is the number to watch if another
-page or table is added; 28 KB of it is the splash's JPEG, bought back by dropping
-the 80 px "CAN DASH" face the drawn splash needed (§13).
-
-### Memory, exactly
-
-The ESP32-S3 has **512 KB of SRAM**, but only 327 680 B (320 KB) of it is
-addressable as the application's DRAM region — the rest is IRAM and ROM-reserved.
-So the `327 680` in PlatformIO's `RAM:` line is the DRAM the application can
-actually run out of, and reporting a percentage of it (`17.9 %` in 0.6.0) is
-normal for this chip, not a sign that something is missing.
-
-The 8 MB of **PSRAM** is the part that matters here: the two 800x480x16 bpp
-frame buffers are 1 536 000 B and they must live there. The build confirms the
-`qio_opi` variant is linked (`CONFIG_SPIRAM_MODE_OCT 1`).
-
-### Internal RAM
-
-Internal RAM is what runs out first: WiFi, ESP-NOW and the task stacks all have to
-have it, while PSRAM has megabytes free. Read from the 0.5.0 build's `firmware.elf`,
-with the 0.5.1 moves to PSRAM marked:
-
-| What | Internal RAM | |
-|---|---|---|
-| Panel bounce buffers | 76.8 KB | has to be internal; `LCD_BOUNCE_LINES` in `board_config.h` |
-| Code that must run from RAM | 67 KB | framework; WiFi and lwIP's speed-ups are already off in this build |
-| LVGL's pool | 256 KB (248 472 B usable) | **in PSRAM since 0.5.1** — it was 96 KB of internal RAM in 0.5.0 |
-| CAN relay tables | 7.6 KB | **in PSRAM since 0.5.1** |
-| Everything else fixed | ~58 KB | framework, WiFi, the other small variables |
-
-Also since 0.5.1: ordinary memory requests of 512 B or more come from PSRAM first,
-and the JSON from `/api/live` and `/api/dashboard` is parsed in PSRAM.
-
-Every 5 s the console prints, on the 0.6.0 board with the panel up and no
-controller in range (WiFi down, relay carrying nothing — the exact byte counts
-move by a few hundred between boots):
-
-```
-[ram] internal 163476 B free, lowest 162904 B, biggest piece 122868 B | stack spare: ui 3332 B, net 6936 B
-[ram] lvgl pool 46% of 248472 B used, peak 114988 B, biggest piece 134804 B
-```
-
-**lowest** is the one to watch: of the 320 KB DRAM the application starts with, the
-panel's bounce buffers are allocated first, and 163 KB is what is left for WiFi,
-ESP-NOW, the two task stacks and every runtime allocation. A failed request prints
-`[ram] OUT OF MEMORY ...` at once, says so in the 5 s report, and is reported again
-at the next boot if it ended in a reset.
-
-To undo the pool move, set `DASH_LVGL_POOL_IN_PSRAM` to 0 in `include/lv_conf.h`. Do
-that if the render rate drops noticeably, since widgets are slower to reach in PSRAM.
-The pool is 256 KB and the bench peak was 115 KB, so it could be cut to suit if PSRAM
-is ever tight enough to matter — it is not today.
-
-If LVGL ever does run out - it has its own pool, so the warning above does not cover
-it - the panel no longer goes quiet about it. `src/app/lv_assert_glue.cpp` replaces
-LVGL's stock assert handler, which is a bare `while(1);`, with one that prints the
-file and line, a backtrace, and then reboots:
-
-```
-[lvgl] *** ASSERT at src/misc/lv_mem.c:123 ***
-```
-
-That is the difference between a fault and a mystery: the CAN DATA page hanging on
-open and on close looked exactly like this before the pool moved to PSRAM.
-
-### One caveat worth knowing
-
-The precompiled Arduino/IDF libraries in this platform were built assuming
-`CONFIG_ESPTOOLPY_FLASHSIZE="16MB"`. This board has 4 MB. That is harmless in
-practice — every partition is inside the first 4 MB, `board_upload.flash_size`
-writes the correct size into the app image header, and esptool detects the real
-chip — but if a future change ever needs libs compiled for exactly 4 MB, it
-requires `custom_sdkconfig` *plus* a project-local `core_dir`, because
-rebuilding the libs writes into the shared packages folder.
-
----
 
 ## Licence
 
