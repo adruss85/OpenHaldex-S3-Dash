@@ -276,7 +276,10 @@ void handleSerial() {
         }
         continue;
       case 'h':
-        Serial.println("1=arcs 2=needle 3=ticks 4=digits 5=readouts 6=status 0=all 9=none p=pclk b=bounce d=dump k=chassis n=polling e=esp-now f=forget controller v=tile band x=raw page c=can page C=can dump m=mode o=ota O=ota-fail-test");
+        Serial.println("1..5=redraw groups 0=all 9=none p=pclk b=bounce d=dump k=chassis "
+                       "n=polling e=esp-now f=forget controller v=tile band r/t=touch "
+                       "x=raw page c=can page C=can dump m=mode o=ota O=ota-fail-test "
+                       "l/L=drive log F=format log partition");
         break;
       case 'v': {
         // Force the tile band, for bench work: the capability decision is made
@@ -324,6 +327,12 @@ void handleSerial() {
         continue;
       case 'L':
         logbook::printStatus();
+        continue;
+      case 'F':
+        // The one thing the dash will not do by itself: erase the data
+        // partition. Only needed when it holds something that is not a
+        // readable filesystem, which begin() deliberately refuses to format.
+        logbook::formatData();
         continue;
       case 'f':
         // Forget the remembered controller: how a replaced one gets picked up.

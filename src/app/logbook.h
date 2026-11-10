@@ -38,9 +38,21 @@ class WebServer;
 namespace logbook {
 
 /// Mount the data partition and allocate the ring. Call once, early in setup().
-/// Mount failure is reported and disables the feature: it does *not* format,
-/// because formatting is what would destroy the log being rescued.
+///
+/// A partition that will not mount is left alone, because it may still hold the
+/// log somebody is trying to rescue - with one exception. The CrowPanel ships
+/// with this region erased, so a blank partition is formatted once: there is
+/// nothing in it to lose, and without that the feature could never start on a
+/// fresh board.
 void begin();
+
+/// Format the data partition on purpose, for the case begin() refuses: it holds
+/// something that is not a readable filesystem. This erases it. Console 'F' or
+/// the button on the update page.
+bool formatData();
+
+/// Is there a mounted filesystem to record to?
+bool ready();
 
 /// Sample, flush and enforce the session limits. Call from loop().
 void tick();

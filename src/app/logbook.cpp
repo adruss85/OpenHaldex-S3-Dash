@@ -6,6 +6,7 @@
 #include <LittleFS.h>
 #include <WebServer.h>
 #include <esp_heap_caps.h>
+#include <esp_partition.h>
 #include <math.h>
 #include <string.h>
 
@@ -14,10 +15,17 @@
 namespace logbook {
 namespace {
 
-// The partition is declared "littlefs" in partitions_4mb_ota.csv; the mount
-// point is the Arduino default, so paths below carry the prefix.
+// The partition is declared "littlefs" in partitions_4mb_ota.csv and mounted at
+// the Arduino default. Paths stay *relative to the mount point*: the VFS
+// prepends /littlefs itself, so "/drive.csv" is /littlefs/drive.csv on disk and
+// "/littlefs/drive.csv" would be /littlefs/littlefs/drive.csv (measured: the
+// first session refused to open, and the mkdir it tried left a stray directory).
+constexpr const char *kLabel = "littlefs";
 constexpr const char *kMount = "/littlefs";
-constexpr const char *kPath = "/littlefs/drive.csv";
+constexpr const char *kPath = "/drive.csv";
+// What the console and the docs call it, so a person reading either sees the
+// path they would type into a shell on the filesystem.
+constexpr const char *kShownPath = "/littlefs/drive.csv";
 
 // 5 Hz. Fast enough to see a boost spike or a mode step between two frames,
 // and 200 rows in the ring is still 40 s of history at ~15 KB of PSRAM.
@@ -58,6 +66,10 @@ WebServer *g_srv = nullptr;
 char g_line[64] = "log: idle";
 
 void stamp() {
+  if (!g_mounted) {
+    snprintf(g_line, sizeof g_line, "log: no filesystem");
+    return;
+  }
   if (!g_rec) {
     snprintf(g_line, sizeof g_line, "log: idle %u B", (unsigned)g_bytes);
     return;
@@ -175,6 +187,34 @@ void sample() {
   if (g_bufLen >= kFlushAt) flush(false);
 }
 
+// Is the data partition still erased? This is the one case where formatting is
+// safe, and it is the state a new board is in: the CrowPanel's factory table
+// left this 128 KB region blank, so the first mount failed with
+// LFS_ERR_CORRUPT ("Corrupted dir pair at {0x0,0x1}") on a chip full of 0xFF.
+// Blocks 0 and 1 carry LittleFS's metadata pair, so reading those is enough to
+// tell a blank region from a damaged one.
+bool partitionBlank() {
+  const esp_partition_t *p =
+      esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, kLabel);
+  if (!p) return false;
+  uint8_t buf[256];
+  for (size_t off = 0; off < 2 * 4096; off += sizeof buf) {
+    if (esp_partition_read(p, off, buf, sizeof buf) != ESP_OK) return false;
+    for (size_t i = 0; i < sizeof buf; i++) {
+      if (buf[i] != 0xFF) return false;
+    }
+  }
+  return true;
+}
+
+void ensureRing() {
+  g_ringHead = g_ringCount = 0;
+  if (g_ring) return;
+  g_ring = (char *)heap_caps_malloc((size_t)kRingRows * kRowCap,
+                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!g_ring) Serial.println("[log] no PSRAM for the ring - sessions only, no pre-trigger");
+}
+
 // ---- HTTP ------------------------------------------------------------
 void redirectRoot() {
   g_srv->sendHeader("Location", "/");
@@ -205,6 +245,14 @@ void handleDelete() {
     return;
   }
   g_srv->send(503, "text/plain", "filesystem busy");
+}
+
+void handleFormat() {
+  if (formatData()) {
+    redirectRoot();
+    return;
+  }
+  g_srv->send(500, "text/plain", "format failed - see the console");
 }
 
 void handleCsv() {
@@ -240,20 +288,24 @@ void begin() {
     return;
   }
 
-  if (!LittleFS.begin(false, kMount, 10, "littlefs")) {
-    // Deliberately not formatted: a partition that will not mount may still
-    // hold the log somebody is trying to get off it.
-    Serial.println("[log] littlefs will not mount - logging disabled (not formatting)");
-    return;
+  if (!LittleFS.begin(false, kMount, 10, kLabel)) {
+    // Default is still to leave it alone: a partition that will not mount may
+    // hold the log somebody is trying to get off it. The exception is a blank
+    // partition - nothing to lose, and a new board's is blank.
+    if (!partitionBlank()) {
+      Serial.println("[log] littlefs will not mount and the partition is not blank - left as");
+      Serial.println("      it is; 'F' on the console or the update page formats it (erases it)");
+      return;
+    }
+    Serial.println("[log] data partition is blank - formatting it once (nothing to lose)");
+    if (!LittleFS.format() || !LittleFS.begin(false, kMount, 10, kLabel)) {
+      Serial.println("[log] format did not produce a mountable filesystem - logging disabled");
+      return;
+    }
+    Serial.println("[log] formatted and mounted");
   }
   g_mounted = true;
-
-  g_ring = (char *)heap_caps_malloc((size_t)kRingRows * kRowCap,
-                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (!g_ring) {
-    Serial.println("[log] no PSRAM for the ring - sessions only, no pre-trigger");
-  }
-  g_ringHead = g_ringCount = 0;
+  ensureRing();
 
   size_t stored = 0;
   if (xSemaphoreTake(g_fs, pdMS_TO_TICKS(1000)) == pdTRUE) {
@@ -269,6 +321,32 @@ void begin() {
   Serial.printf("[log] %s | part %u/%u B used | ring %s\n", g_line, (unsigned)LittleFS.usedBytes(),
                 (unsigned)LittleFS.totalBytes(), g_ring ? "in PSRAM" : "OFF");
 }
+
+bool formatData() {
+  if (!g_fs) return false;
+  if (g_rec) stop();  // the open File would survive the reformat otherwise
+  if (xSemaphoreTake(g_fs, pdMS_TO_TICKS(3000)) != pdTRUE) {
+    Serial.println("[log] cannot format: filesystem busy");
+    return false;
+  }
+  // begin() succeeds when the partition is already mounted and only remembers
+  // the label, so unmount first: esp_littlefs_format refuses a mounted volume.
+  if (LittleFS.begin(false, kMount, 10, kLabel)) LittleFS.end();
+  const bool formatted = LittleFS.format();
+  const bool mounted = formatted && LittleFS.begin(false, kMount, 10, kLabel);
+  xSemaphoreGive(g_fs);
+
+  g_mounted = mounted;
+  g_bytes = 0;
+  if (mounted) ensureRing();
+  stamp();
+  Serial.printf("[log] format: %s | partition %u/%u B used\n", mounted ? "mounted" : "FAILED",
+                mounted ? (unsigned)LittleFS.usedBytes() : 0u,
+                mounted ? (unsigned)LittleFS.totalBytes() : 0u);
+  return mounted;
+}
+
+bool ready() { return g_mounted; }
 
 void start() {
   if (g_rec) return;
@@ -306,7 +384,8 @@ void start() {
   g_dropped = 0;
   g_startedMs = millis();
   stamp();
-  Serial.printf("[log] %s -> %s (%u rows of pre-trigger)\n", g_line, kPath, (unsigned)g_ringCount);
+  Serial.printf("[log] %s -> %s (%u rows of pre-trigger)\n", g_line, kShownPath,
+                (unsigned)g_ringCount);
 }
 
 void stop() {
@@ -356,6 +435,7 @@ void attach(WebServer &server) {
   server.on("/log/start", HTTP_POST, handleStart);
   server.on("/log/stop", HTTP_POST, handleStop);
   server.on("/log/delete", HTTP_POST, handleDelete);
+  server.on("/log/format", HTTP_POST, handleFormat);
 }
 
 String logHtml() {
@@ -373,7 +453,11 @@ String logHtml() {
   s += "</p>";
 
   if (!g_mounted) {
-    s += "<p class='warn'>The data partition did not mount, so logging is off.</p>";
+    s += "<p class='warn'>The data partition holds no readable filesystem, so logging is "
+         "off. It is not formatted automatically when it may hold a log to rescue.</p>";
+    s += "<form method='post' action='/log/format' "
+         "onsubmit='return confirm(&quot;Format the data partition? Anything in it is erased.&quot;)'>"
+         "<button>Format partition</button></form>";
     return s;
   }
 
