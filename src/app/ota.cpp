@@ -12,6 +12,7 @@
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
 
+#include "app/logbook.h"
 #include "hal/crowpanel.h"
 #include "version.h"
 
@@ -147,6 +148,7 @@ void handleRoot() {
        "<form method='post' action='/update' enctype='multipart/form-data'>"
        "<input type='file' name='firmware' accept='.bin'><br>"
        "<button type='submit'>Upload and reboot</button></form>";
+  s += logbook::logHtml();
   sendPage(200, s);
 }
 
@@ -277,6 +279,7 @@ void serveBegin() {
 
   g_server.on("/", HTTP_GET, handleRoot);
   g_server.on("/update", HTTP_POST, handleUploadDone, handleUpload);
+  logbook::attach(g_server);
   g_server.onNotFound([]() { sendPage(404, String("<h1>Not found</h1>") + factsHtml()); });
   g_server.begin();
   g_serving = true;

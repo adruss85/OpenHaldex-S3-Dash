@@ -3,20 +3,24 @@ Read this when you need to know what has actually been verified, on which firmwa
 # Status
 
 <!-- status:start -->
-Firmware version: 0.6.2
-Flash: 1 805 202 / 1 966 080 B (91.8%)
-Internal RAM (static): 58 556 / 327 680 B
-Measured: 2026-11-10, build 774f6a8
+Firmware version: 0.7.0
+Flash: 1 843 290 / 1 966 080 B (93.8%)
+Internal RAM (static): 59 868 / 327 680 B
+Measured: 2026-11-10, build 6c7d8a1
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
 about the current build. `tools/doc_status.py` regenerates the block above from
 a real `pio run` (or a saved log / a `firmware.elf`).
 
-This is **0.6.2**: layout C (0.6.0), the boot splash (0.6.1) and the splash's
-move to a pre-rendered picture (0.6.2). The status below separates what was
-verified in the car, what has been exercised on the bench, and what is still
-unproven; measured figures carry the version they came from.
+This is **0.7.0**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
+to a pre-rendered picture (0.6.2) and the drive log (0.7.0). The status below
+separates what was verified in the car, what has been exercised on the bench,
+and what is still unproven; measured figures carry the version they came from.
+
+**0.7.0 is compiled, not exercised.** The drive log — the LittleFS mount, 5 Hz
+sampling against a real frame rate, the flash stall and the phone download — has
+not been run on a board. See [Drive logging](logging.md).
 
 **In the car** (0.5.x):
 
@@ -77,15 +81,19 @@ the reason so it can be caught if it happens again.
 
 Next: [TODO.md](../TODO.md) — what is deliberately not built yet, and why.
 
-Build result, measured on 0.6.2:
+Build result, measured on 0.7.0:
 
 ```
-RAM:   58 556 / 327 680 B   (17.9%)   <- LVGL's pool and the relay tables are in PSRAM
-Flash: 1 805 202 / 1 966 080 B (91.8%) <- of the 1.875 MB OTA slot
+RAM:   59 868 / 327 680 B   (18.3%)   <- LVGL's pool and the relay tables are in PSRAM
+Flash: 1 843 290 / 1 966 080 B (93.8%) <- of the 1.875 MB OTA slot
 ```
 
 The RAM line came down from 0.5.0's 50.1 % (164 060 B) when the pool and the relay
-tables moved to PSRAM (see [Internal RAM](display-and-memory.md#internal-ram)). The flash line is
-within ~161 KB of the OTA slot's limit, which is the number to watch if another
-page or table is added; 28 KB of it is the splash's JPEG, bought back by dropping
-the 80 px "CAN DASH" face the drawn splash needed (see [the splash section](display-and-memory.md#the-boot-splashs-picture)).
+tables moved to PSRAM (see [Internal RAM](display-and-memory.md#internal-ram)); 0.7.0
+adds 1.3 KB of it (the 1 KB log batch buffer, the open `File` and the mutex), and
+the 19 KB ring lives in PSRAM. The flash line is within ~120 KB of the OTA slot's
+limit, which is the number to watch if another page or table is added; 28 KB of it
+is the splash's JPEG, bought back by dropping the 80 px "CAN DASH" face the drawn
+splash needed (see [the splash section](display-and-memory.md#the-boot-splashs-picture)).
+The drive log cost 38 KB of flash, which is the largest single addition since layout
+C and the reason the headroom is now the thing to check before the next feature.

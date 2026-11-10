@@ -56,6 +56,7 @@
 #include "net/ohx_now.h"
 #include "net/datafeed.h"
 #include "app/config.h"
+#include "app/logbook.h"
 #include "app/ota.h"
 #include "theme.h"
 #include "ohx_proto.h"
@@ -239,6 +240,9 @@ struct Widgets {
   // What automatic day / night has decided, and the number it produced, so the
   // mode can be judged on the glass rather than trusted.
   lv_obj_t *dayNightLine = nullptr;
+  // The drive log: a session is started by hand, so it is a button and a state
+  // line rather than a setting (no NVS field, nothing to leave on by accident).
+  lv_obj_t *btnLog = nullptr, *logLine = nullptr;
 } w;
 
 struct Values {
@@ -1142,6 +1146,29 @@ void onCfgRaw(lv_event_t *) {
 
 void onCfgCan(lv_event_t *) { canui::show(true); }
 
+// ------------------------------------------------------------ drive log
+// Next to the page it belongs to. setText()/setBgColor() do nothing when the
+// value has not changed, so refreshing this once a second costs nothing while
+// the page sits idle.
+void updateLogStatus() {
+  if (!w.btnLog) return;
+  const bool rec = logbook::recording();
+  setText(lv_obj_get_child(w.btnLog, 0), rec ? "STOP LOG" : "START LOG");
+  setBgColor(w.btnLog, rec ? COL_RED : lv_color_hex(0x12161b), 0);
+  if (w.logLine) {
+    char b[40];
+    snprintf(b, sizeof b, "%s %u KB", rec ? "REC" : "stored",
+             (unsigned)((logbook::fileBytes() + 512) / 1024));
+    setText(w.logLine, b);
+    setTextColor(w.logLine, rec ? COL_RED : COL_DIM);
+  }
+}
+
+void onLogToggle(lv_event_t *) {
+  logbook::toggle();
+  updateLogStatus();
+}
+
 void buildSettings() {
   w.settings = lv_obj_create(lv_layer_top());
   lv_obj_remove_flag(w.settings, LV_OBJ_FLAG_SCROLLABLE);
@@ -1283,6 +1310,11 @@ void buildSettings() {
   button(card, 0, 356, 90, 30, "DEFAULTS", onCfgDefaults);
   button(card, 100, 356, 82, 30, "RAW DATA", onCfgRaw);
   button(card, 192, 356, 82, 30, "CAN DATA", onCfgCan);
+  // The drive log is a session, not a setting: started here or with 'l' on the
+  // console, and it stops itself at 100 KB. It lives in the free space between
+  // the page buttons and SAVE rather than in a new column.
+  w.btnLog = button(card, 290, 356, 96, 30, "START LOG", onLogToggle);
+  w.logLine = fixedLabel(card, 396, 362, 196, 18, FONT_SMALL, COL_DIM, "");
   button(card, 600, 356, 74, 30, "SAVE", onCfgSave);
   button(card, 682, 356, 74, 30, "CLOSE", onCfgClose);
 
@@ -1510,13 +1542,22 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
   setIndicator(w.indRight, indLit && (g_indMask & 2));
 
   // ---- odometer, where the rpm peak used to be (#6)
-  if (isnan(d.odometerKm)) {
+  //
+  // While a drive log is recording the slot says so instead: a session writes
+  // to flash, and a dash that does that silently is a bad dash. One word, so
+  // the cost is a single small repaint per state change, not per second.
+  if (logbook::recording()) {
+    setText(w.odoTxt, "REC");
+    setTextColor(w.odoTxt, COL_RED);
+  } else if (isnan(d.odometerKm)) {
     setText(w.odoTxt, "ODO --");
+    setTextColor(w.odoTxt, COL_DIM);
   } else {
     char ob[24];
     fmtDistance(ob, sizeof(ob), d.odometerKm);
     snprintf(buf, sizeof(buf), "ODO %s", ob);
     setText(w.odoTxt, buf);
+    setTextColor(w.odoTxt, COL_DIM);
   }
 
   // ---- speed
@@ -2125,6 +2166,16 @@ void tick() {
       g_peaks.boost = isnan(g_peaks.boost) ? l.boost : fmaxf(g_peaks.boost, l.boost);
   }
 
+  // The settings page is modal and this is the only point below which nothing
+  // runs while it owns the glass, so its log row is refreshed here. Once a
+  // second: a session's percentage and clock do not need more.
+  static uint32_t lastLogUi = 0;
+  if (w.settings && !lv_obj_has_flag(w.settings, LV_OBJ_FLAG_HIDDEN) &&
+      (uint32_t)(now - lastLogUi) >= 1000) {
+    lastLogUi = now;
+    updateLogStatus();
+  }
+
   // A modal page is on the glass and the dashboard is hidden behind it, so
   // there is nothing to update: leaving the tick running would invalidate the
   // bar, the number, the tiles and the status bar 30+ times a second under
@@ -2223,6 +2274,7 @@ void updateControlStatus() {
 void showSettings(bool visible) {
   if (visible) {
     updateControlStatus();
+    updateLogStatus();
     g_edit = cfg::get();
     lv_textarea_set_text(g_taSsid, g_edit.ssid);
     lv_textarea_set_text(g_taPass, g_edit.pass);

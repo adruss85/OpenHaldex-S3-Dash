@@ -110,6 +110,7 @@ not facts about the current build.
 | **HTTP polling** and WiFi join | `src/net/telemetry.cpp` (core 0 "ohxnet" task) |
 | **Capability detection** (what this car can fill) | `src/app/capability.cpp`; band choice in `dash_ui.cpp` (`placeBand`) |
 | **OTA** page and boot trial | `src/app/ota.cpp`; partitions in `partitions_4mb_ota.csv` |
+| **Drive log** (RAM ring, CSV session, download) | `src/app/logbook.cpp`; button in `buildSettings()`, REC in `updateReadouts()`; routes attached from `ota::serveBegin()` |
 | **CAN DATA page** names and scaling | `dbc/*.dbc`, regenerate with `tools/make_dbc_tables.py` |
 | **Panel, touch, backlight** | `src/hal/crowpanel.cpp`, pins and timings in `include/board_config.h` |
 | **Boot splash** | in `src/ui/dash_ui.cpp`; background JPEG is `assets/candash-splash-base-92.jpg`, embedded via `board_build.embed_files` in `platformio.ini` |
@@ -200,6 +201,7 @@ releases page. No `releases/` folder.
 | `docs/architecture.md` | Where each value comes from, what the car can fill, ESP-NOW/CAN relay, and what the dash cannot show |
 | `docs/display-and-memory.md` | Display tuning, the boot splash picture, frame buffers, internal RAM and PSRAM |
 | `docs/console.md` | Serial console keys, the raw/CAN pages and the serial tools |
+| `docs/logging.md` | The drive log: what it records, what it costs, and how to get the CSV off the dash |
 | `docs/status.md` | What is verified where, its firmware version, and the current build size |
 | `TODO.md` | Before proposing new work: what is deliberately unbuilt, unverified, or awaiting a decision |
 | `docs/upgrades.md` | History and evidence behind the 0.6.0 batch; section 13 (cruise-FWD) and 14 (headlights) are the only live items |

@@ -167,25 +167,19 @@ For a genuinely different resolution, the honest options are (a) express
 LVGL flex/grid, or (c) accept per-resolution variants. (a) is the smallest
 change and keeps the "one file holds the geometry" property.
 
-### 3.2 Internal SD / logging
-A short CSV log of a drive — rpm, speed, throttle, boost, locks, mode over
-time — written to the LittleFS partition and dumped over serial or from the
-update page. That would turn "the boost reading looks wrong" into a graph, and
-it is the kind of thing that makes a drive test worth three drive tests.
-
-### 3.3 More of the controller's own controls
+### 3.2 More of the controller's own controls
 The mode switch is the thin end of a wedge. The same signed-command path
 already carries learn start/cancel/clear, generation, and controller on/off
 (see `ohx_proto.h`). Each one is a decision, not a port: generation and learn
 need the car stopped, and "controller off" while driving is a conversation.
 
-### 3.4 Things that arrive for free and have nowhere to go
+### 3.3 Things that arrive for free and have nowhere to go
 Per-wheel slip (`slip[4]`), steering angle (packet-only on Gen1), supply
 voltage, Haldex clutch/oil/module temperatures. All decoded, all shown on the
 raw page, none on the dashboard — because this car cannot fill them. Space
 them once a Gen4/5 tester exists (see 2.1).
 
-### 3.5 Smaller polish
+### 3.4 Smaller polish
 * Scale up the big SPEED number — noted as not urgent, since speed matters
   least on a racecar-style dash, but it is inconsistent with rpm.
 * A QR code on the SETTINGS page for the update URL, to kill the last bit of
@@ -241,7 +235,3 @@ comparison and a suggested fix are written up ready to paste in
 They are verbatim copies of the controller's shared headers. If the C6's struct
 changes and this copy does not, the `static_assert` on the packet size will
 catch it — but only if someone looks. Worth a note in the release checklist.
-
-### 4.6 LittleFS partition
-128 KB, allocated, unused. Either it earns its place (3.2 logging)
-or it should be given back to the app slots.

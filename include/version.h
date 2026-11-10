@@ -8,10 +8,14 @@
 // =====================================================================
 #pragma once
 
-#define OHX_DASH_VERSION "0.6.2"  // The splash is a pre-rendered 800x480 JPEG decoded by
-// the mask ROM's TJpgDec, with the progress rule, tagline and version drawn over
-// it; the 80 px "CAN DASH" face the drawn splash needed is gone with it. The
-// version moved to the bottom-right corner, where the artwork does not fight it.
+#define OHX_DASH_VERSION "0.7.0"  // The drive log: a PSRAM ring that always runs (last
+// 40 s, no flash touched) and a session started by hand, written to the LittleFS
+// partition as CSV and downloadable from the update page. Started from SETTINGS or
+// 'l'; the status bar's odometer slot reads REC while it is writing.
+// 0.6.2 - the splash is a pre-rendered 800x480 JPEG decoded by the mask ROM's
+// TJpgDec, with the progress rule, tagline and version drawn over it; the 80 px
+// "CAN DASH" face the drawn splash needed is gone with it. The version moved to
+// the bottom-right corner, where the artwork does not fight it.
 // 0.6.1 - Layout C tweaks: boot splash (fixed 3 s hold, 80 px
 // CAN DASH, a flat fill that tracks the hold - gradients dropped, the panel bands
 // them); indicator repeaters are solid block arrows, hidden when idle and

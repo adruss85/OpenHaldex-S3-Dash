@@ -25,6 +25,7 @@
 #include "app/ram.h"
 #include "version.h"
 #include "app/config.h"
+#include "app/logbook.h"
 #include "ui/dash_ui.h"
 #include "net/can_relay.h"
 #include "net/chassis.h"
@@ -316,6 +317,14 @@ void handleSerial() {
       case 'o':
         Serial.printf("[ota] %s | page %s\n", ota::stateLine(), ota::url());
         continue;
+      case 'l':
+        // Start / stop the drive log: same as the button on SETTINGS, here so a
+        // session can be started with the panel face down on a bench.
+        logbook::toggle();
+        continue;
+      case 'L':
+        logbook::printStatus();
+        continue;
       case 'f':
         // Forget the remembered controller: how a replaced one gets picked up.
         ohxnow::forgetController();
@@ -364,6 +373,7 @@ void setup() {
   // already failed, this is where the car is handed back to the previous
   // slot. It does nothing at all in the normal case.
   ota::begin();
+  logbook::begin();  // mount the data partition early: failure must not format it
 
   const bool displayOk = crowpanel::begin();
   ram::printCheckpoint("panel");  // shows what the bounce buffers took
@@ -395,6 +405,10 @@ void loop() {
   // Pumps the ESP-NOW listener (a no-op if this build has it switched off)
   // and logs any change of the source the glass is being fed from.
   feed::poll();
+
+  // The drive log: a RAM ring every 200 ms, and a session only if one was
+  // started. Cheap when idle - no flash is touched.
+  logbook::tick();
 
   // The over-the-air trial clock: does nothing unless an update is waiting to
   // prove itself, in which case this is what confirms it or gives up on it.

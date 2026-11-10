@@ -442,6 +442,7 @@ src/
     config.h/.cpp           NVS-backed settings, validation, revision counter
     capability.h/.cpp       what the controller says this car can feed
     ota.h/.cpp              over-the-air update page and the boot trial
+    logbook.h/.cpp          RAM ring + the drive-log session and its download
     ram.h/.cpp              5 s internal-RAM and LVGL-pool reporting
     lv_assert_glue.cpp      LVGL's assert handler: print, backtrace, reboot
   ui/
@@ -478,6 +479,7 @@ docs/
   display-and-memory.md     panel tuning, the splash picture, internal RAM
   console.md                serial console keys and the tools around them
   status.md                 what is verified where, and the build size
+  logging.md                the drive log: what it records, and what it costs
   can-relay-test.md         how to measure the CAN relay in the car
   can-relay-sample*.txt     recorded relay dumps for decode_can_snapshot.py
   redesign-bars.md          why the top band is a bar, and its measurements
