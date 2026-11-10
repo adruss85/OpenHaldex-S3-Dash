@@ -24,6 +24,26 @@
 // Values come from net/datafeed.h, which merges the C6's ESP-NOW broadcast
 // with its HTTP API, and nothing is drawn for a value that has never
 // arrived ("--" instead of 0).
+//
+// Sections, by the function that starts each one (line numbers would rot):
+//
+//   helpers                 setText, setBar, colFor, plain/opaque/label,
+//                           bar, button, lamp, lampPaint
+//   mode switch             cycleMode, onHaldexTap, updateModeCmd
+//   gauge / rev bar         syncGauge, buildGauge, buildIndicatorArrow,
+//                           setIndicator, updateRevBar, updateGaugeText
+//   tiles / band placement  buildTiles, placeSpeedTile/placeBoostTile/
+//                           placeTempsTile/placeHaldexTile, placeBand
+//   status bar / lamps      buildStatusBar, lampState, lampStateCruise,
+//                           updateConn
+//   settings page           buildSettings, addStepRow, addField, taEvent,
+//                           refreshSteppers, the on* handlers, showSettings
+//   boot splash             buildSplash, updateSplash, hideSplash
+//   update loop             updateReadouts, updateDayNight, tick
+//   public entry points     begin, applyLayout, applyDebugMask, setDebugMask,
+//                           takeTimings, staleEvents, maxStaleAgeMs, setPage,
+//                           page, layoutVariant, cycleHaldexMode,
+//                           settingsOpen
 // =====================================================================
 #include "ui/dash_ui.h"
 
