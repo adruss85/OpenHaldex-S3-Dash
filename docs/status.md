@@ -4,9 +4,9 @@ Read this when you need to know what has actually been verified, on which firmwa
 
 <!-- status:start -->
 Firmware version: 0.7.0
-Flash: 1 843 374 / 1 966 080 B (93.8%)
+Flash: 1 845 186 / 1 966 080 B (93.9%)
 Internal RAM (static): 59 868 / 327 680 B
-Measured: 2026-11-10, build 6e87ed6
+Measured: 2026-11-10, build e1e5b5b
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
@@ -18,9 +18,12 @@ to a pre-rendered picture (0.6.2) and the drive log (0.7.0). The status below
 separates what was verified in the car, what has been exercised on the bench,
 and what is still unproven; measured figures carry the version they came from.
 
-**0.7.0 is compiled, not exercised.** The drive log — the LittleFS mount, 5 Hz
-sampling against a real frame rate, the flash stall and the phone download — has
-not been run on a board. See [Drive logging](logging.md).
+**0.7.0 has been run on the bench, not in a car.** The drive log's flash half
+works: the blank partition formats itself, a session starts, writes and stops,
+and the CSV reads back correctly out of a raw flash dump. What has *not* been
+exercised is its HTTP half — `/log.csv` and the buttons on the update page —
+because that needs the controller's access point, and a drive-log trace needs a
+car actually sending values. See [Drive logging](logging.md) for the list.
 
 **In the car** (0.5.x):
 
@@ -58,6 +61,20 @@ version:
   repeaters, the odometer in the status bar, the day/night backlight and the
   rewritten settings page all draw as intended, and the settings page no longer
   scrolls.
+* The **drive log** (0.7.0), flashed over USB with no controller in range: the
+  erased partition is formatted once at boot and mounts; the PSRAM ring samples
+  at 5 Hz; a session writes its header, 19 rows of pre-trigger history and then
+  1544 B in ten seconds with nothing dropped; `F` formats it back to a clean
+  8192/131072 B. The file dumped straight out of flash holds the header and one
+  row per sample with empty fields rather than zeros. The dashboard held 68 fps
+  throughout. Its HTTP download is still unverified - see
+  [Drive logging](logging.md).
+* The **settings page** (0.7.0) was checked on the glass with `d` (the ASCII
+  frame dump), which is how the two defects were found: the connection status
+  overlapped the HOST field, and its warning and OTA lines were being clipped
+  mid-sentence by a 340 px box. It is now a full-screen page rather than a card,
+  the long lines wrap, and every string was measured against the font's advance
+  widths before being placed.
 * The settings blob was **migrated in place, v4 → v5** — SSID, brightness, the
   metric flag and the static-IP flag all survived the update (read back out of the
   NVS partition to confirm). The stored shift point was 5800 rpm, below the amber
@@ -85,7 +102,7 @@ Build result, measured on 0.7.0:
 
 ```
 RAM:   59 868 / 327 680 B   (18.3%)   <- LVGL's pool and the relay tables are in PSRAM
-Flash: 1 843 290 / 1 966 080 B (93.8%) <- of the 1.875 MB OTA slot
+Flash: 1 845 186 / 1 966 080 B (93.9%) <- of the 1.875 MB OTA slot
 ```
 
 The RAM line came down from 0.5.0's 50.1 % (164 060 B) when the pool and the relay
@@ -95,5 +112,5 @@ the 19 KB ring lives in PSRAM. The flash line is within ~120 KB of the OTA slot'
 limit, which is the number to watch if another page or table is added; 28 KB of it
 is the splash's JPEG, bought back by dropping the 80 px "CAN DASH" face the drawn
 splash needed (see [the splash section](display-and-memory.md#the-boot-splashs-picture)).
-The drive log cost 38 KB of flash, which is the largest single addition since layout
+The drive log cost 40 KB of flash, which is the largest single addition since layout
 C and the reason the headroom is now the thing to check before the next feature.

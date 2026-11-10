@@ -37,8 +37,9 @@ flash without saying so would be a bad dash.
 
 ## The file
 
-`drive.csv`, comma separated, one row per sample, `\n` line endings, a header
-row first:
+`/littlefs/drive.csv` (the partition's root, `drive.csv` to the filesystem
+API), comma separated, one row per sample, `\n` line endings, a header row
+first:
 
 ```
 ms,rpm,speed_kmh,throttle_pct,boost_mbar,coolant_c,oil_c,fuel_l,mode,lock_tgt,lock_act,steer_deg,brake_can,hand_can,cruise,src
@@ -79,10 +80,16 @@ while the download holds the filesystem, then carries on.
 * A session stops itself at **100 KB** or **ten minutes**, whichever comes
   first — 100 KB of a 128 KB partition, because the filesystem needs room to
   append without compacting on every write.
-* If the partition will not mount at boot, logging is **disabled and the
-  partition is not formatted**. A partition that will not mount may still hold
-  the log somebody is trying to rescue; the console says so
-  (`[log] littlefs will not mount`).
+* A partition that will not mount is **left alone**, because it may still hold
+  the log somebody is trying to rescue. The console says so and the settings
+  page shows **no filesystem** next to the button. The one exception is a
+  partition that reads back blank: there is nothing to lose, so it is formatted
+  once at boot and the console says `[log] data partition is blank - formatting
+  it once`. This is what a new board needs — it ships with the region erased,
+  and LittleFS reports that as corruption (`Corrupted dir pair at {0x0,0x1}`).
+* To format on purpose — a partition holding something that is not a readable
+  filesystem — use **`F`** on the console or the **Format partition** button on
+  the update page (`POST /log/format`). That erases it.
 * A short write (the partition is full) closes the session cleanly and reports
   it rather than retrying the tail forever.
 * Rows lost while the filesystem was busy are counted and printed when the
@@ -96,9 +103,26 @@ while the download holds the filesystem, then carries on.
 | `l` | start / stop a session — same as the SETTINGS button |
 | `L` | state, file size, ring depth, rows dropped |
 
-## What is not verified
+## What has been checked, and on what
 
-Everything in this page was built and compiled but has **not** been run on a
-board yet: the LittleFS mount, the 5 Hz sampling against a real frame rate, the
-flash stall in practice, and the download from a phone. The numbers above are
-arithmetic on the partition layout and the row size, not measurements.
+On the bench, on a CrowPanel 7.0 with no controller in range (so every value is
+absent and every `src` is 0):
+
+* The blank partition formatted itself at boot and mounted; 8 KB of the 128 KB
+  is metadata, which is why `usedBytes()` reads 8192 with no log in it.
+* The ring filled at 5 Hz in PSRAM — 48 rows after ten seconds.
+* A session wrote the header plus **19 rows of pre-trigger**, then 1544 B in
+  ten seconds with **0 rows dropped**; `l` again closed it and reported the
+  size.
+* The file read back out of flash (a raw dump of `0x3d0000`) contains the
+  header and one row per sample with **empty fields**, not zeros.
+* `F` formatted the partition back to a clean 8192/131072 B.
+* The dashboard kept 68 fps while the ring was sampling, and internal RAM did
+  not move (160 KB free).
+
+Still unverified: **the HTTP side** — `/log.csv`, the start/stop/delete/
+format buttons, and a download from a phone all need the dash joined to the
+controller's access point, which needs the controller. Also unmeasured: the
+flash stall with a real frame stream under it, and whether a 100 KB session
+really holds five minutes of a driving car (a row with real values is ~65 B
+where a row of empty fields is ~28 B).

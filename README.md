@@ -131,8 +131,9 @@ the link itself is down. Nothing is blanked and no overlay covers the screen.
   a setting, not a status-bar button.
 * Settings holds every threshold, the units, the day/night mode, the brightness
   and the connection, and is stored in NVS so it survives a power cycle. It is
-  laid out in two columns with no scrolling: on a 32 Hz panel, a scroll step
-  repaints the full card width, which is what made the old page feel slow.
+  a full-screen page in two columns with no scrolling: on a 32 Hz panel, a
+  scroll step repaints the full screen width, which is what made the old page
+  feel slow.
 
 ---
 

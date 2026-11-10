@@ -23,8 +23,10 @@ Read this when you need to drive or diagnose the board from the serial port.
 | `b` | toggle the bounce buffer between 0 and 16 lines |
 | `r` | try the next GT911 axis mapping |
 | `t` | reset the touch probe |
+| `s` | open / close the settings page (the one page with no other way in but touch) |
 | `l` | start / stop a drive-log session (see [Drive logging](logging.md)) |
 | `L` | drive log: state, file size, ring depth, rows dropped |
+| `F` | format the data partition — erases it; only needed when it holds no readable filesystem |
 | `o` | where the update page is, which slot is running, whether it is on trial |
 | `O` | arm the next boot as a deliberately failing trial (see [OTA](../README.md#5-updating-it-in-the-car-over-the-air)) |
 | `h` | the list above |
