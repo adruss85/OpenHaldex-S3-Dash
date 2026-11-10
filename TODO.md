@@ -66,6 +66,39 @@ The signal evidence, the reasoning and the full requirements are in
 [`docs/upgrades.md`](docs/upgrades.md) §13. It starts at the debounce, not at the
 research.
 
+### 1.5 adc2can as a relay sender — transport ready, decision open
+The Forbes Automotive **adc2can** (8× 0–5 V sensors to CAN) shares the CAN relay
+wire format with OpenHaldex by design: `cannow_proto.h` here is one of three
+identical copies (see its header comment) and already names `CANN_K_ADC2CAN`.
+So `can_relay.cpp` would decode its relayed car-bus frames and 29-bit sensor
+frames today, and the CAN DATA page could show its sensors from a DBC for the
+`0AD2C000` base id. No WiFi join is needed either — the relay is an unpaired
+ESP-NOW broadcast and both sides sit on channel 1.
+
+What is **not** built, and is deliberate rather than an oversight:
+
+* **Sender acceptance is OpenHaldex-coupled.** `ohx_now.cpp` learns "its
+  controller" from an `OhxStatus` packet whose embedded AP-SSID matches the
+  configured SSID, and drops every CANN packet that is not from that MAC — the
+  `kind` byte is not even consulted. An adc2can never sends `OhxStatus`, so it
+  is filtered out. Whatever the fix (learn from a CANN header, a settings
+  field), respect the intent: this is the one gate that stops the dash hearing
+  a stranger's car in a paddock or queue.
+* **No Haldex-shaped feed without a controller.** The Full (F) band, the mode
+  tile and `/api/dashboard` polling all assume the C6; on an adc2can-only car
+  the main band would stay `--`. What a dash without OpenHaldex *is* — the CAN
+  DATA page plus gauges, or nothing beyond raw/CAN — is a product question,
+  since can2gauge already covers the display-only road-car use well.
+* **No command path, and none to build.** adc2can is one-way over the air; the
+  dash would be display-only, which matches the house rule but means the mode
+  tile must hide rather than transmit into silence.
+
+Perspective: the interesting version is **both on one car** — adc2can sensors
+alongside OpenHaldex data where the controller cannot help (Gen1 has no oil
+temp/pressure; a race car wants exactly those). Making the dash a general
+can2gauge replacement is not the goal. If picked up, start at the acceptance
+gate; the decode side is free.
+
 ---
 
 ## 2. Verification gaps
