@@ -3,21 +3,21 @@ Read this when you need to know what has actually been verified, on which firmwa
 # Status
 
 <!-- status:start -->
-Firmware version: 0.7.1
-Flash: 1 845 186 / 1 966 080 B (93.9%)
-Internal RAM (static): 59 868 / 327 680 B
-Measured: 2026-11-10, build d84d689
+Firmware version: 0.7.2
+Flash: 1 844 758 / 1 966 080 B (93.8%)
+Internal RAM (static): 60 308 / 327 680 B
+Measured: 2026-11-10, build a84c801
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
 about the current build. `tools/doc_status.py` regenerates the block above from
 a real `pio run` (or a saved log / a `firmware.elf`).
 
-This is **0.7.1**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
-to a pre-rendered picture (0.6.2), the drive log (0.7.0) and a quieter cruise
-lamp (0.7.1). The status below separates what was verified in the car, what has
-been exercised on the bench, and what is still unproven; measured figures carry
-the version they came from.
+This is **0.7.2**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
+to a pre-rendered picture (0.6.2), the drive log (0.7.0), a quieter cruise lamp
+(0.7.1) and the rev bar with a settable scale (0.7.2). The status below separates
+what was verified in the car, what has been exercised on the bench, and what is
+still unproven; measured figures carry the version they came from.
 
 **0.7.0 has been run on the bench and against a live controller, not driven.**
 The drive log works end to end: the blank partition formats itself, a session
@@ -32,6 +32,14 @@ is a trace taken while the car is actually moving. See
 plate and lettering, plus the version string. Every 0.7.0 observation below
 therefore still describes this image, and the lamp itself was checked on the
 glass in 0.7.1.
+
+**0.7.2 changes the rev bar and the rpm thresholds and nothing else** — 80 cells
+drawn edge to edge in place of 40 with gaps, and the scale settable again, with
+max, amber, redline and shift all in 100 rpm. It was flashed over USB and booted
+clean on the bench, with the bar and the new settings rows looked at on the
+glass. No controller was in range, so the bar sat at `--`: neither the moving
+edge against live rpm nor a shorter scale's tick placement has been watched
+there yet. Every earlier observation still describes the rest of the image.
 
 **In the car** (0.5.x):
 
