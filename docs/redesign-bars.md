@@ -5,9 +5,10 @@
 > still shows the four-tile Full band (with BOOST), the **DAY** button and the
 > **AWD** lamp; layout C later added the fuel row, indicator repeaters and the
 > odometer, moved day/night into Settings, and replaced the AWD lamp with CC.
-> The measurements in this file — what
-> the ring cost, what the bar costs, and why the fps counter is a loop rate — are
-> still the evidence behind the bar and remain valid. The widget sketch is not
+> The measurements in this file were taken on the pre-0.3.0 bring-up build,
+> before the firmware carried a version string — what the ring cost, what the bar
+> costs, and why the fps counter is a loop rate. They are still the evidence
+> behind the bar and remain valid. The widget sketch is not
 > the current dashboard; see the [README](../README.md#1-what-it-shows) for that.
 
 Replaces the top band of the dashboard — the tach ring, its needle and the

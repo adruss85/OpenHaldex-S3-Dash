@@ -1,6 +1,8 @@
 # Planned upgrades — functional first, cosmetic after
 
 Drawn up from the drive of 2026-11-06 (0.5.1) and the code as it stands.
+Measured rates and packet-loss figures below come from that 0.5.1 drive unless a
+later version is named.
 
 > **This batch is delivered.** Items **1–12 all shipped** (1–12 in 0.6.0,
 > commits `7017271`, `0062487`, `1eb4930`, `7260267`; the boot splash, real

@@ -19,9 +19,10 @@ different revision:
 ### The real limit is PSRAM bandwidth
 
 Whatever else is tuned, this is the number that decides how the dash behaves.
-The panel reads its frame buffer out of PSRAM continuously, and this board
-measures only ~35–44 MB/s in total, with ~19 MB/s of that left for the CPU
-while the panel is scanning:
+The panel reads its frame buffer out of PSRAM continuously. On the pre-0.3.0
+bring-up build (the firmware had no version string yet), this board measured
+only ~35–44 MB/s in total, with ~19 MB/s of that left for the CPU while the
+panel is scanning:
 
 | pclk | refresh | panel needs |
 |---|---|---|
@@ -35,8 +36,9 @@ is `pclk / 487 200` — which is why the boot line prints `32 Hz` for 16 MHz.)
 
 Two things make it worse. WiFi's buffers are allocated in PSRAM
 (`CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y`, baked into the prebuilt IDF
-libraries), so network traffic competes with the panel directly — pausing the
-HTTP polling alone took the render rate from 16 fps to 42 fps on the bench.
+libraries), so network traffic competes with the panel directly — on the same
+pre-0.3.0 build, pausing the HTTP polling alone took the render rate from 16 fps
+to 42 fps on the bench.
 
 Symptoms are easy to misread: with a starved DMA the whole image rolls, which
 looks like a badly tuned television rather than a software bug.

@@ -2,6 +2,17 @@ Read this when you need to know what has actually been verified, on which firmwa
 
 # Status
 
+<!-- status:start -->
+Firmware version: 0.6.2
+Flash: 1 805 202 / 1 966 080 B (91.8%)
+Internal RAM (static): 58 556 / 327 680 B
+Measured: 2026-11-10, build 774f6a8
+<!-- status:end -->
+
+Measured figures are baselines for the firmware version they name, not claims
+about the current build. `tools/doc_status.py` regenerates the block above from
+a real `pio run` (or a saved log / a `firmware.elf`).
+
 This is **0.6.2**: layout C (0.6.0), the boot splash (0.6.1) and the splash's
 move to a pre-rendered picture (0.6.2). The status below separates what was
 verified in the car, what has been exercised on the bench, and what is still

@@ -5,6 +5,8 @@ receiver, was verified on the bench (§7); phase 2, ESP-NOW feeding the glass,
 was verified on the bench across all three paths (§8); phase 3, the signed mode
 switch, was verified in the car (§9). The steps and risks below are kept as the
 design rationale and the record of what was built, not as a to-do list.
+Every fps figure in this file was measured on the pre-0.3.0 tree, before the
+firmware carried a version string; they are not claims about the current build.
 Unverified work lives in [TODO.md](../TODO.md).
 
 ## 1. What ESP-NOW is, in plain terms

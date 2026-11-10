@@ -100,9 +100,9 @@ and which relay setting to recommend. MQB coolant and oil from `Motor_07` have
 never been on a car through this path. The whole test is in
 [`docs/can-relay-test.md`](docs/can-relay-test.md).
 
-The bench half of this is now done: with no controller in range the panel runs at
-61.8 fps and internal RAM holds at 163 KB free, so the PSRAM moves are no longer the
-worry they were. What the *relay* costs — render rate and loss with the frames
+The bench half of this is now done (0.6.0): with no controller in range the panel
+runs at 61.8 fps and internal RAM holds at 163 KB free, so the PSRAM moves are no
+longer the worry they were. What the *relay* costs — render rate and loss with the frames
 actually arriving — can only be measured on the car, and the procedure covers the
 fuel, odometer, indicator and 58s values too, since those arrive the same way.
 
