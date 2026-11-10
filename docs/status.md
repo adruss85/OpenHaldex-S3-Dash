@@ -4,9 +4,9 @@ Read this when you need to know what has actually been verified, on which firmwa
 
 <!-- status:start -->
 Firmware version: 0.7.0
-Flash: 1 843 290 / 1 966 080 B (93.8%)
+Flash: 1 843 374 / 1 966 080 B (93.8%)
 Internal RAM (static): 59 868 / 327 680 B
-Measured: 2026-11-10, build 6c7d8a1
+Measured: 2026-11-10, build 6e87ed6
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
