@@ -134,7 +134,7 @@ the link itself is down. Nothing is blanked and no overlay covers the screen.
 |---|---|
 | Board | Elecrow **CrowPanel 7.0"** HMI, `ESP32 Display-7.0` |
 | MCU | ESP32-S3 QFN56 rev v0.2, dual core @ 240 MHz |
-| PSRAM | 8 MB **OPI** (octal) — mandatory, see §5 |
+| PSRAM | 8 MB **OPI** (octal) — mandatory, see §4 |
 | Flash | 4 MB quad |
 | Panel | 800x480 RGB565 parallel (16 data lines + DE/VSYNC/HSYNC/PCLK) |
 | Touch | GT911 capacitive, I2C on SDA 19 / SCL 20 at 400 kHz |
@@ -292,7 +292,7 @@ cd OpenHaldex-S3-Dash
 ./.venv/bin/pio run -e s3-dash
 ```
 
-The plan is a plain [PlatformIO](https://platformio.org) project. The first
+This is a plain [PlatformIO](https://platformio.org) project. The first
 build downloads the pioarduino `espressif32@55.3.312` platform — the same
 release the OpenHaldex-C6 firmware uses, so both projects build against an
 identical toolchain — plus the framework, which takes a few minutes, once.
@@ -445,7 +445,6 @@ device reaches out on its own.
 
 Defaults match the browser page:
 
-
 | Setting | Default |
 |---|---|
 | SSID / password | `OpenHaldex-C6` / *(empty — the controller's AP is open by default)* |
@@ -559,7 +558,9 @@ and `CONFIG_LCD_RGB_RESTART_IN_VSYNC` is enabled in this build, which turns a
 permanent shift into a jitter. `LCD_BOUNCE_LINES` is the margin against that:
 the driver refills an internal-SRAM bounce buffer from PSRAM in bursts, and
 the deeper it is, the longer a WiFi burst can run without emptying it. Two of
-them are allocated, so 16 lines costs 2 x 25 600 B.
+them are allocated, so the shipped 24 lines cost 2 x 38 400 B = 76 800 B.
+(The `b` console key still toggles between 0 and 16 lines for a quick A/B
+comparison; 16 lines would be 2 x 25 600 B.)
 
 The pixel clock is **16 MHz taken from PLL_D2 (240 MHz)**, which it divides by an
 exact 15 — `[board] ... 16000000 Hz pclk (32 Hz refresh, PLL_D2/240M, exact)`.
@@ -588,7 +589,7 @@ draws the layout at panel size before it is coded is `tools/mockup_dash.py`.
 |---|---|
 | `1`..`5` | toggle redraw groups: rev bar, tick numbers, big number, tile readouts, status bar |
 | `0` / `9` | all redraw groups on / off |
-| `p` | step the pixel clock down one notch |
+| `p` | cycle the pixel clock: 24 → 20 → 16 → 12 MHz (the first press goes up from 16) |
 | `d` | print the frame buffer the panel is scanning as an ASCII luminance map |
 | `n` | pause / resume the HTTP polling |
 | `e` | ESP-NOW vs HTTP, every field side by side |
@@ -599,9 +600,12 @@ draws the layout at panel size before it is coded is `tools/mockup_dash.py`.
 | `v` | force the other tile band, for bench work (see 'What the car can fill') |
 | `m` | step the Haldex mode — the same as tapping the HALDEX panel |
 | `E` | enable / disable the ESP-NOW listener (A/B its cost on one boot) |
+| `k` | decode the latest chassis CAN frames: fuel, indicators, odometer, 58s, brake, lamps, cruise |
 | `b` | toggle the bounce buffer between 0 and 16 lines |
 | `r` | try the next GT911 axis mapping |
 | `t` | reset the touch probe |
+| `o` | where the update page is, which slot is running, whether it is on trial |
+| `O` | arm the next boot as a deliberately failing trial (see [OTA](#6-updating-it-in-the-car-over-the-air)) |
 | `h` | the list above |
 
 `d` is the bench substitute for a camera: `tools/serial_cmd.py d 34` prints
@@ -839,6 +843,12 @@ Data the controller does not expose, or has no room for here:
 ```
 platformio.ini              build: ESP32-S3, OPI PSRAM, 4 MB OTA layout
 partitions_4mb_ota.csv      two app slots + LittleFS + coredump
+LICENSE                     GPL-3.0
+AGENTS.md                   short guidance for AI agents working in this repo
+README.md                   this file
+TODO.md                     deliberately unbuilt, unverified or undecided
+assets/
+  candash-splash-base-92.jpg  the boot splash's picture, embedded in the app
 
 include/
   board_config.h            panel pins, timing, I2C, expander, touch
@@ -847,6 +857,7 @@ include/
   ohx_proto.h               ESP-NOW wire format - verbatim copy of the
                             controller's shared header; refresh, never edit
   cannow_proto.h            CAN relay wire format - verbatim copy, likewise
+  version.h                 version string and its history comment
   wifi_secrets.h.example    optional bench credentials
 
 src/
@@ -869,7 +880,7 @@ src/
     ram.h/.cpp              5 s internal-RAM and LVGL-pool reporting
     lv_assert_glue.cpp      LVGL's assert handler: print, backtrace, reboot
   ui/
-    dash_ui.h/.cpp          the whole dashboard in LVGL
+    dash_ui.h/.cpp          the whole dashboard in LVGL, plus settings/splash
     raw_ui.h/.cpp           raw telemetry page: both transports, no
                             interpretation, "--" for a field with no value
     can_ui.h/.cpp           CAN DATA page: every id heard, decoded from the DBC
@@ -882,6 +893,7 @@ src/
 tools/
   make_fonts.sh             regenerate src/ui/fonts from tools/fonts/*.ttf
   make_dbc_tables.py        regenerate src/net/dbc_tables.cpp from dbc/
+  decode_can_snapshot.py    decode a console CAN dump against docs/can-relay-sample*.txt
   mockup_dash.py            draw the layout at panel size before coding it
   serial_capture.py         reset + read the console (read-only)
   serial_watch.py           read the console without resetting the board
@@ -889,35 +901,41 @@ tools/
   serial_cmd.py             send one console command
   serial_seq.py             drive a timed sequence of console commands
   serial_tune.py            mask sweep: render cost per redraw group
-  fonts/                    Montserrat Bold (OFL) + licence
+  fonts/                    Montserrat Bold (OFL), FontAwesome 4.7 + licences
 
-dbc/                        vw_pq and vw_mqb, from opendbc (MIT), with English names
+dbc/
+  vw_pq.dbc, vw_mqb.dbc     from opendbc (MIT), with English names
+  SOURCE.md                 provenance, commit and licence
+  LICENSE                   opendbc's MIT licence
 
 docs/
   can-relay-test.md         how to measure the CAN relay in the car
+  can-relay-sample*.txt     recorded relay dumps for decode_can_snapshot.py
   redesign-bars.md          why the top band is a bar, and its measurements
   esp-now-plan.md           the ESP-NOW transport, its risks and phases
-  mockups/                  the mock-ups the layout was chosen from, plus the
-                            boot splash's candash-splash-base-92.jpg (which is
-                            *embedded in the app image* - see below)
+  upgrades.md               history and evidence behind the 0.6.0 batch
+  upstream-steering-report.md  ready-to-paste report about Gen1 steering
+  mockups/                  design history: the layout mock-ups and the
+                            splash's source JPEGs
 ```
 
-`tools/make_fonts.sh` is only needed to *regenerate* the two big fonts. LVGL
-ships Montserrat up to 48 px, so the 96 px rev digits and 56 px boost value are
-generated from the TTF in `tools/fonts/`; the output is committed, so a normal
-build needs neither node nor the script.
+`tools/make_fonts.sh` is only needed to *regenerate* the three generated fonts.
+LVGL ships Montserrat up to 48 px and no filled arrow, so the 96 px rev digits,
+56 px boost value and two FontAwesome block arrows are generated from the TTFs
+in `tools/fonts/`; the output is committed, so a normal build needs neither node
+nor the script.
 
 ### The boot splash's picture
 
-The splash is a pre-rendered 800x480 JPEG (`docs/mockups/candash-splash-base-92.jpg`,
+The splash is a pre-rendered 800x480 JPEG (`assets/candash-splash-base-92.jpg`,
 30 395 B) with the progress rule, the tagline and the version drawn over it by
 LVGL. It is put in the app image, not the file system, by
 
 ```ini
-board_build.embed_files = docs/mockups/candash-splash-base-92.jpg
+board_build.embed_files = assets/candash-splash-base-92.jpg
 ```
 
-which the linker turns into `_binary_docs_mockups_candash_splash_base_92_jpg_start`
+which the linker turns into `_binary_assets_candash_splash_base_92_jpg_start`
 / `_end` symbols ([`src/ui/splash_img.cpp`](src/ui/splash_img.cpp) is the only
 thing that refers to them; without a reference the linker drops the data again).
 In the app image rather than LittleFS on purpose: it can then be replaced by an
@@ -944,8 +962,9 @@ would crawl as the bar filled.
 ## 14. Status
 
 This is **0.6.2**: layout C (0.6.0), the boot splash (0.6.1) and the splash's
-move to a pre-rendered picture (0.6.2), built and run on the bench, on top of the
-earlier work that was verified in the car.
+move to a pre-rendered picture (0.6.2). The status below separates what was
+verified in the car, what has been exercised on the bench, and what is still
+unproven; measured figures carry the version they came from.
 
 **In the car** (0.5.x):
 
@@ -969,8 +988,9 @@ earlier work that was verified in the car.
   HTTP 500 and nothing written. Confirmed from a phone on the controller's own
   access point as well.
 
-**On the bench, 0.6.0** (panel attached, controller powered off, so every relay-fed
-value correctly reads `--`):
+**On the bench** (panel attached, controller powered off, so every relay-fed
+value correctly reads `--`). Figures are 0.6.0 unless the line names a later
+version:
 
 * The **boot splash** (0.6.1, re-done in 0.6.2): the picture decodes in 416 ms and
   the panel is never blank; the rule fills over a fixed 3 s and the version is on
@@ -1005,11 +1025,11 @@ the reason so it can be caught if it happens again.
 
 Next: [TODO.md](TODO.md) — what is deliberately not built yet, and why.
 
-Build result:
+Build result, measured on 0.6.2:
 
 ```
 RAM:   58 556 / 327 680 B   (17.9%)   <- LVGL's pool and the relay tables are in PSRAM
-Flash: 1 805 170 / 1 966 080 B (91.8%) <- of the 1.875 MB OTA slot
+Flash: 1 805 202 / 1 966 080 B (91.8%) <- of the 1.875 MB OTA slot
 ```
 
 The RAM line came down from 0.5.0's 50.1 % (164 060 B) when the pool and the relay

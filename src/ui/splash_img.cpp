@@ -29,8 +29,8 @@
 // board_build.embed_files in platformio.ini puts the JPEG in flash and defines
 // these, named after its path. The linker drops the data again unless something
 // refers to it, which is why the aliases live here and nowhere else.
-extern const uint8_t splash_jpg_start[] asm("_binary_docs_mockups_candash_splash_base_92_jpg_start");
-extern const uint8_t splash_jpg_end[] asm("_binary_docs_mockups_candash_splash_base_92_jpg_end");
+extern const uint8_t splash_jpg_start[] asm("_binary_assets_candash_splash_base_92_jpg_start");
+extern const uint8_t splash_jpg_end[] asm("_binary_assets_candash_splash_base_92_jpg_end");
 
 namespace splashimg {
 namespace {
