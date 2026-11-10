@@ -8,7 +8,12 @@
 // =====================================================================
 #pragma once
 
-#define OHX_DASH_VERSION "0.7.0"  // The drive log: a PSRAM ring that always runs (last
+#define OHX_DASH_VERSION "0.7.1"  // The cruise lamp's armed state, quietened: dim green
+// letters on a darker plate. It was white text on 0x0a3d1f, which a 16-bit panel
+// renders as (255,255,255) on (8,60,24) - brighter per pixel than the regulating
+// lamp's fill, so the reminder outshouted the state worth looking at. 0.7.0's code
+// with one lamp's colours changed, not a new feature.
+// 0.7.0 - The drive log: a PSRAM ring that always runs (last
 // 40 s, no flash touched) and a session started by hand, written to the LittleFS
 // partition as CSV and downloadable from the update page. Started from SETTINGS or
 // 'l'; the status bar's odometer slot reads REC while it is writing.

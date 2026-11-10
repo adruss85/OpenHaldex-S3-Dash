@@ -514,11 +514,17 @@ void lampState(lv_obj_t *l, bool on, bool red) {
 // facts and telling them apart is the whole point of showing it. A very dark
 // green when armed, the indicator green when it is actually working: the armed
 // state is a reminder that the system exists, not a call to look at it.
+//
+// Armed used to take white letters, which is 255 luma - the brightest thing in
+// the status bar, brighter per pixel than the regulating lamp's fill - so the
+// idle state outshouted the working one no matter how dark its plate was. Dim
+// green letters (100 luma) on the dark plate, and black on the lit green plate
+// when regulating: the only thing that lights up is the state that matters.
 void lampStateCruise(lv_obj_t *l, const int state) {  // 0 off, 1 armed, 2 regulating
   if (state <= 0) {
     lampPaint(l, false, COL_GREEN, lv_color_black());
   } else if (state == 1) {
-    lampPaint(l, true, COL_GREEN_DIMMER, lv_color_white());
+    lampPaint(l, true, COL_GREEN_DIMMER, COL_GREEN_DIM);
   } else {
     lampPaint(l, true, COL_GREEN, lv_color_black());
   }

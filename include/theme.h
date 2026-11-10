@@ -31,8 +31,13 @@
 // The cruise lamp's "armed" background, taken much darker than COL_GREEN_DIM so
 // a switch that is merely on cannot compete with the lamp that means the car is
 // actually holding a speed. Deliberately a colour, not an opacity: lampPaint()
-// compares packed colours to decide whether a repaint is needed.
-#define COL_GREEN_DIMMER lv_color_hex(0x0a3d1f)
+// compares packed colours to decide whether a repaint is needed. The panel is
+// 16-bit, so this lands as (0, 40, 16); 0x0a3d1f landed as (8, 60, 24), which on
+// the glass is an ordinary dark green rather than a hint. The armed letters are
+// COL_GREEN_DIM (see lampStateCruise) - white on this plate was the brightest
+// thing in the status bar, which inverted the hierarchy the comment above is
+// about.
+#define COL_GREEN_DIMMER lv_color_hex(0x072a14)
 #define COL_AMBER lv_color_hex(0xf59e0b)
 #define COL_RED lv_color_hex(0xef4444)
 #define COL_CYAN lv_color_hex(0x22d3ee)
