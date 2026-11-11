@@ -119,6 +119,13 @@ void readPq(Chassis &c) {
     const uint8_t gra = (uint8_t)((f.data[2] >> 6) & 0x03);
     c.cruiseStatus = gra;
     c.cruiseEngaged = (gra == 1 || gra == 2);
+    // MO2_GRA_Target 32|8 x1.28 km/h: the set speed itself, in the same frame as
+    // the lamp bit. It is what the driver set, not a measured speed, and 0 is
+    // how the frame says "nothing stored" - cruise cannot hold 0 km/h, so a raw
+    // 0 is NaN here and draws as "--" rather than as a set speed of zero.
+    // Resolution is 1.28 km/h (it is 0.8 mph, so it can carry mph natively).
+    const uint8_t target = f.data[4];
+    c.cruiseSetKmh = target ? (float)target * 1.28f : NAN;
     // MO2_GRAregelt 26|1 is decoded for the log and the CAN DATA page, but it is
     // NOT the regulating state the lamp used to take its brightness from: on the
     // car it read 1 while the + side of the rocker was in use and 0 with the -,
@@ -177,7 +184,7 @@ void print(const uint8_t generation) {
 
   // "num unit" when present, "--" when not: an absent value must never print as
   // 0, which is how a missing tank reading becomes an empty tank.
-  char fuel[24], odo[24], amb[24], cool[16], oil[16], bar[16];
+  char fuel[24], odo[24], amb[24], cool[16], oil[16], bar[16], setSpd[16];
   auto num = [](char *out, size_t n, float v, int dec, const char *unit) {
     if (isnan(v)) {
       snprintf(out, n, "--");
@@ -203,6 +210,7 @@ void print(const uint8_t generation) {
   num(cool, sizeof cool, c.coolant, 0, "C");
   num(oil, sizeof oil, c.oil, 0, "C");
   num(bar, sizeof bar, c.brakeBar, 1, "bar");
+  num(setSpd, sizeof setSpd, c.cruiseSetKmh, 0, "km/h");
 
   Serial.printf("[chassis] gen %u | fuel %s low %d %s | odo %s | 58s %d %s | outside %s\n",
                 (unsigned)generation, fuel, c.fuelLow ? 1 : 0, c.fuelValid ? "" : "(invalid)", odo,
@@ -214,10 +222,10 @@ void print(const uint8_t generation) {
                 c.lampAsr ? 1 : 0, c.lampAbs ? 1 : 0, c.lampBk ? 1 : 0,
                 c.lampValid ? "" : "(no frame)", c.asrActive ? 1 : 0);
   Serial.printf("[chassis] indicators L%d R%d %s | cruise main %d status %d armed %d "
-                "engaged %d regelt %d %s\n",
+                "engaged %d regelt %d set %s %s\n",
                 c.indLeft ? 1 : 0, c.indRight ? 1 : 0, c.indValid ? "" : "(no frame)",
                 c.cruiseMain ? 1 : 0, (int)c.cruiseStatus, c.cruiseArmed ? 1 : 0,
-                c.cruiseEngaged ? 1 : 0, c.cruiseRegulating ? 1 : 0,
+                c.cruiseEngaged ? 1 : 0, c.cruiseRegulating ? 1 : 0, setSpd,
                 c.cruiseValid ? "" : "(no frame)");
 }
 

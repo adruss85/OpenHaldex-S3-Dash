@@ -3,21 +3,23 @@ Read this when you need to know what has actually been verified, on which firmwa
 # Status
 
 <!-- status:start -->
-Firmware version: 0.7.2
-Flash: 1 844 758 / 1 966 080 B (93.8%)
-Internal RAM (static): 60 308 / 327 680 B
-Measured: 2026-11-10, build a84c801
+Firmware version: 0.7.5
+Flash: 1 845 822 / 1 966 080 B (93.9%)
+Internal RAM (static): 60 324 / 327 680 B
+Measured: 2026-11-11, build a0c9b9f
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
 about the current build. `tools/doc_status.py` regenerates the block above from
 a real `pio run` (or a saved log / a `firmware.elf`).
 
-This is **0.7.2**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
+This is **0.7.5**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
 to a pre-rendered picture (0.6.2), the drive log (0.7.0), a quieter cruise lamp
-(0.7.1) and the rev bar with a settable scale (0.7.2). The status below separates
-what was verified in the car, what has been exercised on the bench, and what is
-still unproven; measured figures carry the version they came from.
+(0.7.1), the rev bar with a settable scale (0.7.2), the four faults from the 11
+Nov drive (0.7.3), the CC lamp's three states (0.7.4) and the cruise set speed in
+the `k` dump (0.7.5). The status below separates what was verified in the car,
+what has been exercised on the bench, and what is still unproven; measured figures
+carry the version they came from.
 
 **0.7.0 has been run on the bench and against a live controller, not driven.**
 The drive log works end to end: the blank partition formats itself, a session
@@ -41,6 +43,13 @@ glass. No controller was in range, so the bar sat at `--`: neither the moving
 edge against live rpm nor a shorter scale's tick placement has been watched
 there yet. Every earlier observation still describes the rest of the image.
 
+**0.7.3 is the four faults from the 11 Nov drive** (CC lamp source, late Haldex
+generation, shift-flash cost and its width) plus console `V`. Verified on the
+bench only, from a parked car with no controller in range: it boots clean, `V`
+answers, `z` + `d` show the flash plate covering all 800 px with no gaps, and the
+alternating plate costs 1.5–2.1 ms of flush at 57–60 fps against 0.00 ms at 65 fps
+idle. It was driven that evening; what that showed is the 0.7.4 note below.
+
 **0.7.4 corrects the CC lamp's three states, from the evening drive on 11 Nov**
 (the 0.7.3 image). That drive proved two things on the car: the late Haldex
 generation revision fires (`[cap] gen 1 | boost no (table) | … | NoBoost (A)`),
@@ -49,17 +58,22 @@ side of the rocker — bright with **+**, dark with **−** — while arming the
 left the lamp dark because `MO2_Status_GRA` is 0 until a speed is stored. The
 lamp is now off, dim green while the column switch is on with no speed stored,
 bright green once `MO2_Status_GRA` says a speed is stored; `MO2_GRAregelt` is
-decoded for the log but drives nothing. What the same log also showed and is
-still open: render rate falls to ~30 fps under live CAN traffic (0.7.1 measured
-53 at the same packet rate). See [TODO.md](../TODO.md) §2.6. Not yet on a car:
-the corrected lamp's three states, and the shift cue against live rpm.
+decoded for the log but drives nothing.
 
-**0.7.3 is the four faults from the 11 Nov drive** (CC lamp source, late Haldex
-generation, shift-flash cost and its width) plus console `V`. Verified on the
-bench only, from a parked car with no controller in range: it boots clean, `V`
-answers, `z` + `d` show the flash plate covering all 800 px with no gaps, and the
-alternating plate costs 1.5–2.1 ms of flush at 57–60 fps against 0.00 ms at 65 fps
-idle. It was driven that evening; what that showed is the 0.7.4 note above.
+**The CC tell-tale is confirmed working on the car** (0.7.4), in a second session
+on 11 Nov: all four states behave — off with cruise off, dim green armed with no
+speed stored, bright green whether the speed was set or nudged with **+** *or*
+**−**. The coolant warn and critical thresholds were exercised in that session too
+and do what they say. Still unverified in the car: the shift cue against live rpm;
+and the render-rate regression under live CAN traffic (~30 fps, 0.7.1 measured 53
+at the same packet rate) — [TODO.md](../TODO.md) §2.6.
+
+**0.7.5 adds the cruise set speed to the `k` dump.** `MO2_GRA_Target` (0x288 byte
+4, ×1.28 km/h) is the set speed, in the same frame as the lamp bit; `k` now prints
+it as `set`, `NaN` (drawn `--`) when nothing is stored. No stored log has ever
+contained it — no raw CAN dump was ever taken — so whether this engine populates
+the byte is what the next `k` dump with a speed set settles. The `k` line for
+cruise is now `main / status / armed / engaged / regelt / set`.
 
 **In the car** (0.5.x):
 

@@ -8,7 +8,12 @@
 // =====================================================================
 #pragma once
 
-#define OHX_DASH_VERSION "0.7.4"  // The CC lamp's three states, corrected on the car.
+#define OHX_DASH_VERSION "0.7.5"  // The CC lamp's three states confirmed on the car
+// (0.7.4), and the cruise set speed decoded: MO2_GRA_Target (0x288 byte 4,
+// x1.28 km/h) now appears in the `k` dump as "set", NaN when nothing is stored.
+// It has never been seen non-zero on this car, so whether the engine populates
+// it is exactly what the next `k` dump settles.
+// 0.7.4 - The CC lamp's three states, corrected on the car.
 // 0.7.3 lit the lamp from MO2_Status_GRA and took its brightness from
 // MO2_GRAregelt. Driving showed GRAregelt follows the +/- side of the rocker -
 // bright with +, dark with - - and that Status_GRA is 0 while the system is

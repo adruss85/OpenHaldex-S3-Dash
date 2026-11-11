@@ -70,6 +70,7 @@ struct Chassis {
   bool cruiseArmed = false;       // the system is switched on: the column switch, or engaged
   bool cruiseMain = false;        // 0x38A GRA_MainSwitch, the column stalk's on/off
   bool cruiseRegulating = false;  // MO2_GRAregelt: the engine is adding torque now (not a lamp state)
+  float cruiseSetKmh = NAN;       // MO2_GRA_Target: the set speed, NaN when none is stored
   bool cruiseValid = false;
 };
 

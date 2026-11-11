@@ -183,21 +183,27 @@ moved ~20 cm away from whatever it is currently sitting next to.
 Worth trying when someone has the car apart: a position that gets to −70 dBm,
 and measuring `[stats] esp-now … Hz` before and after.
 
-### 2.6 The four drive-report fixes (driven once; two still open)
-Reported from the car on 11 Nov 2026. The 0.7.3 image was driven that evening:
-the boost-tile revision fired, and the CC lamp showed the +/− asymmetry below.
-The corrected lamp (0.7.4) and the shift cue against live rpm have not been on a
-car yet.
+### 2.6 The drive-report fixes (lamp and band confirmed on the car)
+Reported from the car on 11 Nov 2026. Two sessions on 11 Nov: the 0.7.3 image
+proved the boost-tile revision fires and showed the CC lamp's +/− asymmetry; the
+0.7.4 image, in a second session, confirmed all four lamp states and the coolant
+warn/crit. Still unverified anywhere: the shift cue against live rpm, and the
+render-rate regression below.
 
-* **CC lamp lighting at random.** The lamp now has its three states from two
-  facts: off, dim while the column switch is on with no speed stored (armed),
-  bright once `MO2_Status_GRA` says a speed is stored (engaged). `MO2_GRAregelt`
-  no longer drives anything on the glass. The 11 Nov drive (0.7.3) showed the
-  fault it was hiding: with a speed set, the **+** side of the rocker lit the lamp
-  bright and the **−** side left it dark, because GRAregelt tracks the nudge, not
-  the held speed; and arming the system left it dark because `MO2_Status_GRA` is
-  0 until a speed is stored. Needs one `k` dump in each of the four states —
-  `tools/perf_log.py --keys k --every 30` records it.
+* **CC lamp lighting at random — confirmed fixed on the car (0.7.4).** The lamp
+  has three states from two facts: off, dim while the column switch is on with no
+  speed stored (armed), bright once `MO2_Status_GRA` says a speed is stored
+  (engaged). `MO2_GRAregelt` no longer drives anything on the glass. The 0.7.3
+  drive had shown the fault it was hiding: with a speed set, the **+** side of the
+  rocker lit the lamp bright and the **−** side left it dark, because GRAregelt
+  tracks the nudge, not the held speed; and arming the system left it dark because
+  `MO2_Status_GRA` is 0 until a speed is stored. All four states behave on the car.
+* **Cruise set speed.** `MO2_GRA_Target` (0x288 byte 4, ×1.28 km/h) is the set
+  speed, in the same frame as the lamp bit. It is already on the CAN DATA page via
+  the DBC and is now in the `k` dump as `set` (`NaN` when nothing is stored). No
+  stored log has ever contained it, because no raw CAN dump (`C`) was ever taken —
+  so whether this engine populates the byte is exactly what one `k` dump with a
+  speed set settles. Not shown on the glass yet.
 * **Boost tile on a Gen1 car.** `cap::poll()` now revises the band once if the
   Haldex generation only arrives after the decision settled by timeout. A cold
   boot with the controller off, then `[cap] revised after late generation`.
