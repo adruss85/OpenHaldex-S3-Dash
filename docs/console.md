@@ -79,7 +79,9 @@ is the only way to check "it stuttered ten minutes in" afterwards:
 Because the tool holds the port, nobody can type a key while it runs. Pass
 `--keys k --every 30` and it sends that key itself, so the `k` chassis decode
 lands in the same log as the fps lines — which is how a lamp that lights at the
-wrong moment is caught after the fact rather than described from memory. It also
+wrong moment is caught after the fact rather than described from memory. The
+pair can be repeated: `--keys k --every 30 --keys e --every 5` also puts rpm
+beside the fps lines, so a render dip can be tied to the shift flash. It also
 asks `V` (version) each time it opens the port, so a log says which firmware
 produced it; `serial_shell` asks the same question on connect.
 

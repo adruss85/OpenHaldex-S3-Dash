@@ -10,10 +10,13 @@ lines that tools/perf_report.py can read back.
 
 usage: perf_log.py <logfile> [seconds] [port] [baud]
        seconds = 0 logs until stopped (Ctrl-C closes the port cleanly).
-       --keys k --every 30   also send a console key every N seconds. The port
-                             is held open by this tool, so nobody can type; a
-                             "k" every 30 s is how a lamp decoded wrongly can
-                             be caught after the fact.
+       --keys K --every N    send a console key every N seconds. Repeat the pair
+                             for more than one key: --keys k --every 30 --keys e
+                             --every 5. The port is held open by this tool, so
+                             nobody can type; "k" every 30 s is how a lamp decoded
+                             wrongly is caught after the fact, and "e" every 5 s
+                             puts rpm beside the fps lines so a dip can be tied to
+                             the shift flash.
 """
 import sys
 import time
@@ -22,20 +25,23 @@ import serial
 
 from serial_port import default_port
 
-keys = b""
-every = 0.0
+# (payload, period seconds) pairs, in the order they were given. A --keys with
+# no --every after it is dropped: one-shot keys are not what this is for.
+keys = []
 args = []
 i = 1
 while i < len(sys.argv):
     if sys.argv[i] == "--keys" and i + 1 < len(sys.argv):
-        keys = (sys.argv[i + 1] + "\n").encode()
-        i += 2
-    elif sys.argv[i] == "--every" and i + 1 < len(sys.argv):
-        every = float(sys.argv[i + 1])
-        i += 2
+        if i + 3 < len(sys.argv) and sys.argv[i + 2] == "--every":
+            keys.append(((sys.argv[i + 1] + "\n").encode(), float(sys.argv[i + 3])))
+            i += 4
+        else:
+            keys.append(((sys.argv[i + 1] + "\n").encode(), 0.0))
+            i += 2
     else:
         args.append(sys.argv[i])
         i += 1
+keys = [(k, p) for k, p in keys if p > 0.0]
 
 path = args[0] if len(args) > 0 else "ohx-drive.log"
 secs = float(args[1]) if len(args) > 1 else 0.0
@@ -82,16 +88,18 @@ with open(path, "a", buffering=1, encoding="utf-8", errors="replace") as log:
                 ser.flush()
             except (serial.SerialException, OSError):
                 pass
-            next_keys = time.monotonic() + every if keys and every > 0.0 else 0.0
+            # One due time per schedule, reset on every (re)open.
+            schedule = [[time.monotonic() + p, k, p] for k, p in keys]
             while secs == 0.0 or time.monotonic() < end:
-                if next_keys and time.monotonic() >= next_keys:
-                    next_keys = time.monotonic() + every
-                    try:
-                        ser.write(keys)
-                        ser.flush()
-                        log.write("=== %s sent %s\n" % (stamp(), keys.decode().strip()))
-                    except (serial.SerialException, OSError) as exc:
-                        log.write("=== %s key write failed (%s)\n" % (stamp(), exc))
+                for item in schedule:
+                    if time.monotonic() >= item[0]:
+                        item[0] = time.monotonic() + item[2]
+                        try:
+                            ser.write(item[1])
+                            ser.flush()
+                            log.write("=== %s sent %s\n" % (stamp(), item[1].decode().strip()))
+                        except (serial.SerialException, OSError) as exc:
+                            log.write("=== %s key write failed (%s)\n" % (stamp(), exc))
                 data = ser.read(4096)
                 if not data:
                     continue
