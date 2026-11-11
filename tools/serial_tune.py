@@ -13,7 +13,9 @@ import time
 
 import serial
 
-PORT = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyUSB0"
+from serial_port import default_port
+
+PORT = sys.argv[1] if len(sys.argv) > 1 else default_port()
 BAUD = 115200
 
 # (label, characters to send)

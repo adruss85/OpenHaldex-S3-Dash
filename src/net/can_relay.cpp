@@ -279,7 +279,12 @@ Values values(const uint8_t generation) {
   out.asrLamp = c.lampValid ? (c.lampAsr ? 1 : 0) : -1;
   out.asrActive = c.lampValid ? (c.asrActive ? 1 : 0) : -1;
   out.brakeBar = c.brakeBar;
-  out.cruise = c.cruiseValid ? (c.cruiseRegulating ? 2 : (c.cruiseMain ? 1 : 0)) : -1;
+  // Lit at all is decided by the cluster's own lamp bit and nothing else; the
+  // "regulating" bit only picks the brightness of an already-lit lamp. Before
+  // this, a lone MO2_GRAregelt could turn the lamp on with the car's lamp dark,
+  // which is the random lighting reported from the car: steady-speed running
+  // left the lamp bright green with no cruise engaged.
+  out.cruise = !c.cruiseValid ? -1 : !c.cruiseArmed ? 0 : (c.cruiseRegulating ? 2 : 1);
   out.fuelLitres = c.fuelValid ? c.fuelLitres : NAN;
   out.fuelLow = c.fuelLow;
   out.odometerKm = c.odometerValid ? c.odometerKm : NAN;

@@ -116,6 +116,19 @@ void readPq(Chassis &c) {
     // overriding the set speed, which is not the same thing and not what an
     // automatic AWD change would key off.
     c.cruiseRegulating = ((f.data[3] >> 2) & 0x01) != 0;
+    // MO2_Status_GRA 22|2 is the cluster's own tell-tale; vw_pq.dbc's value
+    // table says 1 = "gra_activated_lamp_on", 2 = "gra_overdriven_lamp_on",
+    // 0 = off, 3 = faulted. So it, and not the stalk, decides whether the lamp
+    // is lit at all - a tell-tale mirrors the car (AGENTS.md rule 8) and this
+    // is the bit the car lights. The stalk switch in 0x38A reads 1 on this car
+    // whenever the column switch is on, and MO2_GRAregelt can be set with no
+    // cruise engaged; either one alone lit the dash lamp wrongly (reported
+    // from the car: "CC telltale lighting up at random, or at a steady speed").
+    // GRAregelt is kept, but as brightness only - see can_relay.cpp.
+    const uint8_t gra = (uint8_t)((f.data[2] >> 6) & 0x03);
+    c.cruiseStatus = gra;
+    c.cruiseStatusSeen = true;
+    c.cruiseArmed = (gra == 1 || gra == 2);
     c.cruiseValid = true;
   }
   if (recent(0x38A, 2, f)) {
@@ -126,6 +139,11 @@ void readPq(Chassis &c) {
     c.cruiseMain = (f.data[1] & 0x01) != 0;
     c.cruiseValid = true;
   }
+
+  // If the engine's status frame is not on this bus, the stalk switch is all
+  // there is; better a dim armed lamp than nothing. When the status frame is
+  // present it wins, because it is the lamp the driver can see in the cluster.
+  if (!c.cruiseStatusSeen) c.cruiseArmed = c.cruiseMain;
 }
 
 void readMqb(Chassis &c) {
@@ -197,9 +215,10 @@ void print(const uint8_t generation) {
   Serial.printf("[chassis] pressure %s | lamps asr/abs/bk %d/%d/%d %s | intervening %d\n", bar,
                 c.lampAsr ? 1 : 0, c.lampAbs ? 1 : 0, c.lampBk ? 1 : 0,
                 c.lampValid ? "" : "(no frame)", c.asrActive ? 1 : 0);
-  Serial.printf("[chassis] indicators L%d R%d %s | cruise main %d regulating %d %s\n",
+  Serial.printf("[chassis] indicators L%d R%d %s | cruise main %d status %d armed %d regulating %d %s\n",
                 c.indLeft ? 1 : 0, c.indRight ? 1 : 0, c.indValid ? "" : "(no frame)",
-                c.cruiseMain ? 1 : 0, c.cruiseRegulating ? 1 : 0, c.cruiseValid ? "" : "(no frame)");
+                c.cruiseMain ? 1 : 0, (int)c.cruiseStatus, c.cruiseArmed ? 1 : 0,
+                c.cruiseRegulating ? 1 : 0, c.cruiseValid ? "" : "(no frame)");
 }
 
 }  // namespace chassis

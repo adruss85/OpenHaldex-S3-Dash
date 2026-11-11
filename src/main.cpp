@@ -279,7 +279,7 @@ void handleSerial() {
         Serial.println("1..5=redraw groups 0=all 9=none p=pclk b=bounce d=dump k=chassis "
                        "n=polling e=esp-now f=forget controller v=tile band r/t=touch s=settings "
                        "x=raw page c=can page C=can dump m=mode o=ota O=ota-fail-test "
-                       "l/L=drive log F=format log partition");
+                       "l/L=drive log F=format log partition V=version z=force shift flash");
         break;
       case 'v': {
         // Force the tile band, for bench work: the capability decision is made
@@ -323,8 +323,30 @@ void handleSerial() {
         // empty - the point is to test the recovery, not the bootloader.
         ota::armFailureTest(15000);
         continue;
+      case 'z': {
+        // Bench aid: cycle the shift flash without rpm (normal, flash half,
+        // dark half). `d` then shows whether the plate really covers the whole
+        // bar, which is the one thing a parked board cannot demonstrate.
+        static int8_t forced = 0;
+        forced = (int8_t)((forced + 1) % 4);
+        ui::forceShift(forced);
+        Serial.printf("[ui] shift flash forced: %s\n",
+                      forced == 0   ? "off"
+                      : forced == 1 ? "flash half"
+                      : forced == 2 ? "dark half"
+                                    : "flashing (live, for measuring its cost)");
+        continue;
+      }
       case 'o':
         Serial.printf("[ota] %s | page %s\n", ota::stateLine(), ota::url());
+        continue;
+      case 'V':
+        // What is actually on the board, on demand. The boot banner says this
+        // too, but that banner only appears when opening the port resets the
+        // board - and the tools that are meant to watch a *running* dash
+        // (serial_shell, perf_log) deliberately do not reset it. So they ask.
+        Serial.printf("[ver] %s | build %s | running %s, %s\n", OHX_DASH_VERSION, OHX_DASH_BUILD,
+                      ota::runningSlot(), ota::onTrial() ? "on trial" : "confirmed");
         continue;
       case 'l':
         // Start / stop the drive log: same as the button on SETTINGS, here so a
@@ -435,10 +457,12 @@ void loop() {
   // hand without the decision immediately overwriting it.
   cap::poll();
   {
+    static uint32_t appliedRev = 0;
     static bool layoutApplied = false;
     const cap::Caps &caps = cap::get();
-    if (caps.settled && !layoutApplied) {
+    if (caps.settled && (!layoutApplied || caps.revision != appliedRev)) {
       layoutApplied = true;
+      appliedRev = caps.revision;
       ui::applyLayout(caps.variant);
     }
   }

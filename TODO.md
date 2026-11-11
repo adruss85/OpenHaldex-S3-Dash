@@ -44,10 +44,13 @@ asset — decide when the first person asks.
 
 ### 1.4 Automatic FWD while cruise control is active — **paused**
 The **read-only half is built**: `chassis.cpp` decodes `MO2_GRAregelt` (0x288,
-bit 26, "regulating to a set speed") and `GRA_MainSwitch` (0x38A, bit 8, the
-column switch — "armed", which is not the same thing), and they drive the **CC**
-lamp: dark green armed, bright green while the engine is actually holding a
-speed. That is what `can_relay.cpp`'s `cruise` value carries.
+bit 26, "regulating to a set speed") and `MO2_Status_GRA` (0x288, bits 22-23,
+the cluster's own cruise lamp: 1 activated, 2 overdriven), and they drive the
+**CC** lamp: dark green while the engine is set but not regulating, bright green
+while it is. Whether the lamp is lit at all comes from `MO2_Status_GRA`, because
+that is the bit the car's tell-tale follows; the column switch in 0x38A reads 1
+whenever the switch is on and, on its own, lit the dash lamp at random. That is
+what `can_relay.cpp`'s `cruise` value carries.
 
 The half that **acts is not built**: nothing switches the Haldex mode to FWD when
 cruise engages, and there is no setting for it. It would be the only feature here
@@ -179,6 +182,26 @@ moved ~20 cm away from whatever it is currently sitting next to.
 
 Worth trying when someone has the car apart: a position that gets to −70 dBm,
 and measuring `[stats] esp-now … Hz` before and after.
+
+### 2.6 The four drive-report fixes (built, not yet driven)
+Reported from the car on 11 Nov 2026 and fixed in the tree, but **none of it
+has been on the glass yet** — the build only proves it compiles.
+
+* **CC lamp lighting at random.** Whether the lamp is lit now comes from
+  `MO2_Status_GRA` (0x288, bits 22-23, "cluster lamp on"), not the column switch
+  in 0x38A, and `MO2_GRAregelt` can only pick the brightness of an already-lit
+  lamp. Needs one `k` dump with the lamp in the wrong state to prove which bit
+  was actually lying — `tools/perf_log.py --keys k --every 30` records it.
+* **Boost tile on a Gen1 car.** `cap::poll()` now revises the band once if the
+  Haldex generation only arrives after the decision settled by timeout. A cold
+  boot with the controller off, then `[cap] revised after late generation`.
+* **Slowdown while the bar flashes.** The flash is one full-width plate instead
+  of one style write per lit cell (80 of them on the 0.7.2 bar, which overflowed
+  LVGL's 32-slot invalidation buffer into a whole-screen repaint), and
+  `LV_INV_BUF_SIZE` is 64. The claim to check is `[stats] render` staying above
+  ~55 fps while shifting, where the drive log showed 24.6 fps and 13-20 ms of
+  flush.
+* **Flash should span the full width.** It does now, by construction.
 
 ---
 

@@ -11,8 +11,10 @@ given offset from the reset, so a whole scene can be driven unattended.
 import sys, time
 import serial
 
+from serial_port import default_port
+
 seq = sys.argv[1] if len(sys.argv) > 1 else ""
-port = sys.argv[2] if len(sys.argv) > 2 else "/dev/ttyUSB0"
+port = sys.argv[2] if len(sys.argv) > 2 else default_port()
 baud = int(sys.argv[3]) if len(sys.argv) > 3 else 115200
 
 steps = []

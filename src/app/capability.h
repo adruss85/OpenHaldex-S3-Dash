@@ -21,7 +21,8 @@
 //
 // The decision is made once and latched. It is not re-evaluated per frame: a
 // layout that changed shape while the car was moving would be worse than a
-// widget that reads "--".
+// widget that reads "--". It is, however, revised at most once if the
+// generation only becomes known after the decision settled - see poll().
 // =====================================================================
 #pragma once
 
@@ -45,6 +46,8 @@ struct Caps {
   bool steering;
 
   layout::Variant variant;  // which tile band the dashboard should use
+
+  uint32_t revision;        // bumped if the band changes after `settled`
 };
 
 /// Feed this from loop(). Cheap: it does nothing at all once settled.

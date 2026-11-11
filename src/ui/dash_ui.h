@@ -48,6 +48,12 @@ Page page();
 void applyLayout(layout::Variant v);
 layout::Variant layoutVariant();
 
+/// Bench aid: force the shift flash on (1 = the flash half, 2 = the dark half,
+/// 0 = normal) so the plate that covers the bar can be inspected with the frame
+/// dump. The cue needs rpm, and rpm needs the car, so on a bench this is the only
+/// way to see it.
+void forceShift(int state);
+
 /// Step the Haldex mode on: the same thing a tap on the HALDEX panel does.
 /// Stock -> FWD -> 50:50 -> 60:40 -> 75:25 -> Expert -> Stock, skipping Stock on
 /// a standalone controller. The request

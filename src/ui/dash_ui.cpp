@@ -205,6 +205,11 @@ struct Widgets {
   // row. A group each, so the debug mask can hide them one at a time.
   lv_obj_t *revGrp = nullptr, *ticksGrp = nullptr, *numGrp = nullptr;
   lv_obj_t *revCell[L::BAR_SEG] = {};
+  // The shift/limiter flash: one full-width opaque plate over the cells, not a
+  // recolour of each lit cell. See updateRevBar() for why (40 invalid areas in
+  // one refresh overflow LVGL's invalidation buffer and turn into a full-screen
+  // repaint) and for why it is the whole width.
+  lv_obj_t *revFlash = nullptr;
   lv_obj_t *tickLabel[12] = {};  // one per thousand rpm, minus the top slot
   lv_obj_t *tickUnit = nullptr;  // "x1000", at the right-hand end
   int tickLabels = 0;
@@ -302,6 +307,17 @@ constexpr int kRuleH = 3;
 // -1 is the state after start-up and after the zone colours change, so the
 // first update after that repaints every cell instead of assuming dark.
 int8_t g_revLit[L::BAR_SEG];
+
+// The flash plate's last painted state: 0 hidden, 2 flash colour, 3 dark half.
+// Kept so a steady bar costs no style writes; the colour itself is re-asserted
+// through setBgColor(), which ignores an unchanged value.
+int8_t g_revFlash = 0;
+
+// Bench only: 0 normal, 1 the flash half, 2 the dark half. The shift cue is the
+// one thing that cannot be produced on a bench, because it needs rpm and rpm
+// needs the car; this is how the plate's geometry, its full width and its cost
+// are inspected with the frame dump `d`. Console `z` cycles it.
+int8_t g_forceShift = 0;
 
 // Lit/unlit colour per rev cell, from the rpm zones. Fixed until the
 // redline moves, so a cell's colour is decided once per settings change, not
@@ -641,6 +657,9 @@ void buildGauge(lv_obj_t *parent) {
     const int x1 = ((i + 1) * L::BAR_W) / L::BAR_SEG;
     w.revCell[i] = opaque(w.revGrp, x0, 0, x1 - x0, L::REV_BAR_H, COL_ZONE_GREEN);
   }
+  // Created after the cells so it is on top of them, hidden until a shift.
+  w.revFlash = opaque(w.revGrp, 0, 0, L::BAR_W, L::REV_BAR_H, COL_SHIFT);
+  lv_obj_add_flag(w.revFlash, LV_OBJ_FLAG_HIDDEN);
 
   // Numbers along the rev bar, plus the unit tag at its right-hand end.
   for (int i = 0; i < (int)(sizeof(w.tickLabel) / sizeof(w.tickLabel[0])); i++) {
@@ -1528,13 +1547,20 @@ const char *boostUnitText() {
 // else, so even the state comparison is belt and braces.
 //
 // The shift cue lives here rather than on the number (#10): at or above
-// rpmShift the lit cells alternate between the shift purple and a flat dark, and
-// at the limiter between red and that same dark. Flashing to a flat off - not
-// back to the zone colour - is deliberate: pulsing between two lit colours read
-// as a colour change, and pulsing to the per-zone tints still carried a
+// rpmShift the whole bar alternates between the shift purple and a flat dark,
+// and at the limiter between red and that same dark. Flashing to a flat off -
+// not back to the zone colour - is deliberate: pulsing between two lit colours
+// read as a colour change, and pulsing to the per-zone tints still carried a
 // green/amber/red gradient through the blink. A 96 px number strobing was hard
-// to read; a bar pulsing is not. The colour is only recomputed while a shift is
-// on, so a steady bar costs exactly what it did before.
+// to read; a bar pulsing is not.
+//
+// The flash is ONE full-width plate, not a recolour of every lit cell. LVGL's
+// invalid-area buffer is 32 slots (LV_INV_BUF_SIZE in lv_display_private.h) and
+// it answers an overflow by invalidating the whole screen, so forty cell writes
+// per phase became an 800x480 repaint: on the car that measured as ~20 ms of
+// flush and under 20 fps exactly while shifting. One 800x104 fill is one area,
+// and it is also the cue the eye expects - the full width, not just the part
+// below the shift point.
 void updateRevBar(const cfg::Data &c, float rpm) {
   if (!dbg(1)) return;
 
@@ -1544,29 +1570,43 @@ void updateRevBar(const cfg::Data &c, float rpm) {
   if (lit > L::BAR_SEG) lit = L::BAR_SEG;
 
   const bool have = !isnan(rpm);
-  const bool shifting = have && rpm >= c.rpmShift;
-  const bool limiter = have && rpm >= c.rpmRedline;
+  // The forced state is the bench stand-in for rpm: the cue is the one thing
+  // that cannot happen here, because rpm comes from the car.
+  const bool shifting = g_forceShift != 0 || (have && rpm >= c.rpmShift);
+  const bool limiter = g_forceShift == 0 && have && rpm >= c.rpmRedline;
   const lv_color_t flashCol = limiter ? COL_RED : COL_SHIFT;
 
-  for (int i = 0; i < L::BAR_SEG; i++) {
-    // 0 = empty (faint zone tint), 1 = lit in its zone colour, 2 = lit in the
-    // flash colour, 3 = the dark half of a shift flash: a flat dark, not the
-    // zone tint, so nothing of the zone gradient shows through the blink.
-    int8_t want;
-    if (i >= lit) {
-      want = 0;
-    } else if (!shifting) {
-      want = 1;
+  // 2 = flash colour, 3 = the dark half, 0 = hidden. Only a phase change
+  // writes a style, so a steady bar costs what it did before.
+  // Forced states: 1 = flash half, 2 = dark half, 3 = forced on but still
+  // toggling, which is the live cue and is how its cost is measured on a bench.
+  const bool flashOn = (g_forceShift == 1) ? true
+                       : (g_forceShift == 2) ? false
+                                             : g_flashOn;
+  const int8_t wantFlash = shifting ? (flashOn ? 2 : 3) : 0;
+  if (wantFlash != g_revFlash) {
+    if (wantFlash == 0) {
+      lv_obj_add_flag(w.revFlash, LV_OBJ_FLAG_HIDDEN);
+      // The cells under the plate were not kept up to date while it covered
+      // them; make the next pass repaint every one.
+      for (int i = 0; i < L::BAR_SEG; i++) g_revLit[i] = -1;
     } else {
-      want = g_flashOn ? 2 : 3;
+      setBgColor(w.revFlash, wantFlash == 2 ? flashCol : COL_TRACK, 0);
+      if (g_revFlash == 0) lv_obj_remove_flag(w.revFlash, LV_OBJ_FLAG_HIDDEN);
     }
+    g_revFlash = wantFlash;
+  }
+
+  // While the plate is up it covers the bar, so the cells are left alone: this
+  // is what keeps the cue at one invalid area instead of forty.
+  if (shifting) return;
+
+  for (int i = 0; i < L::BAR_SEG; i++) {
+    // 0 = empty (faint zone tint), 1 = lit in its zone colour.
+    const int8_t want = (i >= lit) ? 0 : 1;
     if (g_revLit[i] != want) {
       g_revLit[i] = want;
-      const lv_color_t col = (want == 0)   ? g_revCol[i].unlit
-                             : (want == 1) ? g_revCol[i].lit
-                             : (want == 2) ? flashCol
-                                           : COL_TRACK;
-      setBgColor(w.revCell[i], col, 0);
+      setBgColor(w.revCell[i], want ? g_revCol[i].lit : g_revCol[i].unlit, 0);
     }
   }
 }
@@ -2408,6 +2448,10 @@ Page page() { return g_page; }
 // Which tile band the glass is showing, and a way to change it. The capability
 // decision calls this once when it settles; the console can call it by hand.
 void applyLayout(layout::Variant v) { placeBand(v); }
+
+void forceShift(int state) {
+  g_forceShift = (int8_t)(state < 0 ? 0 : (state > 3 ? 3 : state));
+}
 
 layout::Variant layoutVariant() { return g_variant; }
 

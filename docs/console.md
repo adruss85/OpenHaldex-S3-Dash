@@ -29,6 +29,8 @@ Read this when you need to drive or diagnose the board from the serial port.
 | `F` | format the data partition — erases it; only needed when it holds no readable filesystem |
 | `o` | where the update page is, which slot is running, whether it is on trial |
 | `O` | arm the next boot as a deliberately failing trial (see [OTA](../README.md#5-updating-it-in-the-car-over-the-air)) |
+| `V` | firmware version, build time and the slot it is running from. The boot banner says this as well, but only when opening the port resets the board - the tools that watch a *running* dash do not, so `serial_shell` asks on connect |
+| `z` | cycle the shift flash without rpm: normal → flash half → dark half → flashing (the live cue, for measuring what it costs). The cue cannot happen on a bench (rpm comes from the car), so `z` with `d` is how the plate is checked, and `z` with `[stats] render` is how its cost is measured |
 | `h` | the list above |
 
 `d` is the bench substitute for a camera: `tools/serial_cmd.py d 34` prints
@@ -58,5 +60,27 @@ carrying it.
 > keeps it, so a whole session of gestures and console keys is not reset halfway
 > through, and `tools/serial_capture.py` is the one to use when a reset is
 > exactly what you want.
+
+### Which port
+
+The serial tools default to `/dev/ttyUSB0` on Linux and, on Windows, to the
+CH340 that `tools/serial_port.py` finds with pyserial — Windows hands the same
+adapter a different COM number per USB socket, so a hard-coded default would
+break as soon as the laptop moves. Any port argument on the command line still
+overrides it (`python tools\serial_watch.py 8 COM5`).
+
+### Logging a whole drive
+
+`tools/perf_log.py <logfile>` writes the console to a file with a wall clock on
+every line, and reopens the port by itself when the car's USB socket drops. It
+is the only way to check "it stuttered ten minutes in" afterwards:
+`tools/perf_report.py` in the same folder reads the `[stats]` block back out.
+
+Because the tool holds the port, nobody can type a key while it runs. Pass
+`--keys k --every 30` and it sends that key itself, so the `k` chassis decode
+lands in the same log as the fps lines — which is how a lamp that lights at the
+wrong moment is caught after the fact rather than described from memory. It also
+asks `V` (version) each time it opens the port, so a log says which firmware
+produced it; `serial_shell` asks the same question on connect.
 
 ---

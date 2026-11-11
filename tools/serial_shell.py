@@ -14,14 +14,22 @@ usage:  serial_shell.py <logfile> [seconds] [port] [baud]
 """
 import os
 import sys
+import tempfile
 import time
 
 import serial
-import termios
 
-log_path = sys.argv[1] if len(sys.argv) > 1 else "/tmp/ohx-console.log"
+try:
+    import termios
+except ImportError:  # Windows has no HUPCL; pyserial drives DTR/RTS itself.
+    termios = None
+
+from serial_port import default_port
+
+log_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
+    tempfile.gettempdir(), "ohx-console.log")
 secs = float(sys.argv[2]) if len(sys.argv) > 2 else 900.0
-port = sys.argv[3] if len(sys.argv) > 3 else "/dev/ttyUSB0"
+port = sys.argv[3] if len(sys.argv) > 3 else default_port()
 baud = int(sys.argv[4]) if len(sys.argv) > 4 else 115200
 cmd_path = log_path + ".cmd"
 
@@ -32,6 +40,8 @@ cmd_path = log_path + ".cmd"
 # opening stops the driver asserting those lines on open, which is what makes
 # the difference between reading this board's console and rebooting it.
 def _clear_hupcl(port):
+    if termios is None:
+        return
     try:
         fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
     except OSError:
@@ -57,6 +67,12 @@ ser.dtr = False
 ser.rts = False
 time.sleep(0.1)
 ser.reset_input_buffer()
+
+# Ask what is on the board before anything else is typed into it: this tool
+# opens the port without resetting, so the boot banner - the other place the
+# version is printed - never appears here.
+ser.write(b"V\n")
+ser.flush()
 
 with open(log_path, "a", buffering=1) as log:
     log.write("\n=== serial_shell open %s ===\n" % time.strftime("%H:%M:%S"))

@@ -13,8 +13,10 @@ import time
 
 import serial
 
+from serial_port import default_port
+
 SECONDS = float(sys.argv[1]) if len(sys.argv) > 1 else 20.0
-PORT = sys.argv[2] if len(sys.argv) > 2 else "/dev/ttyUSB0"
+PORT = sys.argv[2] if len(sys.argv) > 2 else default_port()
 BAUD = int(sys.argv[3]) if len(sys.argv) > 3 else 115200
 
 ser = serial.Serial(PORT, BAUD, timeout=0.2)

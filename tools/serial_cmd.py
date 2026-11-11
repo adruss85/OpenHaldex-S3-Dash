@@ -8,9 +8,11 @@ usage: serial_cmd.py [command] [wait_s] [port] [baud] [send_after_s]
 import sys, time
 import serial
 
+from serial_port import default_port
+
 cmd = sys.argv[1] if len(sys.argv) > 1 else ""
 wait_s = float(sys.argv[2]) if len(sys.argv) > 2 else 6.0
-port = sys.argv[3] if len(sys.argv) > 3 else "/dev/ttyUSB0"
+port = sys.argv[3] if len(sys.argv) > 3 else default_port()
 baud = int(sys.argv[4]) if len(sys.argv) > 4 else 115200
 send_after = float(sys.argv[5]) if len(sys.argv) > 5 else max(0.0, wait_s - 6.0)
 

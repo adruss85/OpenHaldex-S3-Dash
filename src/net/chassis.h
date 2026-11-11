@@ -65,7 +65,10 @@ struct Chassis {
   bool asrActive = false;  // BR1_ASR_Req: intervention happening now
 
   // --- cruise control
-  bool cruiseMain = false;        // the column stalk's main switch
+  uint8_t cruiseStatus = 0;       // MO2_Status_GRA: 0 off, 1 activated, 2 overdriven, 3 fault
+  bool cruiseStatusSeen = false;
+  bool cruiseArmed = false;       // what the cluster's own CC lamp shows (status 1 or 2)
+  bool cruiseMain = false;        // the column stalk's main switch; fallback only
   bool cruiseRegulating = false;  // the engine says it is regulating to a set speed
   bool cruiseValid = false;
 };

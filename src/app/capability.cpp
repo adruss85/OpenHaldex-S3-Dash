@@ -42,11 +42,35 @@ bool boostForGeneration(uint8_t gen) { return gen != 1; }
 }  // namespace
 
 void poll() {
+#if OHX_USE_ESP_NOW
+  const ohxnow::Status s = ohxnow::last();
+
+  // The one revision. On a cold car the dash boots before the controller is
+  // heard, and the decision then settles by timeout with nothing ruled out -
+  // "boost yes", because a guess must not hide a widget. If the generation only
+  // turns up after that, the full band would stay on the glass for the whole
+  // drive (this is how a Gen1 car ends up with a boost tile it cannot fill).
+  // Correct it once, here, and leave every other settled field alone.
+  if (g.settled) {
+    if (!g.genKnown && s.valid && s.generation != 0) {
+      g.genKnown = true;
+      g.generation = s.generation;
+      const bool boost = boostForGeneration(g.generation);
+      if (boost != g.boost) {
+        g.boost = boost;
+        g.variant = boost ? layout::Variant::Full : layout::Variant::NoBoost;
+        g.revision++;
+        Serial.printf("[cap] revised after late generation: %s\n", summary());
+      }
+    }
+    return;
+  }
+#else
   if (g.settled) return;
+#endif
 
   const uint32_t now = millis();
 #if OHX_USE_ESP_NOW
-  const ohxnow::Status s = ohxnow::last();
   if (s.valid) {
     // 0 is not a Haldex generation (the controller sends 1, 2, 4, 41, 50, 51,
     // 52 ...), so a packet carrying it has not told us anything yet. Latching it

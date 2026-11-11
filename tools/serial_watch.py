@@ -18,16 +18,24 @@ import sys
 import time
 
 import serial
-import termios
+
+try:
+    import termios
+except ImportError:  # Windows has no HUPCL; pyserial drives DTR/RTS itself.
+    termios = None
+
+from serial_port import default_port
 
 secs = float(sys.argv[1]) if len(sys.argv) > 1 else 8.0
-port = sys.argv[2] if len(sys.argv) > 2 else "/dev/ttyUSB0"
+port = sys.argv[2] if len(sys.argv) > 2 else default_port()
 baud = int(sys.argv[3]) if len(sys.argv) > 3 else 115200
 
 # The board's auto-reset circuit watches DTR/RTS. Clearing HUPCL *before*
 # opening stops the driver asserting those lines on open, which is what makes
 # the difference between reading this board's console and rebooting it.
 def _clear_hupcl(port):
+    if termios is None:
+        return
     try:
         fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
     except OSError:

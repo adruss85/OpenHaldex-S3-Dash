@@ -41,6 +41,15 @@ glass. No controller was in range, so the bar sat at `--`: neither the moving
 edge against live rpm nor a shorter scale's tick placement has been watched
 there yet. Every earlier observation still describes the rest of the image.
 
+**0.7.3 is the four faults from the 11 Nov drive** (CC lamp source, late Haldex
+generation, shift-flash cost and its width) plus console `V`. Verified on the
+bench only, from a parked car with no controller in range: it boots clean, `V`
+answers, `z` + `d` show the flash plate covering all 800 px with no gaps, and the
+alternating plate costs 1.5–2.1 ms of flush at 57–60 fps against 0.00 ms at 65 fps
+idle. What has **not** been on a car: which bit was actually lying in the CC lamp,
+the late-generation revision itself, and the cue against live rpm. See
+[TODO.md](../TODO.md) §2.6.
+
 **In the car** (0.5.x):
 
 * Panel, touch and the PCA9557 expander all come up; tearing and jitter are

@@ -8,7 +8,18 @@
 // =====================================================================
 #pragma once
 
-#define OHX_DASH_VERSION "0.7.2"  // The rev bar again: 80 cells drawn edge to edge (was 40
+#define OHX_DASH_VERSION "0.7.3"  // Four faults from the 11 Nov drive. The CC lamp
+// now mirrors the cluster's own MO2_Status_GRA instead of the stalk switch and
+// MO2_GRAregelt, which lit it at random and at steady speed. A Gen1 car's boost
+// tile disappears when the Haldex generation only arrives after the capability
+// decision settled. The shift flash is one full-width plate instead of 80 cell
+// writes, which overflowed LVGL's 32-slot invalidation buffer into an 800x480
+// repaint twice per flash (~20 ms of flush, 16 fps on the car), and it covers the
+// whole bar rather than only the lit part. Console `V` prints the version, build
+// and running slot on demand, because the tools that watch a running dash open
+// the port without resetting it and so never see the banner; `z` forces the shift
+// flash for one bench check of that plate.
+// 0.7.2 - The rev bar again: 80 cells drawn edge to edge (was 40
 // with a 2 px gap) and the scale a setting once more - max, amber, redline and shift all
 // in 100 rpm, with the tick numbers placed from the scale on save. One cell is exactly
 // 100 rpm at the default 8000. The 0.7.1 clamp that held shift between amber and redline
