@@ -526,10 +526,10 @@ void lampState(lv_obj_t *l, bool on, bool red) {
 }
 
 // The cruise lamp: three states rather than two, because "armed" (the column
-// switch is on) and "regulating" (the engine is holding a speed) are different
-// facts and telling them apart is the whole point of showing it. A very dark
-// green when armed, the indicator green when it is actually working: the armed
-// state is a reminder that the system exists, not a call to look at it.
+// switch is on) and "engaged" (a speed is stored) are different facts and
+// telling them apart is the whole point of showing it. A very dark green when
+// armed, the indicator green when a speed is stored: the armed state is a
+// reminder that the system exists, not a call to look at it.
 //
 // Armed used to take white letters, which is 255 luma - the brightest thing in
 // the status bar, brighter per pixel than the regulating lamp's fill - so the
@@ -1824,9 +1824,9 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
   const bool tractionLit = intervening ? g_flashOn : tractionOff;
   lampState(w.lampTc, tractionLit, false);
   lampState(w.lampAsr, tractionLit, false);
-  // The cruise lamp: dark green with the column switch on, bright green while
-  // the engine says it is regulating. Off when the frame is missing, so a quiet
-  // link cannot read as "armed".
+  // The cruise lamp: dark green with the column switch on (armed), bright green
+  // once a speed is stored (engaged). Off when the frames are missing, so a
+  // quiet link cannot read as "armed".
   lampStateCruise(w.lampCc, d.cruise);
 }
 

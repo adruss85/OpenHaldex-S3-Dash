@@ -8,7 +8,14 @@
 // =====================================================================
 #pragma once
 
-#define OHX_DASH_VERSION "0.7.3"  // Four faults from the 11 Nov drive. The CC lamp
+#define OHX_DASH_VERSION "0.7.4"  // The CC lamp's three states, corrected on the car.
+// 0.7.3 lit the lamp from MO2_Status_GRA and took its brightness from
+// MO2_GRAregelt. Driving showed GRAregelt follows the +/- side of the rocker -
+// bright with +, dark with - - and that Status_GRA is 0 while the system is
+// armed with no speed stored. The lamp is now: off, dim green while the column
+// switch (0x38A) is on with no speed stored, bright green once Status_GRA says a
+// speed is stored. GRAregelt is still decoded for the log but drives nothing.
+// 0.7.3 - Four faults from the 11 Nov drive. The CC lamp
 // now mirrors the cluster's own MO2_Status_GRA instead of the stalk switch and
 // MO2_GRAregelt, which lit it at random and at steady speed. A Gen1 car's boost
 // tile disappears when the Haldex generation only arrives after the capability

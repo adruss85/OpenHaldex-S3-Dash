@@ -66,10 +66,10 @@ struct Chassis {
 
   // --- cruise control
   uint8_t cruiseStatus = 0;       // MO2_Status_GRA: 0 off, 1 activated, 2 overdriven, 3 fault
-  bool cruiseStatusSeen = false;
-  bool cruiseArmed = false;       // what the cluster's own CC lamp shows (status 1 or 2)
-  bool cruiseMain = false;        // the column stalk's main switch; fallback only
-  bool cruiseRegulating = false;  // the engine says it is regulating to a set speed
+  bool cruiseEngaged = false;     // a speed is stored: status 1 or 2 (cluster lamp on)
+  bool cruiseArmed = false;       // the system is switched on: the column switch, or engaged
+  bool cruiseMain = false;        // 0x38A GRA_MainSwitch, the column stalk's on/off
+  bool cruiseRegulating = false;  // MO2_GRAregelt: the engine is adding torque now (not a lamp state)
   bool cruiseValid = false;
 };
 

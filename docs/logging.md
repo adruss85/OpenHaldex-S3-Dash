@@ -51,7 +51,7 @@ ms,rpm,speed_kmh,throttle_pct,boost_mbar,coolant_c,oil_c,fuel_l,mode,lock_tgt,lo
   glass and an empty CSV field are the same statement.
 * `brake_can` / `hand_can` / `cruise` / `mode` / locks are integers; empty where
   the source has no value, and `cruise` carries the car's own states (0 off,
-  1 armed, 2 regulating) rather than a boolean.
+  1 armed, 2 engaged) rather than a boolean.
 * `src` is which transport the fast values in that row came from: `0` nothing
   yet, `1` ESP-NOW, `2` HTTP. A row that steps because the source changed is
   readable as such instead of looking like a fault.

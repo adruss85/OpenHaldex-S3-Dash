@@ -98,13 +98,14 @@ appears twice.
 **Tell-tales mirror the car, they are not inferred.** BRAKE and HAND light from
 the chassis CAN bit (or the controller's wired input, whichever moves — on this
 car the CAN brake works and the wired handbrake never moves). TC and ASR mirror
-the cluster's own `BR1_Lamp_ASR` and flash while it intervenes. CC mirrors the
-cluster's own cruise lamp bit (`MO2_Status_GRA`): lit when that says the car's
-lamp is lit, dark green when the engine is set but not regulating, bright green
-while it is regulating to a set speed. The column switch is only a fallback for
-a bus that has no `MO2_Status_GRA`. The shift cue is the bar, not the number: at
-the shift point the whole bar flashes purple, at the redline red, covering the
-full width rather than only the part below the shift point.
+the cluster's own `BR1_Lamp_ASR` and flash while it intervenes. CC has three
+states: off, dim green while the column switch is on with no speed stored
+(armed), bright green once `MO2_Status_GRA` says a speed is stored (engaged).
+`MO2_GRAregelt` is decoded for the log but does not drive the lamp — on the car
+it tracked the +/− side of the rocker rather than whether a speed was held. The
+shift cue is the bar, not the number: at the shift point the whole bar flashes
+purple, at the redline red, covering the full width rather than only the part
+below the shift point.
 
 **Unmeasurable values show `--`, never a fake zero.** A JSON `null` from the
 controller is carried all the way to the screen as "unknown", with a dash

@@ -88,7 +88,8 @@ struct Dash {
   float brakeBar = NAN;  // bar
 
   // Cruise, from the car's own bus: -1 not heard, 0 off, 1 armed (the column
-  // switch is on but nothing is being held), 2 regulating. Drives the CC lamp.
+  // switch is on but no speed is stored), 2 engaged (a speed is stored). Drives
+  // the CC lamp.
   int cruise = -1;
 
   // The cluster's low-fuel warning (0x320 Cluster_1 bit 23) and its odometer

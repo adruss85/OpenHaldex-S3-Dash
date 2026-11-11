@@ -63,8 +63,9 @@ struct Values {
   // reads 1.7 bar of braking at all times. NAN = not valid or not heard.
   float brakeBar = NAN;  // bar
   // Cruise, as one code because the lamp wants exactly three answers: -1 not
-  // heard, 0 off, 1 armed (the column switch is on), 2 regulating (the engine is
-  // holding a speed). See chassis.h for the two bits it is built from.
+  // heard, 0 off, 1 armed (the column switch is on, no speed stored), 2 engaged
+  // (the engine says a speed is stored). See chassis.h for the two facts it is
+  // built from.
   int cruise = -1;
 
   // Fuel, from the cluster's tank contents. NAN = no reading, or one the car

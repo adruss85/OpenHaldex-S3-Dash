@@ -110,40 +110,38 @@ void readPq(Chassis &c) {
   // ---- Engine_2 (0x288). The brake light switch, and cruise state.
   if (recent(0x288, 4, f)) {
     c.brake = f.data[2] & 0x01;  // MO2_BLS, bit 16
-    // MO2_Status_GRA 22|2 (0 off, 1 activated, 2 overdriven, 3 faulted) is read
-    // by the CAN DATA page when it is wanted. The one worth having as a value is
-    // MO2_GRAregelt 26|1, "regulating to displayed speed": status 2 is the driver
-    // overriding the set speed, which is not the same thing and not what an
-    // automatic AWD change would key off.
-    c.cruiseRegulating = ((f.data[3] >> 2) & 0x01) != 0;
-    // MO2_Status_GRA 22|2 is the cluster's own tell-tale; vw_pq.dbc's value
-    // table says 1 = "gra_activated_lamp_on", 2 = "gra_overdriven_lamp_on",
-    // 0 = off, 3 = faulted. So it, and not the stalk, decides whether the lamp
-    // is lit at all - a tell-tale mirrors the car (AGENTS.md rule 8) and this
-    // is the bit the car lights. The stalk switch in 0x38A reads 1 on this car
-    // whenever the column switch is on, and MO2_GRAregelt can be set with no
-    // cruise engaged; either one alone lit the dash lamp wrongly (reported
-    // from the car: "CC telltale lighting up at random, or at a steady speed").
-    // GRAregelt is kept, but as brightness only - see can_relay.cpp.
+    // MO2_Status_GRA 22|2 (0 off, 1 activated, 2 overdriven, 3 faulted). Its
+    // value table is the cluster's lamp: 1/2 are the lamp-on states, and that is
+    // a stored set speed, not merely the column switch being on. On the car,
+    // arming cruise leaves this at 0 and the cluster lamp dark; the first SET
+    // (+ or -) takes it to 1. So this is "engaged", and the armed state comes
+    // from the switch in 0x38A.
     const uint8_t gra = (uint8_t)((f.data[2] >> 6) & 0x03);
     c.cruiseStatus = gra;
-    c.cruiseStatusSeen = true;
-    c.cruiseArmed = (gra == 1 || gra == 2);
+    c.cruiseEngaged = (gra == 1 || gra == 2);
+    // MO2_GRAregelt 26|1 is decoded for the log and the CAN DATA page, but it is
+    // NOT the regulating state the lamp used to take its brightness from: on the
+    // car it read 1 while the + side of the rocker was in use and 0 with the -,
+    // so a lamp keyed off it went bright or dark depending on which way the set
+    // speed was being nudged.
+    c.cruiseRegulating = ((f.data[3] >> 2) & 0x01) != 0;
     c.cruiseValid = true;
   }
   if (recent(0x38A, 2, f)) {
-    // GRA_MainSwitch 8|1: the column switch is ARMED, which is not the same as
-    // cruise working - it reads 1 on a parked car with the engine off, and that
-    // is correct. The "is it actually holding a speed" answer is MO2_GRAregelt
-    // above, which is why the CC lamp needs both.
+    // GRA_MainSwitch 8|1: the column switch's on/off, which is the armed state.
+    // It reads 1 whenever the system is switched on, including on a parked car
+    // with no speed stored - that is what armed means.
     c.cruiseMain = (f.data[1] & 0x01) != 0;
     c.cruiseValid = true;
   }
 
-  // If the engine's status frame is not on this bus, the stalk switch is all
-  // there is; better a dim armed lamp than nothing. When the status frame is
-  // present it wins, because it is the lamp the driver can see in the cluster.
-  if (!c.cruiseStatusSeen) c.cruiseArmed = c.cruiseMain;
+  // Three lamp states from two facts, both the car's own:
+  //   off      - the column switch is off and no speed is stored
+  //   armed    - the column switch is on, no speed stored (the cluster's own lamp
+  //              stays dark here; the dim plate is this dash's reminder)
+  //   engaged  - MO2_Status_GRA says a speed is stored (the cluster's lamp is on)
+  // Decided after both frames have been read, because either can arrive first.
+  c.cruiseArmed = c.cruiseEngaged || c.cruiseMain;
 }
 
 void readMqb(Chassis &c) {
@@ -215,10 +213,12 @@ void print(const uint8_t generation) {
   Serial.printf("[chassis] pressure %s | lamps asr/abs/bk %d/%d/%d %s | intervening %d\n", bar,
                 c.lampAsr ? 1 : 0, c.lampAbs ? 1 : 0, c.lampBk ? 1 : 0,
                 c.lampValid ? "" : "(no frame)", c.asrActive ? 1 : 0);
-  Serial.printf("[chassis] indicators L%d R%d %s | cruise main %d status %d armed %d regulating %d %s\n",
+  Serial.printf("[chassis] indicators L%d R%d %s | cruise main %d status %d armed %d "
+                "engaged %d regelt %d %s\n",
                 c.indLeft ? 1 : 0, c.indRight ? 1 : 0, c.indValid ? "" : "(no frame)",
                 c.cruiseMain ? 1 : 0, (int)c.cruiseStatus, c.cruiseArmed ? 1 : 0,
-                c.cruiseRegulating ? 1 : 0, c.cruiseValid ? "" : "(no frame)");
+                c.cruiseEngaged ? 1 : 0, c.cruiseRegulating ? 1 : 0,
+                c.cruiseValid ? "" : "(no frame)");
 }
 
 }  // namespace chassis

@@ -41,14 +41,25 @@ glass. No controller was in range, so the bar sat at `--`: neither the moving
 edge against live rpm nor a shorter scale's tick placement has been watched
 there yet. Every earlier observation still describes the rest of the image.
 
+**0.7.4 corrects the CC lamp's three states, from the evening drive on 11 Nov**
+(the 0.7.3 image). That drive proved two things on the car: the late Haldex
+generation revision fires (`[cap] gen 1 | boost no (table) | … | NoBoost (A)`),
+and the lamp's brightness was following `MO2_GRAregelt`, which tracks the +/−
+side of the rocker — bright with **+**, dark with **−** — while arming the system
+left the lamp dark because `MO2_Status_GRA` is 0 until a speed is stored. The
+lamp is now off, dim green while the column switch is on with no speed stored,
+bright green once `MO2_Status_GRA` says a speed is stored; `MO2_GRAregelt` is
+decoded for the log but drives nothing. What the same log also showed and is
+still open: render rate falls to ~30 fps under live CAN traffic (0.7.1 measured
+53 at the same packet rate). See [TODO.md](../TODO.md) §2.6. Not yet on a car:
+the corrected lamp's three states, and the shift cue against live rpm.
+
 **0.7.3 is the four faults from the 11 Nov drive** (CC lamp source, late Haldex
 generation, shift-flash cost and its width) plus console `V`. Verified on the
 bench only, from a parked car with no controller in range: it boots clean, `V`
 answers, `z` + `d` show the flash plate covering all 800 px with no gaps, and the
 alternating plate costs 1.5–2.1 ms of flush at 57–60 fps against 0.00 ms at 65 fps
-idle. What has **not** been on a car: which bit was actually lying in the CC lamp,
-the late-generation revision itself, and the cue against live rpm. See
-[TODO.md](../TODO.md) §2.6.
+idle. It was driven that evening; what that showed is the 0.7.4 note above.
 
 **In the car** (0.5.x):
 

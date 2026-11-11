@@ -43,14 +43,14 @@ factory image written at `0x0` instead. One line of release notes, or a second
 asset — decide when the first person asks.
 
 ### 1.4 Automatic FWD while cruise control is active — **paused**
-The **read-only half is built**: `chassis.cpp` decodes `MO2_GRAregelt` (0x288,
-bit 26, "regulating to a set speed") and `MO2_Status_GRA` (0x288, bits 22-23,
-the cluster's own cruise lamp: 1 activated, 2 overdriven), and they drive the
-**CC** lamp: dark green while the engine is set but not regulating, bright green
-while it is. Whether the lamp is lit at all comes from `MO2_Status_GRA`, because
-that is the bit the car's tell-tale follows; the column switch in 0x38A reads 1
-whenever the switch is on and, on its own, lit the dash lamp at random. That is
-what `can_relay.cpp`'s `cruise` value carries.
+The **read-only half is built**: `chassis.cpp` decodes `MO2_Status_GRA` (0x288,
+bits 22-23, the cluster's own cruise lamp: 1 activated, 2 overdriven) and the
+column switch `GRA_MainSwitch` (0x38A, bit 8), and they drive the **CC** lamp:
+off, dark green while the switch is on with no speed stored (armed), bright green
+once `MO2_Status_GRA` says a speed is stored (engaged). `MO2_GRAregelt` (0x288,
+bit 26) is decoded for the log but does not drive the lamp: on the car it read 1
+with the + side of the rocker and 0 with the −, so it tracked a nudge rather than
+a held speed. That is what `can_relay.cpp`'s `cruise` value carries.
 
 The half that **acts is not built**: nothing switches the Haldex mode to FWD when
 cruise engages, and there is no setting for it. It would be the only feature here
@@ -183,25 +183,36 @@ moved ~20 cm away from whatever it is currently sitting next to.
 Worth trying when someone has the car apart: a position that gets to −70 dBm,
 and measuring `[stats] esp-now … Hz` before and after.
 
-### 2.6 The four drive-report fixes (built, not yet driven)
-Reported from the car on 11 Nov 2026 and fixed in the tree, but **none of it
-has been on the glass yet** — the build only proves it compiles.
+### 2.6 The four drive-report fixes (driven once; two still open)
+Reported from the car on 11 Nov 2026. The 0.7.3 image was driven that evening:
+the boost-tile revision fired, and the CC lamp showed the +/− asymmetry below.
+The corrected lamp (0.7.4) and the shift cue against live rpm have not been on a
+car yet.
 
-* **CC lamp lighting at random.** Whether the lamp is lit now comes from
-  `MO2_Status_GRA` (0x288, bits 22-23, "cluster lamp on"), not the column switch
-  in 0x38A, and `MO2_GRAregelt` can only pick the brightness of an already-lit
-  lamp. Needs one `k` dump with the lamp in the wrong state to prove which bit
-  was actually lying — `tools/perf_log.py --keys k --every 30` records it.
+* **CC lamp lighting at random.** The lamp now has its three states from two
+  facts: off, dim while the column switch is on with no speed stored (armed),
+  bright once `MO2_Status_GRA` says a speed is stored (engaged). `MO2_GRAregelt`
+  no longer drives anything on the glass. The 11 Nov drive (0.7.3) showed the
+  fault it was hiding: with a speed set, the **+** side of the rocker lit the lamp
+  bright and the **−** side left it dark, because GRAregelt tracks the nudge, not
+  the held speed; and arming the system left it dark because `MO2_Status_GRA` is
+  0 until a speed is stored. Needs one `k` dump in each of the four states —
+  `tools/perf_log.py --keys k --every 30` records it.
 * **Boost tile on a Gen1 car.** `cap::poll()` now revises the band once if the
   Haldex generation only arrives after the decision settled by timeout. A cold
   boot with the controller off, then `[cap] revised after late generation`.
 * **Slowdown while the bar flashes.** The flash is one full-width plate instead
   of one style write per lit cell (80 of them on the 0.7.2 bar, which overflowed
   LVGL's 32-slot invalidation buffer into a whole-screen repaint), and
-  `LV_INV_BUF_SIZE` is 64. The claim to check is `[stats] render` staying above
-  ~55 fps while shifting, where the drive log showed 24.6 fps and 13-20 ms of
-  flush.
-* **Flash should span the full width.** It does now, by construction.
+  `LV_INV_BUF_SIZE` is 64. **Open, and wider than the cue:** the 0.7.3 drive
+  measured 33 fps mean / 31 median across the whole run with 8.9 ms of flush per
+  frame, at 709-2703 rpm, i.e. with the bar nowhere near the shift point. 0.7.1
+  measured 53 fps at the same relay rate. The cost vanishes within 5 s of live
+  packets stopping (63-67 fps, 0.00 ms flush, while `e`/`k` still print), so it
+  is repaint area driven by data, not the serial console. Next: park with the
+  controller talking, `9` then `1`/`2`/`3`/`4`/`5` to name the redraw group.
+* **Flash should span the full width.** Confirmed by `d` on the bench: the plate
+  is solid across all 120 columns in both halves.
 
 ---
 
