@@ -137,12 +137,15 @@
 //
 //   night = clamp(DASH_NIGHT_MIN_PCT + DASH_NIGHT_SPAN_PCT * 58s / 100, .., 100)
 //
-// 20 % floor so the panel is still readable at night, 65 % ceiling so it
-// cannot dazzle. Both are here, not in config: they are judgements about this
-// panel rather than preferences, and the settings page shows the number they
-// produce so they can be judged on the glass.
-#define DASH_NIGHT_MIN_PCT 20
-#define DASH_NIGHT_SPAN_PCT 45
+// 5 % floor + 60 % span: ~9 % with the wheel fully down (58s 7 %), ~64 % at
+// the top - the ceiling is kept by construction so night at full wheel is
+// unchanged. The 0.6.0 curve (20 % + 45 %) never went below 23 %, which was
+// still too bright in the car with the wheel at its bottom stop (reported on
+// the road, 2026-11-12). Both are here, not in config: they are judgements
+// about this panel rather than preferences, and the settings page shows the
+// number they produce so they can be judged on the glass.
+#define DASH_NIGHT_MIN_PCT 5
+#define DASH_NIGHT_SPAN_PCT 60
 
 // -------------------------------------------------------- pixel clock source
 // lcd_clk = src / (div_num + div_b/div_a), and on this peripheral a

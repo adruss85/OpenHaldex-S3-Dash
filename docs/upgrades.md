@@ -578,7 +578,10 @@ to be re-made when a source turns up.
    lights off and 7–99 % with them on, tracking the dash dimmer — so one signal gives
    both the mode and the brightness, and 58d (non-zero with the lights off) is out.
    Night brightness is therefore `20 % + 45 % × 58s/100`, i.e. 23 % at dimmer 7 % and
-   65 % at 99 %.
+   65 % at 99 %. *(Amended 12 Nov 2026 in 0.8.1: the floor is now
+   `5 % + 60 % × 58s/100` — 9 % at dimmer 7 %, 64 % at 99 % — because 23 % was
+   still too bright in the car with the wheel fully down; the span grew to hold
+   the ceiling.)*
 4. **Shift flash purple** `0x8b5cf6`; `COL_RED` at the limiter.
 5. **`rpmShift` default 6500**, and `validate()` gains `amber ≤ shift ≤ redline ≤ max`
    so the stored order can never be nonsense again.

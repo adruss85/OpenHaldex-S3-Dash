@@ -378,9 +378,11 @@ unmodified tree immediately before the first edit.
 | **total** | | **1,525,994 (77.6%)** | **−321,192** | **60,196** |
 
 The version was bumped to 0.8.1 before the final clean build; `tools/doc_status.py`
-regenerated `docs/status.md` from that build. The clean build (whose build-date
-string differs by a few bytes) measured 1,525,962 B — that is the figure
-`docs/status.md` carries.
+regenerated `docs/status.md` from that build. The stage-4 row above is the
+incremental build: a clean rebuild of the same sources measures 1,525,962 B —
+32 B lower, a build-date/alignment artefact — and the night-brightness floor
+constants added to `include/board_config.h` on release day measure to
+nothing (a clean build with them is also 1,525,962 B).
 
 ### How the subset fidelity was proved
 
@@ -431,11 +433,32 @@ string differs by a few bytes) measured 1,525,962 B — that is the figure
 - `docs/architecture.md`: the plain-HTTP client choice under "Connection reuse".
 - `AGENTS.md`: rule 12 and a documentation-map row for this brief.
 
-### Not verified (no board attached)
+### Verified on the board (12 Nov 2026)
 
-Everything in the brief's hardware lists is still pending: the settings page
-and keyboard behaviour on glass, both tile bands with the subset fonts (temps,
-fuel, locks, speed, all six mode names, `SETTINGS`), km/h vs mph and °C vs °F,
-HTTP polling against a live controller, OTA upload/trial/fallback, and the
-render-rate/RAM figures under radio traffic. A successful `pio run` is the only
-check performed here; nothing was flashed.
+The 0.8.1 image was flashed over USB (1,548,912 B image written at 0x10000,
+hash verified) and worked through with the console tools on the bench, then
+driven in the car by the owner the same day:
+
+- Boot banner and `V`: 0.8.1, running app0, confirmed, fallback ready; the
+  splash decodes in 411 ms as before.
+- On the glass, frame dumps at two luminance thresholds: the dashboard's big
+  `--` speed glyphs and the tile captions and values (48 px and 22 px
+  subsets), and the settings page with its 28 px `SETTINGS` heading and rows
+  — no missing or wrong glyphs anywhere, and no layout shift, which is the
+  pinned line metrics doing their job.
+- `o`, `e`, `x` and `k` all behave; the raw page renders with every field
+  `--` because no controller is in range on the bench — unknown, not zero.
+- Render 62–67 fps idle across the sessions, internal RAM 159.9 KB free /
+  159.2 KB lowest — the same figures 0.8.0 gave on this bench.
+- In the car: the dashboard live on both transports (the 28 px mode names and
+  the lock % with real data), HTTP polling against the controller, ESP-NOW
+  packets, and the night-brightness floor confirmed with the wheel down.
+
+### Still pending
+
+The render rate and RAM under radio traffic were not re-measured — the car
+session looked normal, but nothing was timed. OTA upload / trial / fall-back
+was not re-exercised on this image (the code is unchanged since 0.8.0, whose
+release notes record the last real trial). The units toggles (km/h, °F, psi)
+were not re-checked on the glass with the subsets. And the 5.0" pinmap build
+is untouched and untested.

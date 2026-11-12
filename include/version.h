@@ -21,6 +21,11 @@
 // 1,847,186 -> 1,525,962 B of the 1,966,080 B OTA slot (94.0% -> 77.6%),
 // static RAM 60,412 -> 60,196 B. What was switched off, and why it is safe,
 // is written beside each define in lv_conf.h and in docs/display-and-memory.md.
+// Also 0.8.1: the night-brightness floor comes down. 0.6.0's night curve
+// (20 % + 45 % × 58s/100) never went below 23 % with the dimmer wheel at its
+// bottom stop (58s 7 %), which was still too bright in the car; it is now
+// 5 % + 60 % × 58s/100 - 9 % at the bottom stop, the ~64 % ceiling unchanged
+// (include/board_config.h). Confirmed on the car, 12 Nov 2026.
 // 0.8.0 - Boost and oil pressure on cars with the ForbesAutomotive ME7 patch.
 // The patch lengthens Motor_7 (0x588) from a stock PQ car's three bytes to
 // eight: byte 4 is the boost sensor, bytes 5-6 the raw ADC of the rear-O2 input

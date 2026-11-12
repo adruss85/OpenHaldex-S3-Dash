@@ -108,11 +108,29 @@ unmodified 0.8.0 tree: 1,847,186 → 1,525,962 B of the 1,966,080 B OTA slot
 (94.0% → 77.6%), static RAM 60,412 → 60,196 B. The per-stage deltas, the
 disabled-feature list and the fidelity evidence are in
 [the size brief](binary-size-brief.md); the font inventory is in
-[display-and-memory.md](display-and-memory.md#fonts). **Only a successful
-build was performed — no board was attached, so every on-glass and on-radio
-check in the brief (settings page and keyboard, both tile bands with the
-subset fonts, HTTP polling, OTA, render rate under radio traffic) is still
-pending.**
+[display-and-memory.md](display-and-memory.md#fonts). Measurement note: the
+stage-4 row is the incremental build; every clean build of this tree — with
+or without the floor constants — measures 1,525,962 B of sections (the .bin
+image can carry a 32-byte alignment pad on top).
+
+The image was then flashed over USB and verified on the bench on 12 Nov 2026
+— boot and `V` (0.8.1, app0 confirmed, fallback ready), the splash at 411 ms,
+the dashboard and settings pages on glass at two dump thresholds with the
+subset fonts (big `--`, captions, the 28 px `SETTINGS` heading), `o`, `e`,
+`x` and `k`, 62–67 fps idle and internal RAM at 159.9 KB free / 159.2 KB
+lowest, the same figures 0.8.0 gave on this bench — and then driven in the
+car the same day: the dashboard live on both transports (mode names and lock
+% with real data), HTTP polling against the controller, ESP-NOW packets, and
+the night-brightness floor confirmed with the wheel down (below). Still not
+re-verified: the render rate under radio traffic was not re-measured, OTA
+upload/trial/fall-back was not re-exercised (unchanged code since 0.8.0), and
+the units toggles were not re-checked on the glass.
+
+**0.8.1 also lowers the night-brightness floor.** 0.6.0's night curve
+(`20 % + 45 % × 58s/100`) never went below 23 % with the dimmer wheel at its
+bottom stop (58s 7 %), which was still too bright in the car; it is now
+`5 % + 60 % × 58s/100` — **9 %** at the bottom stop, the ~64 % ceiling
+unchanged, day untouched. Confirmed in the car on 12 Nov 2026.
 
 **In the car** (0.5.x):
 
@@ -218,6 +236,6 @@ is the splash's JPEG, bought back by dropping the 80 px "CAN DASH" face the draw
 splash needed (see [the splash section](display-and-memory.md#the-boot-splashs-picture)).
 The drive log cost 40 KB of flash, which is the largest single addition since layout
 C and the reason the headroom is now the thing to check before the next feature.
-(0.8.1 bought the headroom back: 440,118 B free of the slot, from the font
+(0.8.1 bought the headroom back: 440,086 B free of the slot, from the font
 subsets, the pruned LVGL configuration and a plain-HTTP client — see
 [the size brief](binary-size-brief.md).)
