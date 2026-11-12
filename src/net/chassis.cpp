@@ -90,6 +90,28 @@ void readPq(Chassis &c) {
     c.odometerValid = true;
   }
 
+  // ---- Engine_7 (0x588). A stock PQ car sends three bytes; the
+  // ForbesAutomotive ME7 patch lengthens it to eight. Length is the gate, not
+  // the value: reading past a 3-byte frame is how a missing boost sensor
+  // becomes a confident 0.00 bar.
+  if (recent(0x588, 5, f)) {
+    // Byte 4 is the boost sensor the ECU already reads: 0.01 bar per count,
+    // absolute. The BOOST tile keeps using the controller's gauge value; this
+    // copy is here so `k` can show both new bytes from the dash's own decode.
+    c.manifoldBar = (float)f.data[4] * 0.01f;
+  }
+  if (recent(0x588, 8, f)) {
+    // Bytes 5-6 are the rear-O2 input's raw 10-bit ADC, little-endian, sent
+    // unscaled so the gauge owns the sensor's transfer function. A PST-F 1 is
+    // 0.5 V at 0 bar and 4.5 V at 10 bar, so volts = raw * 5/1024 and
+    // bar = (volts - 0.5) / 0.4. Deliberately NOT clamped at zero: a reading
+    // below the sensor's own zero is an unwired or unpowered plug, and a fake
+    // 0.0 bar on an oil gauge is worse than a negative one that says so.
+    const uint16_t raw = (uint16_t)((f.data[5] | (f.data[6] << 8)) & 0x03FF);
+    const float volts = (float)raw * 5.0f / 1024.0f;
+    c.oilPressureBar = (volts - 0.5f) / 0.4f;
+  }
+
   // ---- Brake_1 (0x1A0). The cluster's tell-tales and the intervention bit.
   if (recent(0x1A0, 2, f)) {
     c.lampAbs = (f.data[1] & 0x01) != 0;          // BR1_Lamp_ABS, bit 8
@@ -179,12 +201,31 @@ Chassis read(const uint8_t generation) {
   return c;
 }
 
+PatchedEngine patchedEngine() {
+  PatchedEngine out;
+  canrelay::Frame f, engine3;
+
+  // Length 5 is the boost byte being there at all. A stock PQ Motor_7 is three
+  // bytes, so this cannot be true on a car without the patch.
+  if (!recent(0x588, 5, f)) return out;
+  out.boost = true;
+
+  // The oil word needs bytes 5-6, and byte 7 has to match Motor_3's byte 1: the
+  // patch's IAT copy is what distinguishes its frame from any other long
+  // Motor_7. Both frames are broadcast together, so a quiet 0x380 means "not
+  // yet", not "no patch", and the caller latches a sighting.
+  if (f.length < 8 || !recent(0x380, 2, engine3)) return out;
+  out.oilPressure = f.data[7] == engine3.data[1];
+  return out;
+}
+
 void print(const uint8_t generation) {
   const Chassis c = read(generation);
 
   // "num unit" when present, "--" when not: an absent value must never print as
   // 0, which is how a missing tank reading becomes an empty tank.
   char fuel[24], odo[24], amb[24], cool[16], oil[16], bar[16], setSpd[16];
+  char boostAbs[20], oilPress[16];
   auto num = [](char *out, size_t n, float v, int dec, const char *unit) {
     if (isnan(v)) {
       snprintf(out, n, "--");
@@ -211,6 +252,8 @@ void print(const uint8_t generation) {
   num(oil, sizeof oil, c.oil, 0, "C");
   num(bar, sizeof bar, c.brakeBar, 1, "bar");
   num(setSpd, sizeof setSpd, c.cruiseSetKmh, 0, "km/h");
+  num(boostAbs, sizeof boostAbs, c.manifoldBar, 2, "bar abs");
+  num(oilPress, sizeof oilPress, c.oilPressureBar, 1, "bar");
 
   Serial.printf("[chassis] gen %u | fuel %s low %d %s | odo %s | 58s %d %s | outside %s\n",
                 (unsigned)generation, fuel, c.fuelLow ? 1 : 0, c.fuelValid ? "" : "(invalid)", odo,
@@ -221,6 +264,10 @@ void print(const uint8_t generation) {
   Serial.printf("[chassis] pressure %s | lamps asr/abs/bk %d/%d/%d %s | intervening %d\n", bar,
                 c.lampAsr ? 1 : 0, c.lampAbs ? 1 : 0, c.lampBk ? 1 : 0,
                 c.lampValid ? "" : "(no frame)", c.asrActive ? 1 : 0);
+  // The ForbesAutomotive patch's two new bytes, decoded here so the value the
+  // dashboard draws can be checked against the frame that produced it.
+  Serial.printf("[chassis] engine_7 manifold %s | oil pressure %s %s\n", boostAbs, oilPress,
+                isnan(c.oilPressureBar) ? "(no 8-byte frame)" : "");
   Serial.printf("[chassis] indicators L%d R%d %s | cruise main %d status %d armed %d "
                 "engaged %d regelt %d set %s %s\n",
                 c.indLeft ? 1 : 0, c.indRight ? 1 : 0, c.indValid ? "" : "(no frame)",

@@ -55,6 +55,7 @@
 #include "net/telemetry.h"
 #include "net/ohx_now.h"
 #include "net/datafeed.h"
+#include "app/capability.h"
 #include "app/config.h"
 #include "app/logbook.h"
 #include "app/ota.h"
@@ -226,6 +227,9 @@ struct Widgets {
 
   lv_obj_t *speedVal = nullptr, *speedPeak = nullptr, *speedUnit = nullptr;
   lv_obj_t *boostVal = nullptr, *boostUnit = nullptr, *boostBar = nullptr, *boostPeak = nullptr;
+  // The ForbesAutomotive patch's second reading, inside the BOOST tile because
+  // that is the panel that only exists when the same frame does.
+  lv_obj_t *oilPressCap = nullptr, *oilPressVal = nullptr;
   lv_obj_t *coolVal = nullptr, *coolBar = nullptr, *oilVal = nullptr, *oilBar = nullptr;
   lv_obj_t *fuelVal = nullptr, *fuelBar = nullptr;
   lv_obj_t *modeVal = nullptr, *haldexSub = nullptr;
@@ -251,9 +255,9 @@ struct Widgets {
 } w;
 
 struct Values {
-  float rpm, speed, throttle, boost, coolant, oil, lockTarget, lockActual, fuel;
+  float rpm, speed, throttle, boost, coolant, oil, lockTarget, lockActual, fuel, oilPressure;
 };
-constexpr Values kBlank = {NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN};
+constexpr Values kBlank = {NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN};
 
 Values g_target = kBlank;  // latest from the API
 Values g_shown = kBlank;   // interpolated, what is drawn
@@ -700,6 +704,7 @@ lv_obj_t *g_tileSpeed = nullptr, *g_tileBoost = nullptr;
 lv_obj_t *g_tileTemps = nullptr, *g_tileHaldex = nullptr;
 layout::Variant g_variant = layout::Variant::Full;
 bool g_placed = false;
+bool g_oilShown = false;  // the OIL row is on the glass (capability, not layout)
 
 // The temperatures panel's three rows (coolant / oil / fuel) share one pitch,
 // so the build pass and the placement pass cannot drift apart.
@@ -759,6 +764,16 @@ void buildTiles(lv_obj_t *parent) {
   w.boostUnit = fixedLabel(t1, L::TILE_PAD_H, 96, bw, 18, FONT_SMALL, COL_DIM, "bar");
   w.boostBar = bar(t1, L::TILE_PAD_H, 128, bw, 10, COL_WHITE, 0, 100);
   w.boostPeak = fixedLabel(t1, L::TILE_PAD_H, h - 24, bw, 18, FONT_SMALL, COL_DIM, "peak --");
+
+  // The oil-pressure reading the same ME7 patch adds to Motor_7 bytes 5-6. A
+  // quiet second line in the free space between the bar and the peak, hidden
+  // unless capability detection found the patch - a stock car must not show an
+  // empty row. The value carries its unit, because the letters OIL already say
+  // which reading it is.
+  w.oilPressCap = label(t1, FONT_CAP, COL_DIM, "OIL");
+  lv_obj_set_pos(w.oilPressCap, L::TILE_PAD_H, 152);
+  w.oilPressVal = fixedLabel(t1, L::TILE_PAD_H, 150, bw, 22, FONT_SMALL, COL_FG, "--");
+  lv_obj_set_style_text_align(w.oilPressVal, LV_TEXT_ALIGN_RIGHT, 0);
 
   // ---- TEMPERATURES -----------------------------------------------
   lv_obj_t *t2 = opaque(parent, L::COL2_X, y, L::COL2_W, h, COL_BG);
@@ -846,6 +861,10 @@ void placeBoostTile(lv_obj_t *t, int x, int width, int height) {
   lv_obj_set_width(w.boostVal, bw);
   lv_obj_set_width(w.boostUnit, bw);
   lv_obj_set_width(w.boostBar, bw);
+  // The OIL value is right-aligned to the tile edge; its caption sits at the
+  // padding edge and does not move.
+  lv_obj_set_pos(w.oilPressVal, L::TILE_PAD_H + bw - 110, 150);
+  lv_obj_set_width(w.oilPressVal, 110);
   lv_obj_set_pos(w.boostPeak, L::TILE_PAD_H, height - 24);
   lv_obj_set_width(w.boostPeak, bw);
 }
@@ -878,7 +897,6 @@ void placeHaldexTile(lv_obj_t *t, int x, int width, int height) {
 // same pixels and repaints nothing.
 void placeBand(layout::Variant v) {
   const layout::TileBand &band = layout::bandFor(v);
-  const bool changed = (v != g_variant) || !g_placed;
   bool boostShown = false;
 
   for (int i = 0; i < band.count; i++) {
@@ -903,6 +921,24 @@ void placeBand(layout::Variant v) {
       lv_obj_add_flag(g_tileBoost, LV_OBJ_FLAG_HIDDEN);
     }
   }
+  // The OIL row is a capability rather than a band: it belongs on the glass
+  // only when the car's Motor_7 carries the patch's bytes 5-6, and it is hidden
+  // for the same reason the whole BOOST panel is. Its appearance is a
+  // repaint-worthy change, so it counts towards `changed` below.
+  const bool oilShown = cap::get().oilPressure;
+  if (w.oilPressCap && w.oilPressVal) {
+    if (oilShown) {
+      lv_obj_remove_flag(w.oilPressCap, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_remove_flag(w.oilPressVal, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(w.oilPressCap, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(w.oilPressVal, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+  const bool oilChanged = oilShown != g_oilShown;
+  g_oilShown = oilShown;
+
+  const bool changed = (v != g_variant) || !g_placed || oilChanged;
   g_variant = v;
   g_placed = true;
 
@@ -910,7 +946,8 @@ void placeBand(layout::Variant v) {
     // The panels that just moved or appeared have to be repainted, and so
     // does the strip the hidden one used to occupy.
     if (w.root) lv_obj_invalidate(w.root);
-    Serial.printf("[ui] tile band %s (%d panels)\n", band.name, band.count);
+    Serial.printf("[ui] tile band %s (%d panels), oil pressure %s\n", band.name, band.count,
+                  oilShown ? "shown" : "hidden");
   }
 }
 
@@ -1707,6 +1744,18 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
     setText(w.boostPeak, buf);
   }
 
+  // ---- oil pressure: the other half of the ForbesAutomotive ME7 patch, from
+  // Motor_7 bytes 5-6. The row is hidden unless the car was detected with it,
+  // so nothing here is visible on a stock car. Negative is drawn as it is: it
+  // means the input is sitting below the sensor's 0.5 V zero (unwired or
+  // unpowered), and a fake 0.0 bar on an oil gauge would be worse than that.
+  if (isnan(v.oilPressure)) {
+    setSuffix(w.oilPressVal, "--", COL_DIM);
+  } else {
+    snprintf(buf, sizeof(buf), "%.1f bar", (double)v.oilPressure);
+    setSuffix(w.oilPressVal, buf, COL_FG);
+  }
+
   // ---- temperatures
   fmtTemp(buf, sizeof(buf), v.coolant);
   setSuffix(w.coolVal, buf, colFor(v.coolant, c.coolWarn, c.coolCrit));
@@ -2242,6 +2291,7 @@ void tick() {
   g_target.oil = l.oil;
   g_target.lockTarget = l.lockTarget;
   g_target.lockActual = l.lockActual;
+  g_target.oilPressure = l.oilPressure;
 
   if (!stale) {
     g_shown.rpm = easeValue(g_shown.rpm, g_target.rpm, dt);
@@ -2252,6 +2302,10 @@ void tick() {
     g_shown.oil = easeValue(g_shown.oil, g_target.oil, dt * 0.25f);
     g_shown.lockTarget = easeValue(g_shown.lockTarget, g_target.lockTarget, dt);
     g_shown.lockActual = easeValue(g_shown.lockActual, g_target.lockActual, dt);
+    // Oil pressure moves with rpm, so it gets half the boost's rate: quick
+    // enough to follow a pull, slow enough that a lossy 7/s frame does not
+    // make the last digit flicker.
+    g_shown.oilPressure = easeValue(g_shown.oilPressure, g_target.oilPressure, dt * 0.5f);
 
     // Fuel gets the hardest smoothing on the panel: the tank sloshes, and the
     // level is read at a glance rather than followed (#4). The gate drops any

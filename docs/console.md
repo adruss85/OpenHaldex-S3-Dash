@@ -19,7 +19,7 @@ Read this when you need to drive or diagnose the board from the serial port.
 | `v` | force the other tile band, for bench work (see 'What the car can fill') |
 | `m` | step the Haldex mode — the same as tapping the HALDEX panel |
 | `E` | enable / disable the ESP-NOW listener (A/B its cost on one boot) |
-| `k` | decode the latest chassis CAN frames: fuel, indicators, odometer, 58s, brake, lamps, cruise (state, and the set speed `MO2_GRA_Target`) |
+| `k` | decode the latest chassis CAN frames: fuel, indicators, odometer, 58s, brake, lamps, cruise (state, and the set speed `MO2_GRA_Target`), and `Motor_7`'s manifold pressure and oil pressure when the ForbesAutomotive ME7 patch is present |
 | `b` | toggle the bounce buffer between 0 and 16 lines |
 | `r` | try the next GT911 axis mapping |
 | `t` | reset the touch probe |

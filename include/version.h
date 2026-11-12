@@ -8,11 +8,23 @@
 // =====================================================================
 #pragma once
 
-#define OHX_DASH_VERSION "0.7.5"  // The CC lamp's three states confirmed on the car
-// (0.7.4), and the cruise set speed decoded: MO2_GRA_Target (0x288 byte 4,
-// x1.28 km/h) now appears in the `k` dump as "set", NaN when nothing is stored.
-// It has never been seen non-zero on this car, so whether the engine populates
-// it is exactly what the next `k` dump settles.
+#define OHX_DASH_VERSION "0.8.0"  // Boost and oil pressure from the ForbesAutomotive ME7 patch
+// 0.8.0 - Boost and oil pressure on cars with the ForbesAutomotive ME7 patch.
+// The patch lengthens Motor_7 (0x588) from a stock PQ car's three bytes to
+// eight: byte 4 is the boost sensor, bytes 5-6 the raw ADC of the rear-O2 input
+// now carrying an oil-pressure sensor, byte 7 a copy of Motor_3's IAT. Boost on
+// a Gen1 is therefore no longer decided by the generation table alone - a
+// length-5 frame is evidence enough - so a patched car gets the Full (B) band
+// while a stock Gen1 keeps NoBoost. Oil pressure is detected from the 8-byte
+// frame whose byte 7 matches Engine_3 byte 1 (the patch's own signature) and is
+// drawn as a quiet OIL row in the boost tile, scaled by the PST-F 1 transfer.
+// Measured on this car: 8 bytes at 7/s, byte 4 ~99 key-off and moving under
+// load, byte 7 matching 0x380 byte 1.
+// 0.7.5 - The CC lamp's three states confirmed on the car (0.7.4), and the
+// cruise set speed decoded: MO2_GRA_Target (0x288 byte 4, x1.28 km/h) now
+// appears in the `k` dump as "set", NaN when nothing is stored. It has never
+// been seen non-zero on this car, so whether the engine populates it is exactly
+// what the next `k` dump settles.
 // 0.7.4 - The CC lamp's three states, corrected on the car.
 // 0.7.3 lit the lamp from MO2_Status_GRA and took its brightness from
 // MO2_GRAregelt. Driving showed GRAregelt follows the +/- side of the rocker -

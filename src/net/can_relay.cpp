@@ -279,6 +279,7 @@ Values values(const uint8_t generation) {
   out.asrLamp = c.lampValid ? (c.lampAsr ? 1 : 0) : -1;
   out.asrActive = c.lampValid ? (c.asrActive ? 1 : 0) : -1;
   out.brakeBar = c.brakeBar;
+  out.oilPressureBar = c.oilPressureBar;
   // Three states from two facts, both the car's own: off, armed (the column
   // switch is on), engaged (MO2_Status_GRA says a speed is stored). MO2_GRAregelt
   // is deliberately not used here - on the car it read 1 with the + side of the

@@ -55,6 +55,16 @@ struct Chassis {
   float coolant = NAN;  // C
   float oil = NAN;      // C, engine oil
 
+  // --- Engine_7 (0x588) as the ForbesAutomotive ME7 patch sends it
+  //
+  // A stock PQ car broadcasts Motor_7 three bytes long. The patch extends it to
+  // eight: byte 4 is the boost sensor, bytes 5-6 the raw 10-bit ADC of the
+  // rear-O2 input (now an oil-pressure sensor), byte 7 a copy of Motor_3's IAT.
+  // Both values are NAN unless the frame is long enough, because reading past a
+  // 3-byte frame is exactly how a missing sensor becomes a confident 0.00.
+  float manifoldBar = NAN;     // absolute bar, byte 4; the BOOST tile does not use this
+  float oilPressureBar = NAN;  // bar, bytes 5-6 through the PST-F 1 transfer
+
   // --- pedals, the chassis CAN's view (the C6's wired inputs are separate)
   int brake = -1, handbrake = -1;  // 0 / 1
 
@@ -78,6 +88,19 @@ struct Chassis {
 /// task: it copies a handful of frames, all of which are already in PSRAM.
 /// `generation` picks the table, as dbc::forGeneration() does.
 Chassis read(uint8_t generation);
+
+/// What a lengthened Motor_7 says about the car, for capability detection.
+///
+/// `boost` is the frame carrying byte 4 at all (length >= 5), which a stock PQ
+/// car never does. `oilPressure` additionally wants the 8-byte form whose byte 7
+/// copies Motor_3's IAT - the patch's own signature - so a different long frame
+/// cannot light up an oil row nothing is feeding.
+struct PatchedEngine {
+  bool boost = false;
+  bool oilPressure = false;
+};
+
+PatchedEngine patchedEngine();
 
 /// Print the whole structure to the console, one line per group, with "--" where
 /// a value is absent or invalid. This is how the decode is checked on a car

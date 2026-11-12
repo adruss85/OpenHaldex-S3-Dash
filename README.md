@@ -83,7 +83,7 @@ predate the fuel row, the repeaters and the odometer.*
 | Band | Contents |
 |---|---|
 | Rev bar | One continuous bar across the full 800 px (80 cells drawn edge to edge), one number per 1000 rpm above it and `x1000` at the right, then the rpm as a large centred number on its own row — with a **turn-indicator arrow at each end of that row**, hidden until the car blinks, then flashing green |
-| Tiles | `SPEED` (km/h or mph + peak) · `BOOST` (value, unit, a bar, peak) · the **temperatures card** (`COOLANT`, `OIL` and `FUEL`, each with its unit and a bar; no caption of its own — its first row lines up with the other cards' captions) · `HALDEX` (mode, coupling state, lock requested / actual, throttle) — **tap it to step the Haldex mode** |
+| Tiles | `SPEED` (km/h or mph + peak) · `BOOST` (value, unit, a bar, peak — plus a quiet `OIL` pressure row on a car with the [ME7 patch](#boost-and-oil-pressure-on-the-me7-patch)) · the **temperatures card** (`COOLANT`, `OIL` and `FUEL`, each with its unit and a bar; no caption of its own — its first row lines up with the other cards' captions) · `HALDEX` (mode, coupling state, lock requested / actual, throttle) — **tap it to step the Haldex mode** |
 | Status bar | Data-state dot, the BRAKE / HAND / TC / ASR / **CC** lamps, the **odometer**, and the RESET PEAKS / SETTINGS buttons |
 
 The tile band follows the same geometry as the browser page, from one unit:
@@ -137,6 +137,27 @@ the link itself is down. Nothing is blanked and no overlay covers the screen.
   a full-screen page in two columns with no scrolling: on a 32 Hz panel, a
   scroll step repaints the full screen width, which is what made the old page
   feel slow.
+
+### Boost and oil pressure on the ME7 patch
+
+A stock PQ car's `Motor_7` (0x588) is three bytes, so a Gen1 gets the NoBoost
+band: there is no boost signal anywhere on its bus. The
+**ForbesAutomotive ME7 patch** lengthens that frame to eight bytes and fills
+byte 4 with a boost sensor and bytes 5–6 with the raw ADC of the rear-O2 input,
+which can carry a **PST-F 1 oil-pressure sensor**. Byte 7 copies `Motor_3`'s
+intake-air temperature, and that copy is what the dash uses to recognise the
+patch rather than a coincidence of length.
+
+So a patched Gen1 gets the Full band and a quiet `OIL` row inside the BOOST
+tile, right-aligned under the boost bar, without a setting to turn on. A stock
+Gen1 keeps NoBoost, and a car whose relay is off keeps whatever the generation
+table gave it — evidence can add a panel, never take one away. Oil pressure is
+offered only when the signature is present, and it is deliberately **not
+clamped**: an unwired sensor shows a negative number rather than a fake `0.0`.
+
+The boost number on the glass is still the controller's own (`/api/live` or
+ESP-NOW). The dash's own decode of byte 4 is the console's `k` line, labelled
+absolute bar, so the fitter can cross-check the two without a laptop.
 
 ---
 
@@ -398,7 +419,11 @@ afterwards.
 
 Boost is **millibar gauge** (above ambient). The controller decodes both MQB
 `Ladedruck` (0x107) and PQ (0x588) as `(raw * 10) - 1000` and clamps to
-`>= 0`, so 1000 mbar ≈ 1.00 bar ≈ 14.5 psi.
+`>= 0`, so 1000 mbar ≈ 1.00 bar ≈ 14.5 psi. On a Gen1 that only has a boost
+value at all through the [ME7 patch](#boost-and-oil-pressure-on-the-me7-patch),
+and the dash decodes the patch's byte 4 with the same formula; its OIL row is
+always **bar**, because that is the sensor's own unit and the boost unit toggle
+is about the turbo, not the oil pump.
 
 There are three toggles in the Settings page's **Units** row and they are
 deliberately not one:

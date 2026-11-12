@@ -74,7 +74,7 @@ uint32_t g_lastMs = 0;
 // name here and its row definition below.
 enum Field : uint8_t {
   F_HDR, F_FW, F_GEN, F_MODE, F_NAME, F_SRC, F_CHRSSI, F_PKTS, F_SEQNONCE, F_REJDUP, F_SENDERS,
-  F_CAP_GEN, F_CAP_BOOST, F_CAP_SUPPLY, F_CAP_TEMPS, F_CAP_STEER, F_CAP_LAYOUT,
+  F_CAP_GEN, F_CAP_BOOST, F_CAP_SUPPLY, F_CAP_TEMPS, F_CAP_STEER, F_CAP_OIL, F_CAP_LAYOUT,
   F_RELAY_RATE, F_RELAY_AIR, F_RELAY_SRC,
   F_RPM, F_SPEED, F_THR, F_BOOST, F_LOCKPCT, F_TEMPS, F_SUPPLY, F_SLIP,
   F_FLAGS0, F_FLAGS1, F_FLAGS2, F_FLAGS3,
@@ -108,14 +108,15 @@ const RowDef kRowsA[] = {
 
 // What the car can feed, and the shape of the dashboard that follows from
 // it. Detected vs table says how each answer was arrived at: the packet marks
-// a field it has no value for (detected), except boost, which the controller
-// has no sentinel for and which is therefore decided by generation.
+// a field it has no value for (detected), while boost comes from the Haldex
+// generation unless a lengthened Motor_7 proves a patched Gen1 has it.
 const RowDef kRowsCaps[] = {
     {F_CAP_GEN, "generation", false},
     {F_CAP_BOOST, "boost source", false},
     {F_CAP_SUPPLY, "supply voltage", false},
     {F_CAP_TEMPS, "haldex temps", false},
     {F_CAP_STEER, "steering (packet)", false},
+    {F_CAP_OIL, "oil pressure", false},
     {F_CAP_LAYOUT, "tile band", false},
 };
 
@@ -178,7 +179,7 @@ struct Column {
 
 const Column kColumns[3] = {
     {"ESP-NOW OHX_STATUS",
-     {{nullptr, kRowsA, 11}, {"CAR CAPABILITY", kRowsCaps, 6}, {"CAN RELAY", kRowsRelay, 3}}, 3},
+     {{nullptr, kRowsA, 11}, {"CAR CAPABILITY", kRowsCaps, 7}, {"CAN RELAY", kRowsRelay, 3}}, 3},
     {"PACKET VALUES (10 Hz)", {{nullptr, kRowsB, 8}, {"FLAGS (set bits)", kRowsB + 8, 4}, {nullptr, nullptr, 0}}, 2},
     {"HTTP / DASH", {{"HTTP /api/live", kRowsC, 5}, {"HTTP /api/dashboard", kRowsC + 5, 8}, {"LINK", kRowsC + 13, 6}}, 3},
 };
@@ -443,13 +444,18 @@ void refresh() {
   const cap::Caps &cp = cap::get();
   setText(g_val[F_CAP_GEN], cp.genKnown ? fint(a, cp.generation) : "unknown");
   const char *waiting = cp.settled ? nullptr : "waiting";
-  setText(g_val[F_CAP_BOOST], waiting ? waiting : (cp.boost ? "yes (table)" : "no (table)"));
+  // A Gen1 only has boost when a lengthened Motor_7 proved it; every other
+  // generation still answers from the table.
+  const char *boostTxt =
+      cp.genKnown && cp.generation == 1 ? "yes (motor_7)" : "yes (table)";
+  setText(g_val[F_CAP_BOOST], waiting ? waiting : (cp.boost ? boostTxt : "no (table)"));
   setText(g_val[F_CAP_SUPPLY],
           waiting ? waiting : (cp.supplyVoltage ? "yes (detected)" : "no (detected)"));
   setText(g_val[F_CAP_TEMPS],
           waiting ? waiting : (cp.haldexTemps ? "yes (detected)" : "no (detected)"));
   setText(g_val[F_CAP_STEER],
           waiting ? waiting : (cp.steering ? "yes (detected)" : "no (detected)"));
+  setText(g_val[F_CAP_OIL], waiting ? waiting : (cp.oilPressure ? "yes (motor_7)" : "no"));
   setText(g_val[F_CAP_LAYOUT], layout::bandFor(cp.variant).name);
 
   // ---- the CAN relay

@@ -347,6 +347,8 @@ void pollLive() {
     // and datafeed.cpp fills it in. NAN here means "this source has nothing",
     // which is exactly what the merge expects.
     v.fuel = NAN;
+    // Oil pressure is a relay decode too; /api/live never carries it.
+    v.oilPressure = NAN;
     v.everOk = true;
     v.ageMs = 0;
     g_liveOkMs = now;
@@ -488,7 +490,7 @@ void setPaused(bool paused) {
 }
 
 void begin() {
-  g_live = Live{NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, false, UINT32_MAX};
+  g_live = Live{NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, false, UINT32_MAX};
   g_dash = Dash{-1, -1, -1, -1, false, false, false, false, false, false,
                 false, false, false, false, UINT32_MAX, NAN, -1, -1};
   g_stats = Stats{};

@@ -36,11 +36,11 @@ casual passer-by. Alternatives: leave it (consistent with treating an open
 access point as a warning, which is the current stance on the mode switch), or
 require the AP password as a token.
 
-### 1.3 Build a `firmware.factory.bin` release asset too?
-Releases carry `firmware.bin` (what the update page wants). A board that has
-never been flashed, or one whose app slots have been scrambled, needs the
-factory image written at `0x0` instead. One line of release notes, or a second
-asset — decide when the first person asks.
+### 1.3 ~~Build a `firmware.factory.bin` release asset too?~~ — **done, 0.8.0**
+Releases carried only `firmware.bin` (what the update page wants). From 0.8.0
+both files ship: `...-firmware.bin` for OTA and `...-factory.bin`, the merged
+image written at `0x0`, for a board that has never been flashed or whose app
+slots have been scrambled.
 
 ### 1.4 Automatic FWD while cruise control is active — **paused**
 The **read-only half is built**: `chassis.cpp` decodes `MO2_Status_GRA` (0x288,
@@ -109,21 +109,23 @@ gate; the decode side is free.
 Things built and believed, but not yet proven on the right hardware.
 
 ### 2.1 Other Haldex generations — **needs testers**
-Everything layout-related was decided from a **Gen1** car. Gen1 has no boost
-frame, no supply voltage, no Haldex temperatures and a chassis-CAN-only
-handbrake, so:
+Everything layout-related was decided from a **Gen1** car, now running the
+ForbesAutomotive ME7 patch (0.8.0). That car fills BOOST from the patch and OIL
+pressure from its ADC bytes, so the **Full (B)** band has been rendered on a
+car and its boost decode has been seen moving — but only through this patch:
 
-* the **Full (B)** tile band (`SPEED | BOOST | TEMPERATURES | HALDEX`) has
-  never been rendered on a car that fills all four panels;
-* `boost` scaling is the one field nobody has ever seen move — the packet
-  documents it as *mbar above ambient*, and that is an assumption until a
-  Gen4/5 car proves it;
-* the capability table's "table" half (boost from generation) has only ever
-  been exercised on the car that *lacks* the source;
+* the Full band has **not** been seen on a Gen4/5 car, where it comes from the
+  generation table and the controller's own boost source rather than a patched
+  `Motor_7`;
+* the packet's `boost` (documented as *mbar above ambient*) has still only been
+  cross-checked against the patch's byte 4 on this one engine;
 * Gen2/4/50/52 differences still unknown: which generations fill `slip[4]`,
   and whether steering arrives both ways as it does on Gen1. (`oilTemp` is
   settled: the packet's is Haldex oil, Gen4 only, and the OIL tile no longer
   uses it. HTTP oil is engine oil from the Kombi.)
+* oil pressure is offered only where the patch's signature is present, so a
+  stock car of any generation is expected to read a dash there — unverified,
+  because no stock car has been flashed with 0.8.0.
 
 The raw telemetry page (`x`) exists for exactly this: it shows every field
 raw, so a tester can report back without a laptop and without this agent.

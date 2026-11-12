@@ -13,16 +13,27 @@
 //   table      boost is the exception: the controller has no absence sentinel
 //              for it, so a car whose chassis CAN carries no boost frame
 //              reads a confident 0.00 rather than "no value" and cannot be
-//              detected at all. It is therefore decided from the Haldex
-//              generation, which is the only thing we have that correlates.
-//              Measured on the Gen1 car this was written against: Motor_7
-//              (0x588) is the only PQ boost frame and it is not broadcast,
-//              so boost never moves.
+//              detected through the packet at all. It is therefore decided
+//              from the Haldex generation, which is the only thing we have that
+//              correlates: measured on the Gen1 car this was written against,
+//              Motor_7 (0x588) is the only PQ boost frame and a stock car does
+//              not broadcast it, so boost never moves.
+//
+//   frame      the exception to the exception. A Gen1 can still prove it has a
+//              boost source by lengthening Motor_7 (0x588), which is exactly
+//              what the ForbesAutomotive ME7 patch does: the stock 3-byte frame
+//              becomes 8, with byte 4 the boost sensor and bytes 5-6 the raw ADC
+//              of an oil-pressure sensor on the rear-O2 input. A length >= 5
+//              frame therefore upgrades boost on a Gen1 and is the only way oil
+//              pressure is ever offered. Evidence can only add a widget, never
+//              take one away: a generation the table says has boost keeps it
+//              even if the relay is switched off.
 //
 // The decision is made once and latched. It is not re-evaluated per frame: a
 // layout that changed shape while the car was moving would be worse than a
-// widget that reads "--". It is, however, revised at most once if the
-// generation only becomes known after the decision settled - see poll().
+// widget that reads "--". It is, however, revised for a short window after the
+// decision settles if the generation or the patch's frames only arrive then -
+// see poll().
 // =====================================================================
 #pragma once
 
@@ -41,13 +52,14 @@ struct Caps {
   // What the car can feed. "false" means the dashboard must not reserve
   // space for it, not merely that it reads "--".
   bool boost;
+  bool oilPressure;        // Motor_7 bytes 5-6: the ForbesAutomotive ME7 patch
   bool supplyVoltage;
   bool haldexTemps;
   bool steering;
 
   layout::Variant variant;  // which tile band the dashboard should use
 
-  uint32_t revision;        // bumped if the band changes after `settled`
+  uint32_t revision;        // bumped if a capability changes after `settled`
 };
 
 /// Feed this from loop(). Cheap: it does nothing at all once settled.

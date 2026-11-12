@@ -87,13 +87,13 @@ telemetry::Live live() {
   v.speed = pick(p.speed, http.speed);
   v.throttle = pick(p.throttle, http.throttle);
   v.boost = pick(p.boost, http.boost);
-  // Boost is decided from the Haldex generation (capability.h): a Gen1 car has
-  // no boost frame at all - Motor_7 (0x588) arrives three bytes long - so the
-  // controller's own decode reads a confident 0.00 over bytes that are not
-  // there. Gate the *value* on what the car can feed, not just the tile band,
-  // and until the decision has been made read "--" rather than a guess: the band
-  // is Full for those first seconds, so without this the tile that is meant to
-  // be hidden shows a number first (#2).
+  // Boost is decided from the Haldex generation, with a lengthened Motor_7
+  // (0x588) as evidence that can add it on a Gen1 (capability.h): a stock PQ
+  // car's frame is three bytes long, so the controller's own decode reads a
+  // confident 0.00 over bytes that are not there. Gate the *value* on what the
+  // car can feed, not just the tile band, and until the decision has been made
+  // read "--" rather than a guess: the band is Full for those first seconds, so
+  // without this the tile that is meant to be hidden shows a number first (#2).
   const cap::Caps &caps = cap::get();
   if (!caps.settled || !caps.boost) v.boost = NAN;
   // Not the packet's oilTemp: that is the Haldex's own oil (Gen4, over KWP), and
@@ -105,6 +105,10 @@ telemetry::Live live() {
   // Fuel level, same story as the temperatures: the relay is the only source
   // (the API has never carried it), and NAN means the frame is quiet.
   if (!isnan(relay.fuelLitres)) v.fuel = relay.fuelLitres;
+  // Oil pressure is the dash's own decode of Motor_7 bytes 5-6, which only
+  // exist with the ForbesAutomotive ME7 patch. Same gate as boost: a value with
+  // no capability behind it must not reach the row.
+  v.oilPressure = (caps.settled && caps.oilPressure) ? relay.oilPressureBar : NAN;
   v.lockTarget = pick(p.lockTarget, http.lockTarget);
   v.lockActual = pick(p.lockActual, http.lockActual);
 

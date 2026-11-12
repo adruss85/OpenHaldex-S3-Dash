@@ -34,10 +34,15 @@ is the fallback, and it still carries what neither of those has.
 | `rpm`, `speed`, `throttle`, `boost`, `lockTarget`, `lockActual` | ESP-NOW while packets arrive (holds 500 ms), else HTTP |
 | `mode`, `haldexState`, `chassisCAN`, `haldexCAN`, `brakeIn`, `handbrakeIn`, `couplingOpen`, `tempProtection` | ESP-NOW — the packet has real bits for all of these |
 | `coolant`, `oil`, `fuel`, `odometerKm`, `brakeFromCAN`, `handbrakeFromCAN` | the CAN relay while it is carrying them, else HTTP. The packet has none of these: its `oilTemp` is the Haldex's oil, not the engine's |
+| `oilPressure` | the CAN relay only — the ForbesAutomotive ME7 patch's `Motor_7` bytes 5–6, and only on a frame that carries the patch's signature |
 | `fuelLow`, `indicators`, `term58s`, `asrLamp`, `asrActive`, `cruise` | the CAN relay only — the cluster's own frame, with no HTTP equivalent at all |
 | `tcOn`, `asrOn` | the relay's `BR1_Lamp_ASR`; the packet's `TC_FORCE` / `ASR_OFF` flags (which is how the controller's API works them out) are only the fallback while the frame is quiet |
 | `awdWarning` | always HTTP — it comes from Haldex data, which is on the bus the relay does not carry. Kept and shown on the raw page; nothing on the dashboard uses it |
 | packets stopped | everything falls back to HTTP, and says so on the console |
+
+`boost` and `oilPressure` are published only once the capability check says this
+car can fill them (see [What the car can fill](#what-the-car-can-fill)); the
+value itself still comes from the transport above.
 
 A numeric field the packet marks as "no data" falls back to the HTTP value if
 HTTP has one, so a field this Haldex generation never fills in cannot make the
@@ -129,19 +134,21 @@ is shown on the raw page so it can be argued with:
 | | How | Why |
 |---|---|---|
 | **detected** | the packet marks a field it has no value for with a sentinel, which arrives as NaN | the car is telling us, rather than us assuming |
-| **table** | the Haldex generation | boost is the one field with no sentinel: a car with no boost frame reads a confident `0.00`, so it cannot be detected |
+| **table** | the Haldex generation | boost has no sentinel: a car with no boost frame reads a confident `0.00`, so the table is the best guess when the frame is silent |
+| **evidence** | the length and shape of `Motor_7` (0x588) | a stock PQ car sends three bytes; the [ForbesAutomotive ME7 patch](#the-me7-patch-boost-and-oil-pressure) sends eight. Evidence can add a widget the table denies, never remove one it allows |
 
-Measured on the Gen1 car this was built against, and logged as one line at
-boot:
+Measured on the Gen1 car this was built against, with the ME7 patch applied, and
+logged as one line at boot:
 
 ```
-[cap] gen 1 | boost no (table) | supply no (detected) | haldex temps no
-(detected) | steering yes (detected) | NoBoost (A) | 20 pkts
+[cap] gen 1 | boost yes (motor_7) | oil pressure yes (motor_7) | supply no
+(detected) | haldex temps no (detected) | steering yes (detected) | Full (B) | 20 pkts
 ```
 
 | Capability | This car | Consequence |
 |---|---|---|
-| boost | absent | the BOOST panel is not built into the band |
+| boost | **ME7 patch** | the BOOST panel is built into the band; a stock Gen1 keeps NoBoost |
+| engine oil pressure | **ME7 patch** | a quiet OIL row is drawn inside the BOOST panel, hidden without the patch |
 | supply voltage | absent | not shown |
 | Haldex oil / clutch / module temps | absent | not shown |
 | steering angle | **packet only** | the packet is authoritative; the JSON path gates it off for Gen1 |
@@ -151,16 +158,44 @@ boot:
 Two tile bands exist, both approved as mock-ups in `docs/mockups/`:
 
 * **NoBoost (A)** — SPEED | TEMPERATURES | HALDEX, three equal panels (266 / 266
-  / 268), for a car with no boost source. What this car gets.
+  / 268), for a car with no boost source. What a stock Gen1 gets.
 * **Full (B)** — SPEED | BOOST | TEMPERATURES | HALDEX, the widths `dash.html`
-  gives them, for a car that has one. **Unverified**: no Gen4/5 car has been
-  available to test it on.
+  gives them, for a car that has one. **Verified on this car** with the ME7 patch
+  (0.8.0). Still unverified on a Gen4/5 car, where the same band comes from the
+  table rather than from a patched frame.
 
 The decision latches. It is not re-evaluated per frame, because a layout that
 changed shape while the car was moving would be worse than a widget that reads
 `--`, and an unsettled dashboard keeps the full band rather than hiding a widget
 on a guess. `v` on the console forces either band, which is how the unverified
-one gets looked at.
+one gets looked at. For 15 s after it settles the decision may still be revised
+once — that window is what lets a relay that starts a second or two behind the
+packets, or a patched `Motor_7` that arrives late, light the boost tile without a
+reboot.
+
+### The ME7 patch: boost and oil pressure
+
+The patch is a modified ME7 ECU image for the PQ platform, not a change to the
+controller. It lengthens `Motor_7` (0x588) from the stock three bytes to eight:
+
+| Byte | Stock | Patched |
+|---|---|---|
+| 0–2 | the stock frame | unchanged |
+| 3 | — | zero |
+| 4 | — | the boost sensor, `raw * 10 − 1000` mbar gauge, the same scaling the controller uses for MQB `Ladedruck` |
+| 5–6 | — | raw ADC of the rear-O2 input, now carrying a PST-F 1 oil-pressure sensor, little-endian and masked to 10 bits |
+| 7 | — | a copy of `Motor_3` (0x380) byte 1, the intake-air temperature |
+
+That last byte is the patch's signature: the row is offered only when `Motor_7`
+is eight bytes **and** byte 7 equals `Engine_3` byte 1. Oil pressure is scaled
+`raw × 5 / 1024` V, then `(V − 0.5) / 0.4` bar for a PST-F 1 — deliberately
+**not** clamped, so an unwired sensor reads negative rather than a fake `0.0`.
+On the reference car with the rear O2 still connected the row reads about
+`−0.1 bar`; that is the honest answer, not a fault in the decode.
+
+The BOOST tile's large number is still the controller's `boost` (ESP-NOW, else
+HTTP). The dash's own byte-4 decode is printed by `k` on the console, labelled
+absolute bar, as a cross-check the fitter can read without a laptop.
 
 ## ESP-NOW
 
@@ -308,9 +343,11 @@ loses. The test is written up in [`can-relay-test.md`](can-relay-test.md).
 
 Data the controller does not expose, or has no room for here:
 
-* On the dashboard itself: engine oil **pressure**, fuel pressure, individual wheel
-  speeds, gear position and clutch state. Where the car's powertrain CAN has them,
-  the CAN DATA page shows them with the relay on.
+* On the dashboard itself: fuel pressure, individual wheel speeds, gear
+  position and clutch state. Engine oil **pressure** needs the
+  [ME7 patch](#the-me7-patch-boost-and-oil-pressure); without it the row is not
+  drawn. Where the car's powertrain CAN has these others, the CAN DATA page
+  shows them with the relay on.
 * Battery voltage — this *is* available, but only in the ESP-NOW broadcast
   (`supplyMv`), not over HTTP. The dash receives it; it has no space on the
   layout yet.

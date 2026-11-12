@@ -40,6 +40,10 @@ struct Live {
   // = not heard, or a reading the car says is not real. The relay is the only
   // source; /api/live has never carried it.
   float fuel;
+  // Oil pressure in bar, decoded by the dash from Engine_7 bytes 5-6 on a car
+  // with the ForbesAutomotive ME7 patch. The controller does not publish it, so
+  // this is NAN without ESP-NOW/CAN relay, or when no long frame is heard.
+  float oilPressure;
   bool everOk;
   uint32_t ageMs;  // ms since the last successful parse
 };

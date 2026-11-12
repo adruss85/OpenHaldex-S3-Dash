@@ -3,23 +3,24 @@ Read this when you need to know what has actually been verified, on which firmwa
 # Status
 
 <!-- status:start -->
-Firmware version: 0.7.5
-Flash: 1 845 822 / 1 966 080 B (93.9%)
-Internal RAM (static): 60 324 / 327 680 B
-Measured: 2026-11-11, build a0c9b9f
+Firmware version: 0.8.0
+Flash: 1 847 298 / 1 966 080 B (94.0%)
+Internal RAM (static): 60 412 / 327 680 B
+Measured: 2026-11-12, build fbe7a1d
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
 about the current build. `tools/doc_status.py` regenerates the block above from
 a real `pio run` (or a saved log / a `firmware.elf`).
 
-This is **0.7.5**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
+This is **0.8.0**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
 to a pre-rendered picture (0.6.2), the drive log (0.7.0), a quieter cruise lamp
 (0.7.1), the rev bar with a settable scale (0.7.2), the four faults from the 11
-Nov drive (0.7.3), the CC lamp's three states (0.7.4) and the cruise set speed in
-the `k` dump (0.7.5). The status below separates what was verified in the car,
-what has been exercised on the bench, and what is still unproven; measured figures
-carry the version they came from.
+Nov drive (0.7.3), the CC lamp's three states (0.7.4), the cruise set speed in
+the `k` dump (0.7.5), and boost plus oil pressure on the ForbesAutomotive ME7
+patch (0.8.0). The status below separates what was verified in the car, what has
+been exercised on the bench, and what is still unproven; measured figures carry
+the version they came from.
 
 **0.7.0 has been run on the bench and against a live controller, not driven.**
 The drive log works end to end: the blank partition formats itself, a session
@@ -74,6 +75,25 @@ it as `set`, `NaN` (drawn `--`) when nothing is stored. No stored log has ever
 contained it — no raw CAN dump was ever taken — so whether this engine populates
 the byte is what the next `k` dump with a speed set settles. The `k` line for
 cruise is now `main / status / armed / engaged / regelt / set`.
+
+**0.8.0 adds boost and oil pressure for cars running the ForbesAutomotive ME7
+patch**, and was verified on that car. The patch lengthens `Motor_7` (0x588)
+from three bytes to eight, with the boost sensor in byte 4 and the oil-pressure
+ADC in bytes 5–6. On the reference car, with the patch flashed and the rear O2
+still connected, the board reported:
+
+```
+[cap] gen 1 | boost yes (motor_7) | oil pressure yes (motor_7) | supply no
+(detected) | haldex temps no (detected) | steering yes (detected) | Full (B) | 20 pkts
+[chassis] engine_7 manifold 0.98 bar abs | oil pressure -0.1 bar
+```
+
+That is the whole path proved in the car: the 8-byte frame was on the bus at
+7/s, byte 4 read ~99 key-off, byte 7 matched `Motor_3` byte 1, the Full band was
+built, the OIL row appeared, and `k` decoded both values. The negative oil
+figure is expected with the rear O2 still connected — the row is deliberately
+not clamped — and the honest zero arrives when the PST-F 1 is wired. Idle render
+held ~72 fps with internal RAM at 152.8 KB free / 151.3 KB lowest.
 
 **In the car** (0.5.x):
 
@@ -153,13 +173,13 @@ version:
 
 **Still to be exercised in the car:** the CAN relay and the CAN DATA page
 ([test procedure](can-relay-test.md)) — which now also covers the fuel,
-odometer, indicator and 58s values, since those arrive the same way; and the value
-scaling for `boost` — none of the reference car's data has come from a boost source
-yet, since a Gen1 Haldex has no boost frame at all, and the Full band itself
-remains unverified. One unexplained chip reset was seen 8 s after the first
-post-update boot while the station was re-associating (no panic, clean ROM banner);
-180 s of idle running afterwards showed no repeats, and the boot banner now prints
-the reason so it can be caught if it happens again.
+odometer, indicator and 58s values, since those arrive the same way; the Full
+band and boost decode on a Gen4/5 car, where both come from the generation table
+and the controller's own source rather than the 0.8.0 patch; and oil pressure
+with the PST-F 1 actually wired. One unexplained chip reset was seen 8 s after
+the first post-update boot while the station was re-associating (no panic, clean
+ROM banner); 180 s of idle running afterwards showed no repeats, and the boot
+banner now prints the reason so it can be caught if it happens again.
 
 Next: [TODO.md](../TODO.md) — what is deliberately not built yet, and why.
 

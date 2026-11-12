@@ -62,6 +62,11 @@ struct Values {
   // BR5_PressureValid is set: a car at a standstill with the pedal up otherwise
   // reads 1.7 bar of braking at all times. NAN = not valid or not heard.
   float brakeBar = NAN;  // bar
+
+  // Oil pressure from Engine_7 (0x588) bytes 5-6, which only exist on a car with
+  // the ForbesAutomotive ME7 patch. The ECU sends the sensor's raw ADC, so the
+  // bar figure is scaled here from the PST-F 1 transfer. NAN = no long frame.
+  float oilPressureBar = NAN;  // bar
   // Cruise, as one code because the lamp wants exactly three answers: -1 not
   // heard, 0 off, 1 armed (the column switch is on, no speed stored), 2 engaged
   // (the engine says a speed is stored). See chassis.h for the two facts it is
