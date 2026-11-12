@@ -153,6 +153,63 @@ it goes quiet) is the contract the whole network runs on.
 
 ---
 
+### 1.7 One shared channel for the pseudo wireless CAN network — direction chosen, architecture deferred
+
+The owner set the direction on 12 Nov 2026 and deliberately stopped before
+any code, to think the architecture through properly. The direction: the
+pseudo network's channel becomes **1 unless a C6 is on the air, then the
+C6's channel** — senders that hear `OHX_STATUS` follow the `channel` field
+it already carries (`ohx_proto.h:132`, added for exactly this) and revert to
+1 when the C6 goes quiet. The dash side of that is a one-line change
+(`OHX_NOW_IDLE_CHANNEL` 11→1 in `telemetry.cpp`, its comment block
+rewritten); the sender side is the bodycan's follow upgrade (its TODO 3.4).
+Nothing is built. This entry is the problem statement for that pass.
+
+Why this is a decision and not a config knob: every device here has one
+radio, so the whole network shares a single channel, and today that channel
+is agreed in three places that only match through per-rig edits — the C6's
+AP (whatever its configuration or home join makes it), this dash's idle pin
+(a 0.8.2 bench patch, currently 11), and each sender's own constant (bodycan
+11, adc2can 1). The family default is channel 1, recorded twice:
+`ohx_proto.h` ("in the car both APs default to channel 1") and measured on
+the original ESP-NOW bench day ([esp-now-plan.md](docs/esp-now-plan.md) —
+the C6, the same MAC this dash remembers, broadcasting on channel 1 with the
+station riding it). This rig's 11 is the anomaly.
+
+Open questions for the architecture pass:
+
+* **Why is this C6 on 11?** Its own configuration, or the hazard the shared
+  header itself names — "if either joins a home network" (ESP32 is one
+  radio: an AP+STA device's AP is dragged onto the home network's channel,
+  and the strong home APs here sit exactly on 11). First step: the C6's web
+  UI — is there an AP channel setting, and is it joining the home WiFi? If
+  the C6 cannot hold 1, the follow design absorbs it; that is the point of
+  the choice.
+* **Where the follow logic lives.** `cannow_tx.h` is a verbatim shared copy
+  and stays untouched (rule 1); the follow is sender-local glue around it.
+  The bodycan needs a receive path it does not have today: an ESP-NOW recv
+  callback, a verbatim copy of `ohx_proto.h`, and follow/revert glue.
+* **Revert policy.** How quiet is "quiet" (a timeout on no `OHX_STATUS`),
+  and the behaviour on a rig with two C6s — the dash already carries that
+  ambiguity; a sender would follow the first or strongest heard.
+* **adc2can cannot follow** (Forbes design, fixed channel 1): on a rig whose
+  C6 sits elsewhere, the joined dash is deaf to it in-car. An upstream
+  report, or a per-rig constant for that one device — decision to make.
+* **The flip is coordinated or nothing.** This pin, the bodycan's default
+  and anything the C6 needs land in one bench session and are verified
+  together — a half-moved fleet is worse than today. Verify with a pinned
+  steady-state loss measurement on 1 vs 11: every bench number so far is
+  polluted by join-attempt hopping, and on this rig channel 1 is the
+  measurably quieter half (strong home APs -48 dBm on 11, their ch1 copies
+  -75..-79 dBm).
+* **What this decision does not touch.** The bursty ~50% bench reception is
+  join hopping, not channel choice — the stronger fix there is remembering
+  the C6's BSSID and channel and joining directly (`WiFi.begin` takes
+  both), which belongs in the same architecture pass. The wire format and
+  the 6 Mbit/s rate are channel-independent.
+
+---
+
 ## 2. Verification gaps
 
 Things built and believed, but not yet proven on the right hardware.

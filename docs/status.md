@@ -6,19 +6,21 @@ Read this when you need to know what has actually been verified, on which firmwa
 Firmware version: 0.8.2
 Flash: 1 526 670 / 1 966 080 B (77.7%)
 Internal RAM (static): 60 268 / 327 680 B
-Measured: 2026-11-12, build 7a75a09
+Measured: 2026-11-12, build abd51b1
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
 about the current build. `tools/doc_status.py` regenerates the block above from
 a real `pio run` (or a saved log / a `firmware.elf`).
 
-This is **0.8.0**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
+This is **0.8.2**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
 to a pre-rendered picture (0.6.2), the drive log (0.7.0), a quieter cruise lamp
 (0.7.1), the rev bar with a settable scale (0.7.2), the four faults from the 11
 Nov drive (0.7.3), the CC lamp's three states (0.7.4), the cruise set speed in
-the `k` dump (0.7.5), and boost plus oil pressure on the ForbesAutomotive ME7
-patch (0.8.0). The status below separates what was verified in the car, what has
+the `k` dump (0.7.5), boost plus oil pressure on the ForbesAutomotive ME7
+patch (0.8.0), the binary-size audit with the night-brightness floor lowered
+(0.8.1), and relay reception from any CANN sender with a bench listen-channel
+pin (0.8.2). The status below separates what was verified in the car, what has
 been exercised on the bench, and what is still unproven; measured figures carry
 the version they came from.
 
@@ -131,6 +133,20 @@ the units toggles were not re-checked on the glass.
 bottom stop (58s 7 %), which was still too bright in the car; it is now
 `5 % + 60 % × 58s/100` — **9 %** at the bottom stop, the ~64 % ceiling
 unchanged, day untouched. Confirmed in the car on 12 Nov 2026.
+
+**0.8.2 accepts CAN-relay packets from any sender, and the bench proved the
+whole path against a second device** (12 Nov 2026): the ESP32-bodycan devkit
+broadcasting synthetic comfort-bus frames (0x570 / 0x470 / 0x578) on channel
+11, the dash hearing them with no controller on the air (`[stats] relay ...
+1 sender(s)`, the listen channel pinned to 11 after every failed join
+attempt) and the `C` snapshot listing all three ids with DBC names, decoding
+`BatteryVoltage_VehicleBattery` **14.00 V** from the fabricated 0xB4 byte.
+Recorded honestly: with no access point to join, reception is bursty — the
+join loop hops channels ~8 s of every ~13 s cycle and about half the
+sender's packets are missed (`air lost` ~44%); staying parked on the pinned
+channel between attempts is the named next lever. Not verified here: the C6
+path itself (no controller on this bench), and the two-sender interleave
+(only one sender was transmitting).
 
 **In the car** (0.5.x):
 
