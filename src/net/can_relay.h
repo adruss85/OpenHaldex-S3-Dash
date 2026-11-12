@@ -35,13 +35,14 @@ struct Frame {
 struct Stats {
   uint32_t packets;   // relay packets accepted
   uint32_t frames;    // frames in them
-  uint32_t airLost;   // packets missed in the air (gaps in the sender's sequence)
-  uint32_t srcLost;   // frames the sender says it could not relay
+  uint32_t airLost;   // packets missed in the air (gaps in each sender's sequence)
+  uint32_t srcLost;   // frames the senders say they could not relay
   uint32_t rejects;   // malformed packets
   uint32_t tableFull; // frames dropped because kMaxFrames ids are already known
   uint32_t perSec;    // frames per second, over the last second
   int ids;            // distinct ids heard
   uint32_t ageMs;     // since the last packet (UINT32_MAX = never)
+  uint8_t senders;    // distinct source MACs heard (the controller plus, e.g., the body-CAN box)
 };
 
 /// The values the dashboard reads from the relay. NAN / -1 = not heard recently,
@@ -94,8 +95,11 @@ struct Values {
 void begin();
 
 /// One relay packet, from the ESP-NOW receive callback (the WiFi task). The caller
-/// has already checked it came from our controller. Short, and never blocks.
-void onPacket(const uint8_t *data, int length);
+/// has already checked the CANN magic bytes. Any sender is accepted: the relay
+/// carries display-only data, and cannow_proto.h arbitrates per id between
+/// senders (the first one heard keeps each id until it goes quiet). Short, and
+/// never blocks.
+void onPacket(const uint8_t *data, int length, const uint8_t src[6]);
 
 /// Call from the main loop: works out the per-second rates.
 void poll();

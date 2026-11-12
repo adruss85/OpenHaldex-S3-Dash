@@ -142,11 +142,14 @@ lv_obj_t *mkButton(lv_obj_t *parent, int x, int y, int w, int h, const char *tex
 }
 
 // -------------------------------------------------------------- the data
-// The DBC table for the car the controller says it is in, or nullptr.
+// The DBC table for the car the controller says it is in. With no controller
+// heard at all (relay-only bench, or a sender-only pseudo-CAN network) the
+// generation is unknown, which forGeneration() decodes as PQ - this repo's
+// reference car - so relay-only ids still get names and scaling. A controller
+// that IS heard but speaks an unknown generation keeps raw bytes.
 const dbc::Table *currentTable() {
   const ohxnow::Status status = ohxnow::last();
-  if (!status.valid) return nullptr;
-  return dbc::forGeneration(status.generation);
+  return dbc::forGeneration(status.valid ? status.generation : 0);
 }
 
 // Take in any new ids, keeping the list sorted. Only ever adds: the relay never

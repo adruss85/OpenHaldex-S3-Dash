@@ -82,6 +82,16 @@ void wifiDisconnect() { WiFi.disconnect(false, false); }
 // High enough to stay clear of the DHCP pool's usual .2 ... .10 range.
 constexpr uint8_t kStaticLastOctet = 203;
 
+// Listen channel while nothing is joined. The dash's ESP-NOW reception rides on
+// the station's channel, and the association is what parks the radio on the
+// C6's: with no controller on the air (bench, or a car with the C6 off) the
+// station sits wherever the last scan left it - measured, channels 1/4/12/13
+// within one boot - and a sender on the rig's channel 11 is then invisible.
+// So after every failed join attempt the radio is parked on this channel,
+// which is where the rig's other ESP-NOW devices transmit. Never touched while
+// joined: the access point's channel rules then, as before.
+#define OHX_NOW_IDLE_CHANNEL 11
+
 // Association state, which tells "on the radio but no address" apart from
 // "never got near the AP". Asked of the driver directly: with the radio left on
 // across a rejoin, WiFi.channel() is non-zero whether associated or not.
@@ -258,6 +268,17 @@ bool wifiEnsureConnected() {
       Serial.printf("[net] no APs visible at all (scan returned %d)\n", n);
     }
     WiFi.scanDelete();
+
+    // Not joined: park the radio on the listen channel, so ESP-NOW from the
+    // rig's other senders is still heard between join attempts (see
+    // OHX_NOW_IDLE_CHANNEL). The next WiFi.begin() scans and overrides it,
+    // which is fine - it is re-pinned on the next failure here.
+    const int wasChannel = (int)WiFi.channel();
+    if (wasChannel != OHX_NOW_IDLE_CHANNEL) {
+      const esp_err_t err = esp_wifi_set_channel(OHX_NOW_IDLE_CHANNEL, WIFI_SECOND_CHAN_NONE);
+      Serial.printf("[net] not joined - listen channel %d -> %d (%s)\n", wasChannel,
+                    OHX_NOW_IDLE_CHANNEL, err == ESP_OK ? "pinned" : esp_err_to_name(err));
+    }
     return false;
   }
 

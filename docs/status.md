@@ -3,10 +3,10 @@ Read this when you need to know what has actually been verified, on which firmwa
 # Status
 
 <!-- status:start -->
-Firmware version: 0.8.1
-Flash: 1 525 962 / 1 966 080 B (77.6%)
-Internal RAM (static): 60 196 / 327 680 B
-Measured: 2026-11-12, build 98af629
+Firmware version: 0.8.2
+Flash: 1 526 670 / 1 966 080 B (77.7%)
+Internal RAM (static): 60 268 / 327 680 B
+Measured: 2026-11-12, build 7a75a09
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims

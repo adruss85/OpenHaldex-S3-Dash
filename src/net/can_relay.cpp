@@ -52,8 +52,30 @@ int g_extendedCount = 0;
 
 Stats g_stats = {};
 uint32_t g_lastPacketMs = 0;
-uint8_t g_lastSeq = 0;
-bool g_haveSeq = false;
+
+// Sequence tracking per source MAC, so two senders interleaving on the same
+// channel do not read as phantom losses (the body-CAN box is a second sender
+// besides the controller). Beyond the cap every sender folds into slot 0, as
+// ohx_now does for status senders: the counters stay plausible, the oldest
+// sender's gaps stop being counted.
+constexpr int kMaxRelaySenders = 8;
+uint8_t g_senderMac[kMaxRelaySenders][6] = {};
+uint8_t g_senderSeq[kMaxRelaySenders] = {};
+bool g_senderSeen[kMaxRelaySenders] = {};
+int g_senderCount = 0;
+
+// The slot for this MAC, adding it on first sight. Beyond the cap every sender
+// folds into slot 0. Call with the lock held.
+int senderSlotOf(const uint8_t *mac) {
+  for (int i = 0; i < g_senderCount; i++) {
+    if (memcmp(g_senderMac[i], mac, 6) == 0) return i;
+  }
+  if (g_senderCount < kMaxRelaySenders) {
+    memcpy(g_senderMac[g_senderCount], mac, 6);
+    return g_senderCount++;
+  }
+  return 0;
+}
 
 uint32_t g_lastRateMs = 0;
 uint32_t g_framesLastSecond = 0;
@@ -120,7 +142,7 @@ void begin() {
   Serial.println("[relay] Set up the frame tables!");
 }
 
-void onPacket(const uint8_t *data, const int length) {
+void onPacket(const uint8_t *data, const int length, const uint8_t src[6]) {
   if (!g_tablesReady) return;
   const uint32_t now = millis();
 
@@ -135,14 +157,16 @@ void onPacket(const uint8_t *data, const int length) {
   }
 
   taskENTER_CRITICAL(&g_mux);
-  // A gap in the sequence is packets lost in the air. A big jump backwards is the
-  // sender rebooting, which lost nothing.
-  if (g_haveSeq) {
-    const uint8_t gap = (uint8_t)(header.seq - g_lastSeq - 1);
+  // A gap in the sequence is packets lost in the air, tracked per sender so two
+  // devices broadcasting on one channel do not interleave into phantom losses.
+  // A big jump backwards is the sender rebooting, which lost nothing.
+  const int sender = senderSlotOf(src);
+  if (g_senderSeen[sender]) {
+    const uint8_t gap = (uint8_t)(header.seq - g_senderSeq[sender] - 1);
     if (gap < 128) g_stats.airLost += gap;
   }
-  g_lastSeq = header.seq;
-  g_haveSeq = true;
+  g_senderSeq[sender] = header.seq;
+  g_senderSeen[sender] = true;
   g_stats.packets++;
   g_stats.srcLost += header.lost;
   g_lastPacketMs = now;
@@ -223,6 +247,7 @@ Stats stats() {
   const uint32_t now = millis();
   Stats out = g_stats;
   out.ids = g_used;
+  out.senders = (uint8_t)g_senderCount;
   out.ageMs = g_lastPacketMs ? (now - g_lastPacketMs) : UINT32_MAX;
   taskEXIT_CRITICAL(&g_mux);
   return out;

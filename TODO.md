@@ -69,24 +69,30 @@ The signal evidence, the reasoning and the full requirements are in
 [`docs/upgrades.md`](docs/upgrades.md) §13. It starts at the debounce, not at the
 research.
 
-### 1.5 adc2can as a relay sender — transport ready, decision open
+### 1.5 adc2can as a relay sender — acceptance built (0.8.2), product decision still open
 The Forbes Automotive **adc2can** (8× 0–5 V sensors to CAN) shares the CAN relay
 wire format with OpenHaldex by design: `cannow_proto.h` here is one of three
 identical copies (see its header comment) and already names `CANN_K_ADC2CAN`.
-So `can_relay.cpp` would decode its relayed car-bus frames and 29-bit sensor
-frames today, and the CAN DATA page could show its sensors from a DBC for the
+So `can_relay.cpp` decodes its relayed car-bus frames and 29-bit sensor
+frames today, and the CAN DATA page can show its sensors from a DBC for the
 `0AD2C000` base id. No WiFi join is needed either — the relay is an unpaired
-ESP-NOW broadcast and both sides sit on channel 1.
+ESP-NOW broadcast and both sides sit on the rig's channel.
 
-What is **not** built, and is deliberate rather than an oversight:
+What changed in 0.8.2, and what is still deliberate:
 
-* **Sender acceptance is OpenHaldex-coupled.** `ohx_now.cpp` learns "its
-  controller" from an `OhxStatus` packet whose embedded AP-SSID matches the
-  configured SSID, and drops every CANN packet that is not from that MAC — the
-  `kind` byte is not even consulted. An adc2can never sends `OhxStatus`, so it
-  is filtered out. Whatever the fix (learn from a CANN header, a settings
-  field), respect the intent: this is the one gate that stops the dash hearing
-  a stranger's car in a paddock or queue.
+* **Sender acceptance was OpenHaldex-coupled — now it is not.** `ohx_now.cpp`
+  used to learn "its controller" from an `OhxStatus` packet and drop every CANN
+  packet that was not from that MAC — the `kind` byte was not even consulted.
+  An adc2can or body-CAN box never sends `OhxStatus`, so it was filtered out.
+  From 0.8.2 relay packets are accepted from **any** sender, by explicit owner
+  decision: the direction is a pseudo wireless CAN network — several ESP32
+  devices each broadcasting one thing, the dash a silent listener in the
+  middle. The old gate's intent — stopping the dash hearing a stranger's car
+  in a paddock — is now a documented tradeoff, not a protection
+  ([architecture.md](docs/architecture.md) §The CAN relay): any sender on the
+  channel can paint the CAN DATA page and fill relay-carried values your own
+  senders are not carrying. The command path stays OpenHaldex-keyed, so
+  nothing in the noise floor can steer the car.
 * **No Haldex-shaped feed without a controller.** The Full (F) band, the mode
   tile and `/api/dashboard` polling all assume the C6; on an adc2can-only car
   the main band would stay `--`. What a dash without OpenHaldex *is* — the CAN
@@ -99,8 +105,51 @@ What is **not** built, and is deliberate rather than an oversight:
 Perspective: the interesting version is **both on one car** — adc2can sensors
 alongside OpenHaldex data where the controller cannot help (Gen1 has no oil
 temp/pressure; a race car wants exactly those). Making the dash a general
-can2gauge replacement is not the goal. If picked up, start at the acceptance
-gate; the decode side is free.
+can2gauge replacement is not the goal. The acceptance gate is done; the decode
+side is free.
+
+---
+
+### 1.6 Sender identification and liveness — who is on the air, who dropped out
+
+The direction is a pseudo wireless CAN network: several ESP32 devices each
+broadcasting one thing (the controller's chassis relay, the body-CAN box,
+later an adc2can), with the dash a silent listener in the middle — 0.8.2
+accepts them all. Today the dash *counts* them (`[stats] relay ... N sender(s)`)
+but cannot *show* them: the CAN DATA page has no idea which sender carries
+which id, and a sender that drops out is visible only as its ids going stale
+and the `air lost` counter creeping up — easy to misread as radio loss (seen
+on the bench, 12 Nov 2026).
+
+Wanted: a user-friendly way to identify senders and see liveness at a glance
+— which are transmitting now, which has gone quiet, ideally by a name the
+owner chose rather than a MAC.
+
+What exists to build on:
+
+* `can_relay.cpp` tracks per-sender seq under its own lock (8 slots) and
+  exposes `Stats.senders`; the source MACs are in that table but not surfaced.
+* The CANN `kind` byte (`CANN_K_*`) rides in every packet header and is
+  ignored today; it is the natural *type* label ("the Haldex controller", "a
+  body/sensor box") with no pairing at all. A friendly *name* per MAC would
+  need NVS (append-only, config.h rules) or an adoption key, like the
+  controller's own.
+* Per-sender last-heard age is derivable where the packet is accepted.
+
+Shape to weigh, cheapest first — this page shares PSRAM bandwidth with the
+panel, so glass cost is the constraint:
+
+* console first: `C` (and the `[stats] relay` line) print one line per sender —
+  MAC, kind, packets, f/s, age. No glass cost, immediate bench and road value;
+* then a compact sender row on the CAN DATA page (or the raw page): chips that
+  grey out when quiet, e.g. `C6 ● bodycan ●`, inside the existing redraw
+  groups (mask 1..5) and with no new polling;
+* NVS-remembered labels per MAC, adopted like the controller is, as the last
+  piece — the only one that needs a settings decision.
+
+Do not let it become per-frame sender attribution: the wire format has no
+sender field per frame, and per-id arbitration (first heard keeps an id until
+it goes quiet) is the contract the whole network runs on.
 
 ---
 

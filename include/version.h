@@ -8,7 +8,36 @@
 // =====================================================================
 #pragma once
 
-#define OHX_DASH_VERSION "0.8.1"  // Binary size: font subsets, pruned LVGL, plain HTTP
+#define OHX_DASH_VERSION "0.8.2"  // Relay receive: any sender, per-sender seq, bench channel pin
+// 0.8.2 - The relay is no longer one-sender-only. The body-CAN box
+// (ESP32-bodycan, a second CANN sender on the rig's channel 11) was invisible
+// to this dash three times over. The CAN-relay branch of the ESP-NOW callback
+// took packets from the one remembered controller MAC only, which a body-CAN
+// box can never become - it sends no OHX_STATUS and hosts no access point - so
+// every packet was dropped without a counter. With no controller on the air the
+// station sat wherever the last scan left it (measured: channels 1/4/12/13 in
+// one boot), so channel-11 frames were never even received. And with no
+// generation in any status packet, forGeneration() returned no DBC table, so
+// the CAN DATA page decoded nothing. Now: relay packets are taken from any
+// sender heard on the channel (cannow_proto.h arbitrates per id between
+// senders; the first heard keeps each id until it goes quiet), which is what
+// lets the dash sit in the middle of several ESP-NOW devices each broadcasting
+// one thing; air-lost and seq are tracked per source MAC so interleaved
+// senders do not read as phantom losses (8-sender table, beyond it senders
+// fold into the first slot); the listen channel is pinned to 11 after every
+// failed join attempt while nothing is joined, never while associated; and a
+// missing generation decodes as PQ so a relay-only bench still gets names and
+// scaling. The command path, controller identification and the dashboard's
+// source table are untouched. Verified on the bench, 12 Nov 2026, against
+// ESP32-bodycan (synthetic frames): `C` lists 0x570 BodyECU_Load, 0x470
+// BodyECU_Cluster and 0x578 BattMan_1 with DBC names and decodes
+// BatteryVoltage_VehicleBattery 14.00 V (0xB4 = 180, x0.05+5). Not verified
+// here: the C6 path itself (no controller on this bench). Reception while no
+// access point is present is bursty - each join attempt spends ~8 s hopping
+// channels, so roughly half the sender's packets are missed and `air lost`
+// reads honestly high; staying parked on the pinned channel between attempts
+// is the next lever. Senders are counted (N sender(s)) but not yet named or
+// shown - TODO 1.6.
 // 0.8.1 - Binary size, with nothing changed on the glass or the wire. The
 // stock montserrat_22/28/48 faces are replaced by subsets of those very faces,
 // generated from the same Montserrat-Medium.ttf with the options LVGL itself

@@ -199,13 +199,18 @@ void decode(const uint8_t *p, size_t len, const uint8_t *src, int16_t rssi, uint
 // Runs in the WiFi task. Validate, decode, count; no printing, no loops
 // that can block, and take the spinlock only around the shared state.
 void onRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
-  // ESP-NOW has one receive callback, so the CAN relay's packets arrive here too.
-  // They are only taken from our own controller, as the status packets are.
+  // ESP-NOW has one receive callback, so the CAN relay's packets arrive here
+  // too. Any sender is taken: a relay packet is display-only data whose ids
+  // cannow_proto.h arbitrates between senders (the first one heard keeps each
+  // id until it goes quiet), so the dash can sit in the middle of several
+  // devices broadcasting different buses - the controller's chassis relay plus,
+  // e.g., the body-CAN box. 0.8.2 and earlier took these from the remembered
+  // controller only, which a second sender can never become: it sends no
+  // OHX_STATUS and hosts no access point, so it was silently invisible. The
+  // command path below is different and stays keyed to the one remembered
+  // controller: a mode change is a message to one car, not a broadcast.
   if (len >= (int)sizeof(CannHdr) && data[0] == CANN_MAGIC0 && data[1] == CANN_MAGIC1) {
-    taskENTER_CRITICAL(&g_mux);
-    const bool ours = g_ctrlKnown && memcmp(g_ctrlMac, info->src_addr, 6) == 0;
-    taskEXIT_CRITICAL(&g_mux);
-    if (ours) canrelay::onPacket(data, len);
+    canrelay::onPacket(data, len, info->src_addr);
     return;
   }
 

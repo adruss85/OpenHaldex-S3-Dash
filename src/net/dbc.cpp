@@ -56,8 +56,17 @@ const Table *forGeneration(uint8_t generation) {
     case 50:  // Gen5 MQB
     case 52:  // Gen5 MQB
       return &kVwMqb;
+    case 0:
+      // No generation is known at all: no status packet has arrived (a bench
+      // with only a relay sender, or the first seconds of any boot). Decode as
+      // PQ - this repo's reference car - so a relay sender's ids still get
+      // names and scaling on the CAN DATA page. The moment a controller
+      // speaks, its generation decides again; the dashboard's tiles never see
+      // this, because they only read relay values while a status packet is
+      // fresh (datafeed.cpp onNow()).
+      return &kVwPq;
     default:
-      return nullptr;
+      return nullptr;  // another make: its ids mean something else
   }
 }
 

@@ -157,11 +157,11 @@ void printStats() {
     if (r.packets > 0) {
       const uint32_t total = r.packets + r.airLost;
       Serial.printf("[stats] relay %lu f/s, %d ids, %lu pkt, air lost %lu (%.1f%%), sender lost %lu, "
-                    "rej %lu, full %lu\n",
+                    "rej %lu, full %lu, %u sender(s)\n",
                     (unsigned long)r.perSec, r.ids, (unsigned long)r.packets,
                     (unsigned long)r.airLost, (double)r.airLost * 100.0 / (double)total,
                     (unsigned long)r.srcLost, (unsigned long)r.rejects,
-                    (unsigned long)r.tableFull);
+                    (unsigned long)r.tableFull, (unsigned)r.senders);
     }
   }
 #endif

@@ -249,6 +249,10 @@ A replaced controller is picked up by changing the SSID, pressing **DEFAULTS** i
 Settings, or `f` on the console. The first boot takes whichever matching
 controller it hears first, so do it away from other cars.
 
+This identity binds the *status* packets and the *command* path only. The CAN
+relay is different: from 0.8.2 its packets are accepted from any sender heard
+on the channel (see [The CAN relay](#the-can-relay)).
+
 ### In the car
 
 `e` is the cross-check that matters: it prints both transports
@@ -313,7 +317,19 @@ Full plan, risks and phase notes: [`esp-now-plan.md`](esp-now-plan.md).
 Switch on **Relay CAN Frames to Gauges** in the controller's web UI (Controller
 Options; it is off by default) and it broadcasts the frames it receives on its
 chassis bus, batched into packets. The dash needs no setting: it picks them up
-as soon as they arrive, from its own controller only. That gives it:
+as soon as they arrive. **From 0.8.2 they are taken from any relay sender heard
+on the channel**, not only from the controller. The intended shape is several
+ESP32 devices each broadcasting one thing — the controller's chassis relay, a
+body-CAN box on the comfort bus, later an adc2can — with the dash a silent
+listener in the middle of that noise. `cannow_proto.h` arbitrates per id
+between senders: the first one heard keeps each id until it goes quiet, so
+senders only ever share an id while the other is silent. The tradeoff is
+deliberate and recorded: a relay packet is display-only data with no
+authentication, so any sender on the channel can paint the CAN DATA page and
+fill any relay-carried value your own senders are not already carrying — in a
+paddock, that could be another car's. (Before 0.8.2 the packets were accepted
+from the remembered controller only; see [Which controller](#which-controller)
+for what still is identity-bound.) That gives it:
 
 * **less HTTP**, because the tiles and lamps can read the car directly (see
   [Data flow](#data-flow));
@@ -344,7 +360,9 @@ What the relay does not carry:
 
 Broadcast has no retransmission, so this is a live view, not a lossless log. The
 counters say how much went missing: `air lost` is packets that never arrived,
-`sender lost` is frames the controller could not fit in its queue.
+tracked per source MAC so two senders interleaving do not count as each other's
+phantom losses (beyond eight senders the extras fold into the first slot);
+`sender lost` is frames the senders could not fit in their queues.
 
 **Not yet measured in a car**: what the relay costs in render rate and how much it
 loses. The test is written up in [`can-relay-test.md`](can-relay-test.md).
