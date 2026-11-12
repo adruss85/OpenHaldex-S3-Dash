@@ -22,6 +22,27 @@
    from choosing a stride that the LCD DMA engine cannot scan. */
 #define LV_DRAW_BUF_STRIDE_ALIGN 4
 
+/* The software blender compiles a blend path per colour format, both as a
+   destination and as an image source. The panel is RGB565, and the only image
+   the dash ever draws is the splash JPEG decoded to RGB565
+   (src/ui/splash_img.cpp), so every other source format is dead weight. Kept:
+   RGB565 (the screen), RGB565A8 and ARGB8888 / ARGB8888_PREMULTIPLIED (the
+   formats LVGL would pick for a blended layer if one were ever introduced),
+   and A8, which is what glyph masks are drawn through - not an image path at
+   all, and text would break without it. All of these default to 1
+   (lv_conf_internal.h), so each one is written down either way. */
+#define LV_DRAW_SW_SUPPORT_RGB565 1
+#define LV_DRAW_SW_SUPPORT_RGB565A8 1
+#define LV_DRAW_SW_SUPPORT_RGB565_SWAPPED 0
+#define LV_DRAW_SW_SUPPORT_RGB888 0
+#define LV_DRAW_SW_SUPPORT_XRGB8888 0
+#define LV_DRAW_SW_SUPPORT_ARGB8888 1
+#define LV_DRAW_SW_SUPPORT_ARGB8888_PREMULTIPLIED 1
+#define LV_DRAW_SW_SUPPORT_A8 1
+#define LV_DRAW_SW_SUPPORT_L8 0
+#define LV_DRAW_SW_SUPPORT_AL88 0
+#define LV_DRAW_SW_SUPPORT_I1 0
+
 /*====================
    MEMORY
  *====================*/
@@ -74,14 +95,20 @@ void ohx_lv_assert_handler(const char *file, int line);
    FONTS
  *====================*/
 /* Only the Montserrat sizes the dashboard actually uses are compiled in;
-   every extra size costs flash. */
+   every extra size costs flash. 18 px has no user anywhere in the UI.
+   22/28/48 px are replaced by subsets of those very faces, generated from the
+   same Montserrat-Medium.ttf with the options LVGL itself used, so the kept
+   glyphs are byte-identical to these stock ones (verified in
+   tools/make_fonts.sh). The subsets live in src/ui/fonts and are bound in
+   theme.h; they carry only the code points each role draws and drop the
+   FontAwesome symbol range, which only the keyboard's montserrat_14 needed. */
 #define LV_FONT_MONTSERRAT_12 1
 #define LV_FONT_MONTSERRAT_14 1
 #define LV_FONT_MONTSERRAT_16 1
-#define LV_FONT_MONTSERRAT_18 1
-#define LV_FONT_MONTSERRAT_22 1
-#define LV_FONT_MONTSERRAT_28 1
-#define LV_FONT_MONTSERRAT_48 1
+#define LV_FONT_MONTSERRAT_18 0
+#define LV_FONT_MONTSERRAT_22 0
+#define LV_FONT_MONTSERRAT_28 0
+#define LV_FONT_MONTSERRAT_48 0
 
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 
@@ -94,23 +121,55 @@ void ohx_lv_assert_handler(const char *file, int line);
 /*====================
    WIDGETS
  *====================*/
-#define LV_USE_ARC 1
-#define LV_USE_LINE 1
+/* The UI builds with exactly these: lv_label (every value and caption),
+   lv_bar (rev bar and gauges), lv_button + lv_textarea + lv_keyboard (the
+   settings page), lv_image (the splash picture) and lv_obj (cards, the
+   settings sheet, list rows). lv_buttonmatrix is what the keyboard creates
+   internally. Every LVGL widget not listed here is compiled out - the stock
+   default for any symbol not defined is 1 (lv_conf_internal.h), so leaving
+   them undefined would still link their code and styles. */
 #define LV_USE_LABEL 1
 #define LV_USE_BAR 1
 #define LV_USE_BUTTON 1
 #define LV_USE_TEXTAREA 1
 #define LV_USE_KEYBOARD 1
-#define LV_USE_FLEX 1
-#define LV_USE_GRID 1
+#define LV_USE_BUTTONMATRIX 1  /* required by the keyboard */
+#define LV_USE_IMAGE 1         /* the splash picture */
 
 /* Not used by this UI - each one costs flash. */
+#define LV_USE_ANIMIMG 0
+#define LV_USE_ARC 0
+#define LV_USE_CANVAS 0
+#define LV_USE_CHECKBOX 0
+#define LV_USE_DROPDOWN 0
+#define LV_USE_IMAGEBUTTON 0
+#define LV_USE_LED 0
+#define LV_USE_LINE 0
+#define LV_USE_LIST 0
+#define LV_USE_MENU 0
+#define LV_USE_MSGBOX 0
+#define LV_USE_ROLLER 0
+#define LV_USE_SCALE 0
+#define LV_USE_SLIDER 0
+#define LV_USE_SPAN 0
+#define LV_USE_SPINBOX 0
+#define LV_USE_SPINNER 0
+#define LV_USE_SWITCH 0
+#define LV_USE_TABVIEW 0
 #define LV_USE_TABLE 0
+#define LV_USE_TILEVIEW 0
+#define LV_USE_WIN 0
 #define LV_USE_CALENDAR 0
 #define LV_USE_CHART 0
 #define LV_USE_COLORWHEEL 0
-#define LV_USE_SPAN 0
 #define LV_USE_OBJ_ID 0
+
+/* Neither layout engine is used: every widget is placed with absolute pixel
+   coordinates from include/theme.h. Checked against LVGL 9.3.0 sources - the
+   kept widgets (label/bar/button/textarea/keyboard/image/theme default) and
+   lv_obj.c never call flex or grid functions, and neither does this UI. */
+#define LV_USE_FLEX 0
+#define LV_USE_GRID 0
 
 /*====================
    TIMING

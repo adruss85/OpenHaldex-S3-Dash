@@ -3,10 +3,10 @@ Read this when you need to know what has actually been verified, on which firmwa
 # Status
 
 <!-- status:start -->
-Firmware version: 0.8.0
-Flash: 1 847 298 / 1 966 080 B (94.0%)
-Internal RAM (static): 60 412 / 327 680 B
-Measured: 2026-11-12, build 99df2b4
+Firmware version: 0.8.1
+Flash: 1 525 994 / 1 966 080 B (77.6%)
+Internal RAM (static): 60 196 / 327 680 B
+Measured: 2026-11-12, build d475851
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
@@ -94,6 +94,25 @@ built, the OIL row appeared, and `k` decoded both values. The negative oil
 figure is expected with the rear O2 still connected — the row is deliberately
 not clamped — and the honest zero arrives when the PST-F 1 is wired. Idle render
 held ~72 fps with internal RAM at 152.8 KB free / 151.3 KB lowest.
+
+**0.8.1 is a size reduction with nothing changed on the glass or the wire.**
+The stock montserrat_22/28/48 faces became subsets of those very faces —
+generated from the same Montserrat-Medium.ttf with the options LVGL itself
+used, verified byte-identical glyph for glyph (`tools/check_font_subsets.py`),
+with the stock line metrics pinned so label placement is untouched.
+`lv_conf.h` now compiles out every LVGL widget, layout engine and
+colour-format blend path the dash never uses, and the HTTP pollers bind a
+plain `NetworkClient` so the mbedTLS SSL client is no longer linked for a
+controller that is always plain http. Measured against a build of the
+unmodified 0.8.0 tree: 1,847,186 → 1,525,962 B of the 1,966,080 B OTA slot
+(94.0% → 77.6%), static RAM 60,412 → 60,196 B. The per-stage deltas, the
+disabled-feature list and the fidelity evidence are in
+[the size brief](binary-size-brief.md); the font inventory is in
+[display-and-memory.md](display-and-memory.md#fonts). **Only a successful
+build was performed — no board was attached, so every on-glass and on-radio
+check in the brief (settings page and keyboard, both tile bands with the
+subset fonts, HTTP polling, OTA, render rate under radio traffic) is still
+pending.**
 
 **In the car** (0.5.x):
 
@@ -199,3 +218,6 @@ is the splash's JPEG, bought back by dropping the 80 px "CAN DASH" face the draw
 splash needed (see [the splash section](display-and-memory.md#the-boot-splashs-picture)).
 The drive log cost 40 KB of flash, which is the largest single addition since layout
 C and the reason the headroom is now the thing to check before the next feature.
+(0.8.1 bought the headroom back: 440,118 B free of the slot, from the font
+subsets, the pruned LVGL configuration and a plain-HTTP client — see
+[the size brief](binary-size-brief.md).)

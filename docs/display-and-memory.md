@@ -84,6 +84,79 @@ draws the layout at panel size before it is coded is `tools/mockup_dash.py`.
 
 ---
 
+## Fonts
+
+Every value on the dash is drawn with Montserrat. Which sizes are compiled is
+decided in `include/lv_conf.h`, which face serves which role in
+`include/theme.h`, and the generated faces live in `src/ui/fonts`:
+
+| Face | Role | Source |
+|---|---|---|
+| montserrat_12 | tile captions | stock LVGL |
+| montserrat_14 | sub lines, peaks, lamps, rev-bar ticks, the keyboard | stock LVGL; also `LV_FONT_DEFAULT` |
+| montserrat_16 | status bar, lock rows | stock LVGL |
+| `lv_font_dash_val_22` | coolant / oil / fuel / lock % | subset of montserrat_22 |
+| `lv_font_dash_mode_28` | Haldex mode name, SETTINGS heading | subset of montserrat_28 |
+| `lv_font_dash_big_48` | speed value | subset of montserrat_48 |
+| `lv_font_dash_rpm_96` | rev digits | Montserrat Bold via `tools/make_fonts.sh` |
+| `lv_font_dash_num_56` | boost value | Montserrat Bold via `tools/make_fonts.sh` |
+| `lv_font_dash_arrow_52` | indicator block arrows | FontAwesome 4.7 via `tools/make_fonts.sh` |
+
+The three subsets replaced LVGL's stock montserrat_22/28/48 in 0.8.1; the stock
+faces cost 147.7 KB more flash than the subsets for glyphs the dash never
+draws. They are generated from the same Montserrat-Medium.ttf LVGL builds its
+stock faces from, with the options recorded in the stock font headers
+(`--no-compress --no-prefilter --bpp 4 --force-fast-kern-format`), so each kept
+glyph is **byte-identical** to the stock bitmap — verified glyph for glyph
+against LVGL 9.3.0's own font sources with `tools/check_font_subsets.py`. Of
+the tool's versions, **1.5.2** reproduces the stock bitmaps exactly; 1.5.3
+rasterizes a handful of pixels one alpha step differently, which is why
+`tools/make_fonts.sh` takes a separate `LV_FONT_CONV_SUBSETS`. What each
+subset carries:
+
+| Face | Code points | Draws |
+|---|---|---|
+| `lv_font_dash_big_48` | `0-9`, `-` | speed `%d`, `--` |
+| `lv_font_dash_val_22` | `0-9`, `-`, `.`, `%`, `C`, `F`, `L`, space, `°` | `79°C` / `175°F`, `49.6 L`, `63%`, `--` |
+| `lv_font_dash_mode_28` | `0-9`, `:`, `C D E F G I K N O P R S T W X`, `-` | `STOCK FWD 50:50 60:40 75:25 EXPERT`, `SETTINGS`, `--` |
+
+The FontAwesome symbol range the stock faces also carry is dropped: none of
+those roles ever draws an `LV_SYMBOL_*`, and the keyboard's symbols come from
+montserrat_14, which stays stock. One caveat the generator will not tell you
+about: `lv_font_conv` derives `line_height` and `base_line` from the glyphs
+kept, and digit sets have no descenders, so the generated metrics collapse
+(48 px: line 34, base 0 against the stock 52/9) and every label would sit
+several px higher than today — the tile geometry assumes the stock baselines
+(the shared-baseline note in `dash_ui.cpp` explains one such placement).
+`tools/make_fonts.sh` pins them back (52/9, 24/4, 30/5) after generating. A
+new character on one of these roles therefore means: add its code point to
+the `-r` list in `tools/make_fonts.sh`, regenerate, and re-run
+`tools/check_font_subsets.py`.
+
+---
+
+## LVGL's feature set
+
+LVGL 9.3.0 defaults to compiling in nearly every widget, both layout engines
+and every colour-format blend path; the dash's `include/lv_conf.h` overrides
+that to exactly what the UI draws, with the reason written beside each define.
+The compiled-in set is `lv_label`, `lv_bar`, `lv_button`, `lv_textarea`,
+`lv_keyboard` (which creates an `lv_buttonmatrix` internally), `lv_image` and
+plain `lv_obj` — no flex, no grid, no other widget — rendering RGB565 with A8
+glyph masks, and RGB565A8 / ARGB8888 / premultiplied ARGB8888 kept for a
+blended layer, should one ever be introduced.
+
+Adding a widget therefore means: enable it — and anything the comment beside
+its define says it needs — in `include/lv_conf.h`, rebuild, check the flash
+line, and verify the widget on the glass. Using a widget without enabling it
+is a compile error; relying on a default that is not written down is the
+mistake this configuration exists to prevent. The same applies to images,
+transforms, opacity and clipping: they can pull in intermediate colour formats
+even though the panel is RGB565, so check the `LV_DRAW_SW_SUPPORT_*` block in
+the same header before assuming the renderer can draw it.
+
+---
+
 ## The boot splash's picture
 
 The splash is a pre-rendered 800x480 JPEG (`assets/candash-splash-base-92.jpg`,

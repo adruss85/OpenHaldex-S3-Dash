@@ -8,7 +8,19 @@
 // =====================================================================
 #pragma once
 
-#define OHX_DASH_VERSION "0.8.0"  // Boost and oil pressure from the ForbesAutomotive ME7 patch
+#define OHX_DASH_VERSION "0.8.1"  // Binary size: font subsets, pruned LVGL, plain HTTP
+// 0.8.1 - Binary size, with nothing changed on the glass or the wire. The
+// stock montserrat_22/28/48 faces are replaced by subsets of those very faces,
+// generated from the same Montserrat-Medium.ttf with the options LVGL itself
+// used and verified byte-identical glyph for glyph, with the stock line
+// metrics pinned (tools/make_fonts.sh). lv_conf.h compiles out every LVGL
+// widget, layout engine and colour-format blend path the dash never uses, and
+// the two HTTP pollers bind a persistent plain NetworkClient so the
+// URL-sniffing begin() cannot link the mbedTLS SSL client for a controller
+// that is always plain http. Measured against the 0.8.0 tree:
+// 1,847,186 -> 1,525,962 B of the 1,966,080 B OTA slot (94.0% -> 77.6%),
+// static RAM 60,412 -> 60,196 B. What was switched off, and why it is safe,
+// is written beside each define in lv_conf.h and in docs/display-and-memory.md.
 // 0.8.0 - Boost and oil pressure on cars with the ForbesAutomotive ME7 patch.
 // The patch lengthens Motor_7 (0x588) from a stock PQ car's three bytes to
 // eight: byte 4 is the boost sensor, bytes 5-6 the raw ADC of the rear-O2 input

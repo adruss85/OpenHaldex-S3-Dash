@@ -123,6 +123,18 @@ share one TCP connection instead of opening two. That matters: the controller
 runs with `CONFIG_LWIP_MAX_SOCKETS=8`, and a handshake-per-request pattern
 would fill its socket table with `TIME_WAIT` entries.
 
+Each `HTTPClient` is also bound to its own persistent plain `NetworkClient`
+with `begin(client, url)`. The URL-only `begin()` sniffs the scheme and builds
+a `WiFiClientSecure` for anything that looks like `https`, which links the
+whole mbedTLS SSL client into the image — 91 KB of flash for code that could
+never run, because the controller is always plain http on its own access
+point. This is also why the `http://` in `buildUrl()` is not cosmetic: the
+scheme is fixed in one place on purpose. A future HTTPS feature means an
+explicit secure client, a certificate-validation design and a fresh size and
+RAM budget — `HTTPClient` accepting an https URL is not HTTPS support.
+Measured in 0.8.1; the per-stage deltas are in
+[the size brief](binary-size-brief.md).
+
 ---
 
 ## What the car can fill

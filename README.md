@@ -496,9 +496,13 @@ src/
       font_rpm_96.c         96 px rev digits, generated (tools/make_fonts.sh)
       font_num_56.c         56 px boost value, generated
       font_arrow_52.c       52 px indicator arrows, generated
+      lv_font_dash_*.c      subsets of the stock montserrat 22/28/48 faces,
+                            generated with the stock faces' own options and
+                            verified byte-identical (tools/check_font_subsets.py)
 
 tools/
   make_fonts.sh             regenerate src/ui/fonts from tools/fonts/*.ttf
+  check_font_subsets.py     prove the subset fonts match LVGL's stock faces
   make_dbc_tables.py        regenerate src/net/dbc_tables.cpp from dbc/
   decode_can_snapshot.py    decode a console CAN dump against docs/can-relay-sample*.txt
   mockup_dash.py            draw the layout at panel size before coding it
@@ -508,7 +512,7 @@ tools/
   serial_cmd.py             send one console command
   serial_seq.py             drive a timed sequence of console commands
   serial_tune.py            mask sweep: render cost per redraw group
-  fonts/                    Montserrat Bold (OFL), FontAwesome 4.7 + licences
+  fonts/                    Montserrat Bold + Medium (OFL), FontAwesome 4.7 + licences
 
 dbc/
   vw_pq.dbc, vw_mqb.dbc     from opendbc (MIT), with English names
@@ -524,6 +528,7 @@ docs/
   can-relay-test.md         how to measure the CAN relay in the car
   can-relay-sample*.txt     recorded relay dumps for decode_can_snapshot.py
   redesign-bars.md          why the top band is a bar, and its measurements
+  binary-size-brief.md      the 0.8.1 size audit: what is compiled out, and why
   esp-now-plan.md           the ESP-NOW transport, its risks and phases
   upgrades.md               history and evidence behind the 0.6.0 batch
   upstream-steering-report.md  ready-to-paste report about Gen1 steering

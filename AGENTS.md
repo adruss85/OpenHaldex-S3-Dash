@@ -74,6 +74,17 @@ If the platform vanishes on first build (`IncompatiblePlatform`), see README sec
     `wifi_secrets.h.example` as the template. Never commit `.backup/` or device dumps.
 11. **Layout geometry lives in `include/theme.h`.** Nothing scales; it is absolute pixels
     derived from `u = min(w/100, h/56)` = 8 px at 800x480. Change it there, not inline.
+12. **Binary size is budgeted; disabled code stays disabled.** LVGL is configured
+    for exactly what the dash draws (`include/lv_conf.h`): every unused widget,
+    layout engine and colour-format blend path is pinned to 0 with the reason
+    beside it. The 22/28/48 px Montserrat roles use subsets of those same faces
+    (`src/ui/fonts/lv_font_dash_*.c` from `tools/make_fonts.sh` — subset glyphs
+    are byte-identical to the stock ones with the stock line metrics pinned;
+    regenerate with `LV_FONT_CONV` / `LV_FONT_CONV_SUBSETS`, never a different
+    rasterizer). The HTTP pollers must use `begin(NetworkClient&, url)`, not the
+    URL-only `begin()`, or the mbedTLS SSL client links back in
+    (`src/net/telemetry.cpp`). What was switched off and why:
+    `docs/binary-size-brief.md`; the fonts: `docs/display-and-memory.md`.
 
 ## Budgets: do not regress these
 
@@ -207,6 +218,7 @@ releases page. No `releases/` folder.
 | `docs/upgrades.md` | History and evidence behind the 0.6.0 batch; section 13 (cruise-FWD) and 14 (headlights) are the only live items |
 | `docs/esp-now-plan.md` | Why ESP-NOW is the primary transport; all three phases are built, with their verification state |
 | `docs/redesign-bars.md` | Measurements behind the rev-bar design. **Historical:** its layout sketch predates layout C |
+| `docs/binary-size-brief.md` | The 0.8.1 size audit: what LVGL and the fonts are configured down to, per-stage flash deltas, and the checks that made the subsets provably identical |
 | `docs/can-relay-test.md` | The in-car test procedure for the CAN relay |
 | `docs/upstream-steering-report.md` | Ready-to-paste upstream issue about Gen1 steering angle |
 | `dbc/SOURCE.md` | Provenance and licence of the DBC files |

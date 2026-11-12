@@ -7,6 +7,7 @@
 #include <ArduinoJson.h>
 #include <ESPmDNS.h>
 #include <HTTPClient.h>
+#include <NetworkClient.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
 
@@ -36,6 +37,15 @@ uint32_t g_dashOkMs = 0;
 // 10 requests/second cost 10 request/response pairs on one connection rather
 // than 10 handshakes. That matters because the C6 only allows
 // CONFIG_LWIP_MAX_SOCKETS = 8 and TIME_WAIT churn would starve it.
+//
+// Each HTTPClient binds one persistent plain NetworkClient for its whole run.
+// begin(client, url) is the only begin() this firmware may use: the URL-only
+// overload sniffs the scheme and instantiates WiFiClientSecure for anything
+// that looks like https, which links the entire mbedTLS SSL client into the
+// image. The controller is always plain http on its own access point, so that
+// code could never run anyway - this just stops it from being carried around.
+NetworkClient g_tcpLive;
+NetworkClient g_tcpDash;
 HTTPClient g_httpLive;
 HTTPClient g_httpDash;
 bool g_httpLiveReady = false;
@@ -277,8 +287,8 @@ void buildUrl(char *buf, size_t len, const char *path) {
 }
 
 // Parses the body with no intermediate String allocation.
-int fetchJson(HTTPClient &http, bool &ready, const char *path, uint16_t timeoutMs,
-              JsonDocument &doc) {
+int fetchJson(HTTPClient &http, NetworkClient &tcp, bool &ready, const char *path,
+              uint16_t timeoutMs, JsonDocument &doc) {
   char url[128];
   buildUrl(url, sizeof(url), path);
 
@@ -290,7 +300,7 @@ int fetchJson(HTTPClient &http, bool &ready, const char *path, uint16_t timeoutM
     ready = true;
   }
 
-  if (!http.begin(url)) return -1;
+  if (!http.begin(tcp, url)) return -1;
   const int code = http.GET();
   if (code != HTTP_CODE_OK) {
     http.end();
@@ -330,7 +340,7 @@ void pollLive() {
   uint16_t tmo = (uint16_t)(cfg::get().pollLiveMs * 3);
   if (tmo < 300) tmo = 300;
   if (tmo > 1200) tmo = 1200;
-  const int code = fetchJson(g_httpLive, g_httpLiveReady, "/api/live", tmo, doc);
+  const int code = fetchJson(g_httpLive, g_tcpLive, g_httpLiveReady, "/api/live", tmo, doc);
   const uint32_t now = millis();
 
   if (code == HTTP_CODE_OK) {
@@ -369,7 +379,7 @@ void pollDash() {
   static JsonDocument doc(ram::jsonAllocator());  // in PSRAM, as pollLive()
   uint16_t tmo = cfg::get().pollDashMs;
   if (tmo < 800) tmo = 800;
-  const int code = fetchJson(g_httpDash, g_httpDashReady, "/api/dashboard", tmo, doc);
+  const int code = fetchJson(g_httpDash, g_tcpDash, g_httpDashReady, "/api/dashboard", tmo, doc);
   const uint32_t now = millis();
 
   if (code == HTTP_CODE_OK) {
