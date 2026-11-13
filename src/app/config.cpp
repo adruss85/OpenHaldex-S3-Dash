@@ -19,9 +19,12 @@ namespace {
 constexpr const char *kNamespace = "ohxdash";
 constexpr const char *kKey = "cfg";
 constexpr uint32_t kMagic = 0x4F485844;  // 'OHXD'
-constexpr uint16_t kVersion = 5;  // 5: + tankLitres, unitsMetric, dayNight (all
-                                  //    three at the end of Data, so a version 4
-                                  //    blob is a prefix of a version 5 one);
+constexpr uint16_t kVersion = 7;  // 7: + pressureUnits (system-wide bar/psi,
+                                  //    folded from the old boost units);
+                                  //    6: + netRole, fleetChannel (the dash's own
+                                  //    AP and the fleet channel); 5: + tankLitres,
+                                  //    unitsMetric, dayNight (all at the end of
+                                  //    Data, so an older blob is a prefix);
                                   //    4: pollLiveMs 100 -> 1000 (ESP-NOW is the
                                   //    fast path now); 3: + netUseStatic;
                                   //    2: staleMs 500 -> 1500
@@ -55,7 +58,8 @@ void copyStr(char *dst, size_t dstLen, const char *src) {
 // network task learns it itself, on a link that is already up.
 bool connectionDiffers(const Data &a, const Data &b) {
   return strcmp(a.ssid, b.ssid) != 0 || strcmp(a.pass, b.pass) != 0 ||
-         strcmp(a.host, b.host) != 0 || a.port != b.port;
+         strcmp(a.host, b.host) != 0 || a.port != b.port ||
+         a.netRole != b.netRole || a.fleetChannel != b.fleetChannel;
 }
 
 // Clamp every field into its legal range, in place.
@@ -93,6 +97,9 @@ void validate(Data &d) {
   d.tankLitres = clampv(d.tankLitres, 20.0f, 120.0f);
   d.unitsMetric = d.unitsMetric ? 1 : 0;
   if (d.dayNight > DN_NIGHT) d.dayNight = DN_AUTO;
+  if (d.netRole > NET_ANCHOR) d.netRole = NET_FOLLOWER;
+  d.fleetChannel = (uint8_t)clampv<int>(d.fleetChannel, 1, 13);
+  if (d.pressureUnits > PRESSURE_PSI) d.pressureUnits = PRESSURE_BAR;
 
   // --- polling -------------------------------------------------------
   d.pollLiveMs = (uint16_t)clampv<int>(d.pollLiveMs, 50, 1000);
@@ -159,6 +166,13 @@ Data defaults() {
   d.unitsMetric = 1;
   d.dayNight = DN_AUTO;
 
+  // The family default is channel 1, the one the C6's own AP uses when it is
+  // not bridged to a home network. FOLLOWER is the existing behaviour: join
+  // the controller if there is one. ANCHOR is the no-controller mode.
+  d.netRole = NET_FOLLOWER;
+  d.fleetChannel = 1;
+  d.pressureUnits = PRESSURE_BAR;
+
   // /api/live is no longer the fast path: rpm, speed, throttle, boost, oil
   // and the lock values arrive over ESP-NOW at 10 Hz. It stays at 1 Hz for
   // coolant temperature, and it is the fallback for everything if the
@@ -188,17 +202,33 @@ void begin() {
     const size_t n = prefs.getBytesLength(kKey);
     // Read whatever is stored into a zeroed Blob, however long it is. Every
     // field added since version 3 sits at the END of Data, so an older blob is
-    // a byte-for-byte prefix of this one and copying n bytes leaves the newer
-    // tail at zero - which is then overwritten with explicit defaults below.
-    // Rejecting a shorter blob instead would throw away netUseStatic, which was
-    // learnt on the bench, and cost 15 s of DHCP wait on the next boot.
+    // a byte-for-byte prefix of this one and an older blob is read with the
+    // newer tail left at zero - which is then overwritten with explicit
+    // defaults below. The same property makes a NEWER blob readable by this
+    // image: its Data is a superset, so reading the first sizeof(Blob) bytes
+    // gives us the fields we know and ignores the tail we do not. That is what
+    // keeps the thresholds when flashing back and forth between versions;
+    // rejecting a longer blob was how a flash used to look like a settings
+    // reset.
     alignas(4) uint8_t raw[sizeof(Blob)] = {};
     Blob blob{};
+    const size_t readLen = n < sizeof(raw) ? n : sizeof(raw);
     if (n >= sizeof(blob.magic) + sizeof(blob.version) + sizeof(blob.reserved) &&
-        n <= sizeof(raw) && prefs.getBytes(kKey, raw, n) == n) {
-      memcpy(&blob, raw, n);
-      if (blob.magic == kMagic && blob.version >= kOldestVersion && blob.version <= kVersion) {
+        prefs.getBytes(kKey, raw, readLen) == readLen) {
+      memcpy(&blob, raw, readLen);
+      if (blob.magic == kMagic && blob.version >= kOldestVersion) {
         Data d = blob.data;
+        if (blob.version < 7) {
+          // The old boost selector was bar / mbar / psi. mbar has no useful
+          // oil-pressure counterpart, so it folds to bar; psi carries over.
+          d.pressureUnits = (d.boostUnits == BOOST_PSI) ? PRESSURE_PSI : PRESSURE_BAR;
+          saveAgain = true;
+        }
+        if (blob.version < 6) {
+          d.netRole = NET_FOLLOWER;
+          d.fleetChannel = 1;
+          saveAgain = true;
+        }
         if (blob.version < 5) {
           d.tankLitres = 62.0f;
           d.unitsMetric = 1;
@@ -212,11 +242,18 @@ void begin() {
         }
         validate(d);
         if (memcmp(&d, &blob.data, sizeof(Data)) != 0) saveAgain = true;  // something was clamped
+        // Never truncate a newer blob just because this image booted: its
+        // tail is the newer firmware's settings, and this one cannot write it
+        // back. A user edit through apply() is still allowed to write v6.
+        if (blob.version > kVersion) saveAgain = false;
         storeInRam(d);
         haveSaved = true;
         if (blob.version < kVersion) {
           Serial.printf("[cfg] migrating settings: blob v%u -> v%u\n", (unsigned)blob.version,
                         (unsigned)kVersion);
+        } else if (blob.version > kVersion) {
+          Serial.printf("[cfg] blob v%u is newer than this image (v%u): read the known prefix\n",
+                        (unsigned)blob.version, (unsigned)kVersion);
         }
       }
     }

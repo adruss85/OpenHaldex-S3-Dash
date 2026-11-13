@@ -11,11 +11,14 @@ Read this when you need to drive or diagnose the board from the serial port.
 | `p` | cycle the pixel clock: 24 → 20 → 16 → 12 MHz (the first press goes up from 16) |
 | `d` | print the frame buffer the panel is scanning as an ASCII luminance map |
 | `n` | pause / resume the HTTP polling |
+| `w` | toggle the fleet role: follower (AP+STA, joins the controller) ↔ anchor (AP only). Saves and reboots |
+| `W` | cycle the fleet channel 1..13 (the dash AP's channel; follower follows the controller once joined). Saves and reboots |
+| `N` | print the network state: role, fleet channel, AP/STA addresses, radio channel, OTA URL |
 | `e` | ESP-NOW vs HTTP, every field side by side |
 | `f` | forget the remembered controller (see [Which controller](architecture.md#which-controller)) |
 | `x` | open / close the raw telemetry page (all of the above on the glass) |
 | `c` | open / close the CAN DATA page |
-| `C` | print every CAN id heard, and the selected one's signals |
+| `C` | print every CAN id heard, the selected one's signals, and the online relay senders (`C6`, `BCAN`) |
 | `v` | force the other tile band, for bench work (see 'What the car can fill') |
 | `m` | step the Haldex mode — the same as tapping the HALDEX panel |
 | `E` | enable / disable the ESP-NOW listener (A/B its cost on one boot) |

@@ -179,8 +179,12 @@ struct Column {
 
 const Column kColumns[3] = {
     {"ESP-NOW OHX_STATUS",
-     {{nullptr, kRowsA, 11}, {"CAR CAPABILITY", kRowsCaps, 7}, {"CAN RELAY", kRowsRelay, 3}}, 3},
-    {"PACKET VALUES (10 Hz)", {{nullptr, kRowsB, 8}, {"FLAGS (set bits)", kRowsB + 8, 4}, {nullptr, nullptr, 0}}, 2},
+     {{nullptr, kRowsA, 11}, {"CAR CAPABILITY", kRowsCaps, 7}, {nullptr, nullptr, 0}}, 2},
+    {"PACKET VALUES (10 Hz)",
+     {{nullptr, kRowsB, 8},
+      {"FLAGS (set bits)", kRowsB + 8, 4},
+      {"CAN RELAY", kRowsRelay, 3}},
+     3},
     {"HTTP / DASH", {{"HTTP /api/live", kRowsC, 5}, {"HTTP /api/dashboard", kRowsC + 5, 8}, {"LINK", kRowsC + 13, 6}}, 3},
 };
 
@@ -242,6 +246,11 @@ lv_obj_t *mkButton(lv_obj_t *parent, int x, int y, int w, int h, const char *tex
   lv_obj_set_style_border_color(b, COL_LAMP_EDGE, 0);
   if (cb) lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, nullptr);
   lv_obj_t *l = mkLabel(b, 0, 0, w, h, FONT_CAP, COL_FG, text);
+  // Auto-size and centre the label itself: a full-width label with text-align
+  // centre still sits its one line at the top, which is what made FREEZE and
+  // CLOSE look off-centre in their boxes.
+  lv_obj_set_size(l, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_align(l, LV_ALIGN_CENTER, 0, 0);
   lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
   if (outLabel) *outLabel = l;
   return b;

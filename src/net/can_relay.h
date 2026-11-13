@@ -43,7 +43,19 @@ struct Stats {
   int ids;            // distinct ids heard
   uint32_t ageMs;     // since the last packet (UINT32_MAX = never)
   uint8_t senders;    // distinct source MACs heard (the controller plus, e.g., the body-CAN box)
+  uint8_t sendersOnline; // of those, heard within the last 3 s
 };
+
+/// One relay sender, for the CAN DATA page's "SENDERS: C6, BCAN" line.
+struct SenderInfo {
+  uint8_t mac[6];
+  uint8_t kind;    // CANN_K_OPENHALDEX / CANN_K_ADC2CAN
+  uint32_t ageMs;  // since its last packet
+};
+
+/// Online senders (heard within 3 s), copied into out up to max. Returns the
+/// total online count even when out is null or max is smaller. Thread-safe.
+int sendersOnline(SenderInfo *out, int max);
 
 /// The values the dashboard reads from the relay. NAN / -1 = not heard recently,
 /// or not known for this car.
@@ -68,6 +80,11 @@ struct Values {
   // the ForbesAutomotive ME7 patch. The ECU sends the sensor's raw ADC, so the
   // bar figure is scaled here from the PST-F 1 transfer. NAN = no long frame.
   float oilPressureBar = NAN;  // bar
+
+  // Battery voltage from BodyECU_Load (0x570), the body-CAN box's contribution
+  // on a PQ car. NAN = the frame has not been heard recently.
+  float batteryV = NAN;  // V
+
   // Cruise, as one code because the lamp wants exactly three answers: -1 not
   // heard, 0 off, 1 armed (the column switch is on, no speed stored), 2 engaged
   // (the engine says a speed is stored). See chassis.h for the two facts it is

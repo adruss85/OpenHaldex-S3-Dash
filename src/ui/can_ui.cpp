@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "cannow_proto.h"
 #include "net/can_relay.h"
 #include "net/dbc.h"
 #include "net/ohx_now.h"
@@ -135,7 +136,10 @@ lv_obj_t *mkButton(lv_obj_t *parent, int x, int y, int w, int h, const char *tex
   lv_obj_set_style_border_width(b, 1, 0);
   lv_obj_set_style_border_color(b, COL_LAMP_EDGE, 0);
   if (cb) lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, nullptr);
-  lv_obj_t *l = mkLabel(b, 0, 6, w, h - 6, FONT_CAP, COL_FG, text);
+  lv_obj_t *l = mkLabel(b, 0, 0, w, h, FONT_CAP, COL_FG, text);
+  // Centre the label itself, not just the text inside a full-width box.
+  lv_obj_set_size(l, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_align(l, LV_ALIGN_CENTER, 0, 0);
   lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
   if (outLabel) *outLabel = l;
   return b;
@@ -182,19 +186,41 @@ int pageCount(int items) {
 }
 
 // ------------------------------------------------------------- updating
+// The kind byte is the sender's own label: 1 is the OpenHaldex controller's
+// chassis relay, 2 is the ADC/body-CAN box on this rig. Names are deliberately
+// short so several fit the 520 px title bar.
+const char *senderName(uint8_t kind) {
+  if (kind == CANN_K_OPENHALDEX) return "C6";
+  if (kind == CANN_K_ADC2CAN) return "BCAN";
+  return "?";
+}
+
 void updateTitle(const dbc::Table *table) {
   const canrelay::Stats s = canrelay::stats();
-  char t[110];
+  canrelay::SenderInfo senders[8];
+  const int online = canrelay::sendersOnline(senders, 8);
+  char names[64];
+  int off = 0;
+  names[0] = '\0';
+  for (int i = 0; i < online && i < 8; i++) {
+    const int room = (int)sizeof(names) - off;
+    if (room <= 1) break;
+    off += snprintf(names + off, (size_t)room, "%s%s", i ? ", " : "", senderName(senders[i].kind));
+  }
+  if (online == 0) snprintf(names, sizeof names, "none");
+
+  char t[140];
   if (!canrelay::fresh()) {
-    snprintf(t, sizeof t, "no relay packets: set Relay CAN Frames to Gauges on the controller");
+    snprintf(t, sizeof t, "SENDERS: %s | no relay packets (enable Relay CAN Frames to Gauges)",
+             names);
     setText(g_title, t);
     setTextColor(g_title, COL_AMBER);
   } else {
     const uint32_t total = s.packets + s.airLost;
     float lostPercent = 0.0f;
     if (total > 0) lostPercent = (float)s.airLost * 100.0f / (float)total;
-    snprintf(t, sizeof t, "%lu f/s | %d ids | air lost %.1f%% | sender lost %lu | %s%s",
-             (unsigned long)s.perSec, s.ids, (double)lostPercent, (unsigned long)s.srcLost,
+    snprintf(t, sizeof t, "SENDERS: %s | %lu f/s | %d ids | lost %.1f%% | %s%s", names,
+             (unsigned long)s.perSec, s.ids, (double)lostPercent,
              table ? table->name : "no DBC", g_hold ? " | FROZEN" : "");
     setText(g_title, t);
     setTextColor(g_title, g_hold ? COL_AMBER : COL_GREEN);
@@ -484,6 +510,13 @@ void dumpToSerial() {
   Serial.printf("[can] --- %d ids, %lu frames, air lost %lu pkt, sender lost %lu, DBC %s ---\n",
                 s.ids, (unsigned long)s.frames, (unsigned long)s.airLost, (unsigned long)s.srcLost,
                 table ? table->name : "none");
+  {
+    canrelay::SenderInfo senders[8];
+    const int online = canrelay::sendersOnline(senders, 8);
+    Serial.printf("[can] senders online (%d):", online);
+    for (int i = 0; i < online && i < 8; i++) Serial.printf(" %s", senderName(senders[i].kind));
+    Serial.println();
+  }
   for (int i = 0; i < g_idCount; i++) {
     const bool extended = (g_ids[i] & kExtendedFlag) != 0;
     const uint32_t id = g_ids[i] & ~kExtendedFlag;

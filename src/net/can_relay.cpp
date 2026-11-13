@@ -59,8 +59,11 @@ uint32_t g_lastPacketMs = 0;
 // ohx_now does for status senders: the counters stay plausible, the oldest
 // sender's gaps stop being counted.
 constexpr int kMaxRelaySenders = 8;
+constexpr uint32_t kSenderOnlineMs = 3000;  // a sender goes quiet after this
 uint8_t g_senderMac[kMaxRelaySenders][6] = {};
 uint8_t g_senderSeq[kMaxRelaySenders] = {};
+uint8_t g_senderKind[kMaxRelaySenders] = {};
+uint32_t g_senderLastMs[kMaxRelaySenders] = {};
 bool g_senderSeen[kMaxRelaySenders] = {};
 int g_senderCount = 0;
 
@@ -166,6 +169,8 @@ void onPacket(const uint8_t *data, const int length, const uint8_t src[6]) {
     if (gap < 128) g_stats.airLost += gap;
   }
   g_senderSeq[sender] = header.seq;
+  g_senderKind[sender] = header.kind;
+  g_senderLastMs[sender] = now;
   g_senderSeen[sender] = true;
   g_stats.packets++;
   g_stats.srcLost += header.lost;
@@ -248,9 +253,47 @@ Stats stats() {
   Stats out = g_stats;
   out.ids = g_used;
   out.senders = (uint8_t)g_senderCount;
+  out.sendersOnline = 0;
+  for (int i = 0; i < g_senderCount; i++) {
+    if (g_senderSeen[i] && (uint32_t)(now - g_senderLastMs[i]) <= kSenderOnlineMs)
+      out.sendersOnline++;
+  }
   out.ageMs = g_lastPacketMs ? (now - g_lastPacketMs) : UINT32_MAX;
   taskEXIT_CRITICAL(&g_mux);
   return out;
+}
+
+int sendersOnline(SenderInfo *out, int max) {
+  taskENTER_CRITICAL(&g_mux);
+  const uint32_t now = millis();
+  int n = 0;
+  for (int i = 0; i < g_senderCount; i++) {
+    if (!g_senderSeen[i]) continue;
+    const uint32_t age = (uint32_t)(now - g_senderLastMs[i]);
+    if (age > kSenderOnlineMs) continue;
+    if (out && n < max) {
+      memcpy(out[n].mac, g_senderMac[i], 6);
+      out[n].kind = g_senderKind[i];
+      out[n].ageMs = age;
+    }
+    n++;
+  }
+  // C6 before BCAN: arrival order depends on which box happened to send first,
+  // and a list that swaps places between boots is harder to read.
+  if (out) {
+    const int m = n < max ? n : max;
+    for (int i = 1; i < m; i++) {
+      const SenderInfo key = out[i];
+      int j = i - 1;
+      while (j >= 0 && out[j].kind > key.kind) {
+        out[j + 1] = out[j];
+        j--;
+      }
+      out[j + 1] = key;
+    }
+  }
+  taskEXIT_CRITICAL(&g_mux);
+  return n;
 }
 
 int count() {
@@ -305,6 +348,7 @@ Values values(const uint8_t generation) {
   out.asrActive = c.lampValid ? (c.asrActive ? 1 : 0) : -1;
   out.brakeBar = c.brakeBar;
   out.oilPressureBar = c.oilPressureBar;
+  out.batteryV = c.batteryValid ? c.batteryV : NAN;
   // Three states from two facts, both the car's own: off, armed (the column
   // switch is on), engaged (MO2_Status_GRA says a speed is stored). MO2_GRAregelt
   // is deliberately not used here - on the car it read 1 with the + side of the

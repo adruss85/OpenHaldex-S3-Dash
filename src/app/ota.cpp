@@ -51,6 +51,15 @@ bool g_uploadOk = false;             // the last upload finished and verified
 char g_line[96] = "ota: waiting";
 char g_url[48] = "--";
 
+// The dash's own AP is a valid way to reach this page, and in ANCHOR mode it is
+// the only way: there is no station, so WiFi.localIP() is 0.0.0.0. Checked by
+// address rather than mode so a half-started AP does not count.
+bool apUp() {
+  const wifi_mode_t mode = WiFi.getMode();
+  if (mode != WIFI_AP && mode != WIFI_AP_STA) return false;
+  return (uint32_t)WiFi.softAPIP() != 0;
+}
+
 // ------------------------------------------------------------- the way back
 const esp_partition_t *otherSlot() { return esp_ota_get_next_update_partition(nullptr); }
 
@@ -275,7 +284,8 @@ void tick() {
 
 void serveBegin() {
   if (g_serving) return;
-  if (WiFi.status() != WL_CONNECTED) return;
+  const bool sta = WiFi.status() == WL_CONNECTED;
+  if (!sta && !apUp()) return;
 
   g_server.on("/", HTTP_GET, handleRoot);
   g_server.on("/update", HTTP_POST, handleUploadDone, handleUpload);
@@ -284,14 +294,16 @@ void serveBegin() {
   g_server.begin();
   g_serving = true;
 
-  // mDNS is already up under "ohx-dash" (telemetry.cpp starts it for the
-  // controller's address), so this only has to advertise the page: the same
-  // name then reaches either device, and this one is the dash.
+  // mDNS is up under "ohx-dash" (started with the AP), so this only has to
+  // advertise the page: the same name then reaches the dash on either
+  // interface.
   if (MDNS.addService("http", "tcp", 80)) {
     Serial.println("[ota] update page: http://ohx-dash.local/");
   }
-  snprintf(g_url, sizeof g_url, "http://%s/", WiFi.localIP().toString().c_str());
-  Serial.printf("[ota] update page listening on %s\n", g_url);
+  const IPAddress addr = sta ? WiFi.localIP() : WiFi.softAPIP();
+  snprintf(g_url, sizeof g_url, "http://%s/", addr.toString().c_str());
+  Serial.printf("[ota] update page listening on %s (%s)\n", g_url,
+                sta ? "station" : "AP");
   snprintf(g_line, sizeof g_line, "ota: %s (%s)", OHX_DASH_VERSION, g_url);
 }
 

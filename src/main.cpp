@@ -111,6 +111,10 @@ void printBanner() {
   Serial.println("=========================================");
 }
 
+const char *roleName(uint8_t role) {
+  return role == cfg::NET_ANCHOR ? "anchor" : "follower";
+}
+
 void printStats() {
   const telemetry::Stats s = telemetry::stats();
   const cfg::Data &c = cfg::get();
@@ -122,6 +126,12 @@ void printStats() {
                 s.wifiUp ? "up" : "DOWN", (int)s.rssi, (s.ip >> 0) & 0xFF, (s.ip >> 8) & 0xFF,
                 (s.ip >> 16) & 0xFF, (s.ip >> 24) & 0xFF, c.host, c.port, c.pollLiveMs,
                 c.pollDashMs);
+  // The fleet side: the AP is the anchor the bodycan follows, so its state and
+  // channel matter even when the STA is deliberately absent in ANCHOR mode.
+  Serial.printf("[stats] net role %s, fleet ch %u | AP %s ip %u.%u.%u.%u | radio ch %u | STA %s\n",
+                roleName(c.netRole), (unsigned)c.fleetChannel, s.apUp ? "up" : "DOWN",
+                (s.apIp >> 0) & 0xFF, (s.apIp >> 8) & 0xFF, (s.apIp >> 16) & 0xFF,
+                (s.apIp >> 24) & 0xFF, (unsigned)s.channel, s.wifiUp ? "up" : "down");
   if (ui::staleEvents() > 0) {
     Serial.printf("[stats] live data went stale %lu time(s), oldest data %lu ms\n",
                   (unsigned long)ui::staleEvents(), (unsigned long)ui::maxStaleAgeMs());
@@ -157,11 +167,11 @@ void printStats() {
     if (r.packets > 0) {
       const uint32_t total = r.packets + r.airLost;
       Serial.printf("[stats] relay %lu f/s, %d ids, %lu pkt, air lost %lu (%.1f%%), sender lost %lu, "
-                    "rej %lu, full %lu, %u sender(s)\n",
+                    "rej %lu, full %lu, %u sender(s) (%u online)\n",
                     (unsigned long)r.perSec, r.ids, (unsigned long)r.packets,
                     (unsigned long)r.airLost, (double)r.airLost * 100.0 / (double)total,
                     (unsigned long)r.srcLost, (unsigned long)r.rejects,
-                    (unsigned long)r.tableFull, (unsigned)r.senders);
+                    (unsigned long)r.tableFull, (unsigned)r.senders, (unsigned)r.sendersOnline);
     }
   }
 #endif
@@ -279,7 +289,8 @@ void handleSerial() {
         Serial.println("1..5=redraw groups 0=all 9=none p=pclk b=bounce d=dump k=chassis "
                        "n=polling e=esp-now f=forget controller v=tile band r/t=touch s=settings "
                        "x=raw page c=can page C=can dump m=mode o=ota O=ota-fail-test "
-                       "l/L=drive log F=format log partition V=version z=force shift flash");
+                       "l/L=drive log F=format log partition V=version z=force shift flash "
+                       "w=role W=fleet channel N=network");
         break;
       case 'v': {
         // Force the tile band, for bench work: the capability decision is made
@@ -366,6 +377,44 @@ void handleSerial() {
         // Forget the remembered controller: how a replaced one gets picked up.
         ohxnow::forgetController();
         continue;
+      case 'w': {
+        // Fleet role. This changes the WiFi mode (AP+STA vs AP only), which
+        // cannot be switched safely with ESP-NOW live, so it reboots. The
+        // saved setting is what the next boot reads.
+        cfg::Data d = cfg::get();
+        d.netRole = (d.netRole == cfg::NET_ANCHOR) ? cfg::NET_FOLLOWER : cfg::NET_ANCHOR;
+        cfg::apply(d);
+        Serial.printf("[net] role -> %s, rebooting to apply\n", roleName(d.netRole));
+        Serial.flush();
+        delay(150);
+        esp_restart();
+        continue;
+      }
+      case 'W': {
+        // The channel the dash's AP starts on (and the fleet channel in
+        // ANCHOR). In FOLLOWER the AP follows the controller once joined.
+        cfg::Data d = cfg::get();
+        d.fleetChannel = (uint8_t)((d.fleetChannel % 13) + 1);
+        cfg::apply(d);
+        Serial.printf("[net] fleet channel -> %u, rebooting to apply\n",
+                      (unsigned)d.fleetChannel);
+        Serial.flush();
+        delay(150);
+        esp_restart();
+        continue;
+      }
+      case 'N': {
+        const cfg::Data &d = cfg::get();
+        const telemetry::Stats s = telemetry::stats();
+        Serial.printf("[net] role %s, fleet ch %u | AP %s ip %u.%u.%u.%u | radio ch %u | "
+                      "STA %s ip %u.%u.%u.%u rssi %d | ota %s\n",
+                      roleName(d.netRole), (unsigned)d.fleetChannel, s.apUp ? "up" : "down",
+                      (s.apIp >> 0) & 0xFF, (s.apIp >> 8) & 0xFF, (s.apIp >> 16) & 0xFF,
+                      (s.apIp >> 24) & 0xFF, (unsigned)s.channel, s.wifiUp ? "up" : "down",
+                      (s.ip >> 0) & 0xFF, (s.ip >> 8) & 0xFF, (s.ip >> 16) & 0xFF,
+                      (s.ip >> 24) & 0xFF, (int)s.rssi, ota::url());
+        continue;
+      }
       case 'e':
 #if OHX_USE_ESP_NOW
         ohxnow::printCompare();

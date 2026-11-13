@@ -55,6 +55,7 @@
 #include "net/telemetry.h"
 #include "net/ohx_now.h"
 #include "net/datafeed.h"
+#include "net/can_relay.h"
 #include "app/capability.h"
 #include "app/config.h"
 #include "app/logbook.h"
@@ -96,12 +97,15 @@ constexpr uint32_t kIndicatorHoldMs = 1000;
 constexpr int kArrowW = 56;
 constexpr int kArrowH = 56;
 
-// Fuel smoothing (#4): the tank sloshes, so the displayed level is a 5 s
-// exponential low-pass (kFuelTau) and a sample that would move it faster than
-// 8 l/s is dropped rather than latched. The car's own low-fuel warning is NOT
-// smoothed - it is read straight off the frame.
-constexpr float kFuelTau = 5.0f;
+// Fuel smoothing (#4): the tank sloshes, so the displayed level is a 60 s
+// exponential low-pass (kFuelTau) - a minute, not the original 5 s, because a
+// hill or a stop-start crawl moved a 5 s filter enough to read as a real
+// change - and a sample that would move it faster than 8 l/s is dropped rather
+// than latched. The car's own low-fuel warning is NOT smoothed - it is read
+// straight off the frame.
+constexpr float kFuelTau = 60.0f;
 constexpr float kFuelMaxRate = 8.0f;  // l/s
+constexpr float kOilPressMaxBar = 10.0f;  // PST-F 1 full scale; only sizes the bar
 
 const char *const kModeNames[6] = {"STOCK", "FWD", "50:50", "60:40", "75:25", "EXPERT"};
 
@@ -226,12 +230,15 @@ struct Widgets {
   lv_obj_t *indLeft = nullptr, *indRight = nullptr;
 
   lv_obj_t *speedVal = nullptr, *speedPeak = nullptr, *speedUnit = nullptr;
+  lv_obj_t *battCap = nullptr, *battVal = nullptr, *battUnit = nullptr;
   lv_obj_t *boostVal = nullptr, *boostUnit = nullptr, *boostBar = nullptr, *boostPeak = nullptr;
   // The ForbesAutomotive patch's second reading, inside the BOOST tile because
   // that is the panel that only exists when the same frame does.
-  lv_obj_t *oilPressCap = nullptr, *oilPressVal = nullptr;
-  lv_obj_t *coolVal = nullptr, *coolBar = nullptr, *oilVal = nullptr, *oilBar = nullptr;
-  lv_obj_t *fuelVal = nullptr, *fuelBar = nullptr;
+  lv_obj_t *oilPressCap = nullptr, *oilPressVal = nullptr, *oilPressBar = nullptr;
+  lv_obj_t *oilPressUnit = nullptr;
+  lv_obj_t *coolVal = nullptr, *coolBar = nullptr, *coolUnit = nullptr;
+  lv_obj_t *oilVal = nullptr, *oilBar = nullptr, *oilUnit = nullptr;
+  lv_obj_t *fuelVal = nullptr, *fuelBar = nullptr, *fuelUnit = nullptr;
   lv_obj_t *modeVal = nullptr, *haldexSub = nullptr;
   lv_obj_t *lockReqVal = nullptr, *lockActVal = nullptr, *thrBar = nullptr;
 
@@ -246,9 +253,6 @@ struct Widgets {
   lv_obj_t *ctrlLine = nullptr, *ctrlWarn = nullptr;
   // Where to send a new image, and which slot this one came from.
   lv_obj_t *otaLine = nullptr;
-  // What automatic day / night has decided, and the number it produced, so the
-  // mode can be judged on the glass rather than trusted.
-  lv_obj_t *dayNightLine = nullptr;
   // The drive log: a session is started by hand, so it is a button and a state
   // line rather than a setting (no NVS field, nothing to leave on by accident).
   lv_obj_t *btnLog = nullptr, *logLine = nullptr;
@@ -706,26 +710,38 @@ layout::Variant g_variant = layout::Variant::Full;
 bool g_placed = false;
 bool g_oilShown = false;  // the OIL row is on the glass (capability, not layout)
 
-// The temperatures panel's three rows (coolant / oil / fuel) share one pitch,
-// so the build pass and the placement pass cannot drift apart.
+// The temperatures panel's four rows (coolant / oil / fuel / battery) share one
+// pitch, so the build pass and the placement pass cannot drift apart.
 //
-// The card carries no title of its own - "coolant", "oil" and "fuel" say what
-// the card is - so its first row has to sit where every other card's caption
-// sits, TILE_PAD_V, and the three rows then fill the tile (#11). The anchor per
-// row is therefore the *caption's* box top, not a notional row top.
+// The card carries no title of its own - the four captions say what the card
+// is - so its first row has to sit where every other card's caption sits,
+// TILE_PAD_V, and the four rows then fill the tile (#11). The anchor per row is
+// therefore the *caption's* box top, not a notional row top.
 //
 // The caption and the value share a baseline. At montserrat_12 (FONT_CAP) the
 // caption's baseline is 12 px below its box top; at montserrat_22 (FONT_TEMP)
 // the value's is 20 px below its. So a value box 8 px above the caption's puts
 // the two on one line - the relationship the Haldex tile's LOCK REQ / LOCK ACT
 // rows already use. The bar runs 30 px below the caption.
-constexpr int kTempRows = 3;
-constexpr int kTempPitch = 80;
+constexpr int kTempRows = 4;
+constexpr int kTempPitch = 55;  // four rows: coolant, oil, fuel, battery
 constexpr int kTempCapY[kTempRows] = {L::TILE_PAD_V, L::TILE_PAD_V + kTempPitch,
-                                      L::TILE_PAD_V + 2 * kTempPitch};
+                                      L::TILE_PAD_V + 2 * kTempPitch,
+                                      L::TILE_PAD_V + 3 * kTempPitch};
 constexpr int kTempValDY = -8;   // value box top, from the caption's
 constexpr int kTempValH = 30;
 constexpr int kTempBarDY = 30;   // bar top, from the caption's
+
+// The tile unit labels are single letters: C, F, L, V all start on the same
+// left edge. The Settings button still spells the choice as °C/°F.
+constexpr const char *kDegC = "C";
+constexpr const char *kDegF = "F";
+
+// The speed and boost panels put their unit and peak on the same two lines, so
+// the two tiles read across. The speed value is one font size taller, but its
+// drawn line ends at 96 px, where the unit starts.
+constexpr int kTileUnitY = 96;
+constexpr int kTilePeakY = 116;
 
 void buildTiles(lv_obj_t *parent) {
   const int y = L::TILE_Y;
@@ -743,11 +759,19 @@ void buildTiles(lv_obj_t *parent) {
 
   w.speedVal = fixedLabel(t0, L::TILE_PAD_H - 2, 44, 132, 58, FONT_BIG, COL_FG, "--");
 
-  // Dynamic: km/h or mph, from the metric / imperial setting (#7).
-  w.speedUnit = fixedLabel(t0, L::TILE_PAD_H + 4, h - 44, 70, 18, FONT_CAP, COL_DIM, "km/h");
+  // The unit and peak sit directly under the big number, as they do on the
+  // boost side; the battery voltage gets the space below them.
+  w.speedUnit = fixedLabel(t0, L::TILE_PAD_H, kTileUnitY, 70, 18, FONT_SMALL, COL_DIM, "km/h");
 
-  w.speedPeak = fixedLabel(t0, L::TILE_PAD_H, h - 24, L::COL0_W - 2 * L::TILE_PAD_H, 18,
+  w.speedPeak = fixedLabel(t0, L::TILE_PAD_H, kTilePeakY, L::COL0_W - 2 * L::TILE_PAD_H, 18,
                            FONT_SMALL, COL_DIM, "peak --");
+
+  // Battery voltage, from the body-CAN box's 0x570 (or the controller's supply
+  // field on a generation that fills it). A number only: this is a slow-moving
+  // reading, not something with a useful bar. The caption/value baseline
+  // relationship is the temperatures panel's.
+  // The speed tile ends at the peak; the diagnostic BATT row lives in the
+  // temperatures column with the other car readings.
 
   // ---- BOOST ------------------------------------------------------
   lv_obj_t *t1 = opaque(parent, L::COL1_X, y, L::COL1_W, h, COL_BG);
@@ -761,19 +785,24 @@ void buildTiles(lv_obj_t *parent) {
 
   const int bw = L::COL1_W - 2 * L::TILE_PAD_H;
   w.boostVal = fixedLabel(t1, L::TILE_PAD_H, 40, bw, 52, FONT_NUM, COL_FG, "--");
-  w.boostUnit = fixedLabel(t1, L::TILE_PAD_H, 96, bw, 18, FONT_SMALL, COL_DIM, "bar");
-  w.boostBar = bar(t1, L::TILE_PAD_H, 128, bw, 10, COL_WHITE, 0, 100);
-  w.boostPeak = fixedLabel(t1, L::TILE_PAD_H, h - 24, bw, 18, FONT_SMALL, COL_DIM, "peak --");
+  w.boostUnit = fixedLabel(t1, L::TILE_PAD_H, kTileUnitY, bw, 18, FONT_SMALL, COL_DIM, "bar");
+  // Peak directly under the unit, then the bar, then the oil row.
+  w.boostPeak = fixedLabel(t1, L::TILE_PAD_H, kTilePeakY, bw, 18, FONT_SMALL, COL_DIM, "peak --");
+  w.boostBar = bar(t1, L::TILE_PAD_H, 140, bw, 10, COL_WHITE, 0, 100);
 
-  // The oil-pressure reading the same ME7 patch adds to Motor_7 bytes 5-6. A
-  // quiet second line in the free space between the bar and the peak, hidden
-  // unless capability detection found the patch - a stock car must not show an
-  // empty row. The value carries its unit, because the letters OIL already say
-  // which reading it is.
-  w.oilPressCap = label(t1, FONT_CAP, COL_DIM, "OIL");
-  lv_obj_set_pos(w.oilPressCap, L::TILE_PAD_H, 152);
-  w.oilPressVal = fixedLabel(t1, L::TILE_PAD_H, 150, bw, 22, FONT_SMALL, COL_FG, "--");
+  // The oil-pressure reading the same ME7 patch adds to Motor_7 bytes 5-6.
+  // It sits on the bottom diagnostic line, level with the temperatures column's
+  // BATT row: caption and value on one line, bar 30 px under the caption. The
+  // value is the 22 px face and the unit is the small stock 14 px font, the
+  // arrangement every reading in this band now uses. Hidden unless capability
+  // detection found the patch - a stock car must not show an empty row.
+  w.oilPressCap = label(t1, FONT_CAP, COL_DIM, "OIL PRES");
+  lv_obj_set_pos(w.oilPressCap, L::TILE_PAD_H, kTempCapY[3]);
+  w.oilPressVal = fixedLabel(t1, L::TILE_PAD_H, kTempCapY[3] + kTempValDY, 80, 30, FONT_TEMP,
+                             COL_FG, "--");
   lv_obj_set_style_text_align(w.oilPressVal, LV_TEXT_ALIGN_RIGHT, 0);
+  w.oilPressUnit = fixedLabel(t1, 0, kTempCapY[3], 22, 18, FONT_SMALL, COL_DIM, "bar");
+  w.oilPressBar = bar(t1, L::TILE_PAD_H, kTempCapY[3] + kTempBarDY, bw, 10, COL_GREEN, 0, 100);
 
   // ---- TEMPERATURES -----------------------------------------------
   lv_obj_t *t2 = opaque(parent, L::COL2_X, y, L::COL2_W, h, COL_BG);
@@ -782,33 +811,49 @@ void buildTiles(lv_obj_t *parent) {
   lv_obj_set_style_border_width(t2, 1, 0);
   lv_obj_set_style_border_color(t2, COL_LINE, 0);
 
-  // Three rows: coolant, oil and fuel (layout C), with no caption above them -
-  // the card is named by its contents, so the first row starts where the cards
-  // beside it put their captions. The unit rides in the value label - "79 °C",
-  // "49.6 L" - so a reading is never ambiguous: the temperatures follow the C/F
-  // toggle and the fuel is always litres (the metric/imperial toggle is about
-  // distance). The 80 px pitch is what fills the tile without scrolling and
-  // without shrinking FONT_TEMP (#11).
+  // Four rows: coolant, oil, fuel and the diagnostic battery. The card is
+  // named by its contents, so the first row starts where the cards beside it
+  // put their captions. Values are the 22 px face; every unit is the same small
+  // grey stock font on the caption's baseline - the arrangement OIL PRES uses.
   const int tw = L::COL2_W - 2 * L::TILE_PAD_H;
   const int *const rowY = kTempCapY;
 
   lv_obj_t *cl = label(t2, FONT_CAP, COL_DIM, "COOLANT");
   lv_obj_set_pos(cl, L::TILE_PAD_H, rowY[0]);
-  w.coolVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[0] + kTempValDY, 100, kTempValH, FONT_TEMP, COL_FG, "--");
+  w.coolVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[0] + kTempValDY, 80, kTempValH,
+                         FONT_TEMP, COL_FG, "--");
   lv_obj_set_style_text_align(w.coolVal, LV_TEXT_ALIGN_RIGHT, 0);
+  w.coolUnit = fixedLabel(t2, L::TILE_PAD_H + tw - 16, rowY[0], 16, 18, FONT_SMALL, COL_DIM,
+                          kDegC);
   w.coolBar = bar(t2, L::TILE_PAD_H, rowY[0] + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
 
   lv_obj_t *ol = label(t2, FONT_CAP, COL_DIM, "OIL");
   lv_obj_set_pos(ol, L::TILE_PAD_H, rowY[1]);
-  w.oilVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[1] + kTempValDY, 100, kTempValH, FONT_TEMP, COL_FG, "--");
+  w.oilVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[1] + kTempValDY, 80, kTempValH,
+                        FONT_TEMP, COL_FG, "--");
   lv_obj_set_style_text_align(w.oilVal, LV_TEXT_ALIGN_RIGHT, 0);
+  w.oilUnit = fixedLabel(t2, L::TILE_PAD_H + tw - 16, rowY[1], 16, 18, FONT_SMALL, COL_DIM,
+                         kDegC);
   w.oilBar = bar(t2, L::TILE_PAD_H, rowY[1] + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
 
   lv_obj_t *fl = label(t2, FONT_CAP, COL_DIM, "FUEL");
   lv_obj_set_pos(fl, L::TILE_PAD_H, rowY[2]);
-  w.fuelVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[2] + kTempValDY, 100, kTempValH, FONT_TEMP, COL_FG, "--");
+  w.fuelVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[2] + kTempValDY, 80, kTempValH,
+                         FONT_TEMP, COL_FG, "--");
   lv_obj_set_style_text_align(w.fuelVal, LV_TEXT_ALIGN_RIGHT, 0);
+  w.fuelUnit = fixedLabel(t2, L::TILE_PAD_H + tw - 16, rowY[2], 16, 18, FONT_SMALL, COL_DIM,
+                          "L");
   w.fuelBar = bar(t2, L::TILE_PAD_H, rowY[2] + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
+
+  // BATT is the fourth diagnostic row: number plus a small V label, no bar.
+  // It reads "--" on a car without the body-CAN box; this build is for the rig
+  // that has one.
+  w.battCap = label(t2, FONT_CAP, COL_DIM, "BATT");
+  lv_obj_set_pos(w.battCap, L::TILE_PAD_H, rowY[3]);
+  w.battVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[3] + kTempValDY, 80, 30,
+                         FONT_TEMP, COL_FG, "--");
+  lv_obj_set_style_text_align(w.battVal, LV_TEXT_ALIGN_RIGHT, 0);
+  w.battUnit = fixedLabel(t2, L::TILE_PAD_H + tw - 16, rowY[3], 16, 18, FONT_SMALL, COL_DIM, "V");
 
   // ---- HALDEX -----------------------------------------------------
   lv_obj_t *t3 = opaque(parent, L::COL3_X, y, L::COL3_W, h, COL_BG);
@@ -850,7 +895,8 @@ void placeSpeedTile(lv_obj_t *t, int x, int width, int height) {
   lv_obj_set_pos(t, x, L::TILE_Y);
   lv_obj_set_size(t, width, height);
   lv_obj_set_pos(w.speedVal, L::TILE_PAD_H - 2, 44);
-  lv_obj_set_pos(w.speedPeak, L::TILE_PAD_H, height - 24);
+  lv_obj_set_pos(w.speedUnit, L::TILE_PAD_H, kTileUnitY);
+  lv_obj_set_pos(w.speedPeak, L::TILE_PAD_H, kTilePeakY);
   lv_obj_set_width(w.speedPeak, width - 2 * L::TILE_PAD_H);
 }
 
@@ -861,12 +907,15 @@ void placeBoostTile(lv_obj_t *t, int x, int width, int height) {
   lv_obj_set_width(w.boostVal, bw);
   lv_obj_set_width(w.boostUnit, bw);
   lv_obj_set_width(w.boostBar, bw);
-  // The OIL value is right-aligned to the tile edge; its caption sits at the
-  // padding edge and does not move.
-  lv_obj_set_pos(w.oilPressVal, L::TILE_PAD_H + bw - 110, 150);
-  lv_obj_set_width(w.oilPressVal, 110);
-  lv_obj_set_pos(w.boostPeak, L::TILE_PAD_H, height - 24);
+  lv_obj_set_pos(w.boostPeak, L::TILE_PAD_H, kTilePeakY);
   lv_obj_set_width(w.boostPeak, bw);
+  // The OIL value is right-aligned to the tile edge; its caption and bar sit at
+  // the padding edge and span the tile.
+  lv_obj_set_pos(w.oilPressVal, width - L::TILE_PAD_H - 106, kTempCapY[3] + kTempValDY);
+  lv_obj_set_width(w.oilPressVal, 80);
+  lv_obj_set_pos(w.oilPressUnit, width - L::TILE_PAD_H - 22, kTempCapY[3]);
+  lv_obj_set_width(w.oilPressUnit, 22);
+  lv_obj_set_width(w.oilPressBar, bw);
 }
 
 void placeTempsTile(lv_obj_t *t, int x, int width, int height) {
@@ -874,11 +923,24 @@ void placeTempsTile(lv_obj_t *t, int x, int width, int height) {
   lv_obj_set_size(t, width, height);
   const int tw = width - 2 * L::TILE_PAD_H;
   lv_obj_set_pos(w.coolVal, L::TILE_PAD_H + tw - 100, kTempCapY[0] + kTempValDY);
+  lv_obj_set_width(w.coolVal, 80);
+  lv_obj_set_pos(w.coolUnit, L::TILE_PAD_H + tw - 16, kTempCapY[0]);
+  lv_obj_set_width(w.coolUnit, 16);
   lv_obj_set_width(w.coolBar, tw);
   lv_obj_set_pos(w.oilVal, L::TILE_PAD_H + tw - 100, kTempCapY[1] + kTempValDY);
+  lv_obj_set_width(w.oilVal, 80);
+  lv_obj_set_pos(w.oilUnit, L::TILE_PAD_H + tw - 16, kTempCapY[1]);
+  lv_obj_set_width(w.oilUnit, 16);
   lv_obj_set_width(w.oilBar, tw);
   lv_obj_set_pos(w.fuelVal, L::TILE_PAD_H + tw - 100, kTempCapY[2] + kTempValDY);
+  lv_obj_set_width(w.fuelVal, 80);
+  lv_obj_set_pos(w.fuelUnit, L::TILE_PAD_H + tw - 16, kTempCapY[2]);
+  lv_obj_set_width(w.fuelUnit, 16);
   lv_obj_set_width(w.fuelBar, tw);
+  lv_obj_set_pos(w.battVal, L::TILE_PAD_H + tw - 100, kTempCapY[3] + kTempValDY);
+  lv_obj_set_width(w.battVal, 80);
+  lv_obj_set_pos(w.battUnit, L::TILE_PAD_H + tw - 16, kTempCapY[3]);
+  lv_obj_set_width(w.battUnit, 16);
 }
 
 void placeHaldexTile(lv_obj_t *t, int x, int width, int height) {
@@ -930,9 +992,13 @@ void placeBand(layout::Variant v) {
     if (oilShown) {
       lv_obj_remove_flag(w.oilPressCap, LV_OBJ_FLAG_HIDDEN);
       lv_obj_remove_flag(w.oilPressVal, LV_OBJ_FLAG_HIDDEN);
+      if (w.oilPressUnit) lv_obj_remove_flag(w.oilPressUnit, LV_OBJ_FLAG_HIDDEN);
+      if (w.oilPressBar) lv_obj_remove_flag(w.oilPressBar, LV_OBJ_FLAG_HIDDEN);
     } else {
       lv_obj_add_flag(w.oilPressCap, LV_OBJ_FLAG_HIDDEN);
       lv_obj_add_flag(w.oilPressVal, LV_OBJ_FLAG_HIDDEN);
+      if (w.oilPressUnit) lv_obj_add_flag(w.oilPressUnit, LV_OBJ_FLAG_HIDDEN);
+      if (w.oilPressBar) lv_obj_add_flag(w.oilPressBar, LV_OBJ_FLAG_HIDDEN);
     }
   }
   const bool oilChanged = oilShown != g_oilShown;
@@ -1007,7 +1073,7 @@ void buildStatusBar(lv_obj_t *parent) {
 // to fit: scrolling this on a 32 Hz panel was a full-width repaint per step.
 cfg::Data g_edit;
 
-const char *const kBoostUnitNames[3] = {"bar", "mbar", "psi"};
+
 const char *const kDayNightNames[3] = {"AUTO", "DAY", "NIGHT"};
 
 // One value, drawn as [-] value [+]. The cell is created already showing the
@@ -1142,22 +1208,53 @@ lv_obj_t *addField(lv_obj_t *parent, int y, const char *name, const char *value,
   lv_obj_set_style_border_width(ta, 1, 0);
   lv_obj_set_style_border_color(ta, COL_LAMP_EDGE, 0);
   lv_obj_set_style_radius(ta, 3, 0);
+  // One line of FONT_BODY (20 px) in the 34 px box: equal top/bottom padding
+  // centres it vertically, as the HOST field has always looked.
+  lv_obj_set_style_pad_top(ta, 6, 0);
+  lv_obj_set_style_pad_bottom(ta, 6, 0);
   lv_obj_add_event_cb(ta, taEvent, LV_EVENT_ALL, nullptr);
   return ta;
 }
 
 lv_obj_t *g_taSsid = nullptr, *g_taPass = nullptr, *g_taHost = nullptr;
-lv_obj_t *g_btnTempUnits = nullptr, *g_btnBoostUnits = nullptr;
+lv_obj_t *g_btnTempUnits = nullptr, *g_btnPressure = nullptr;
 lv_obj_t *g_btnDistUnits = nullptr, *g_btnDayNight = nullptr;
+lv_obj_t *g_btnNetRole = nullptr, *g_btnNetCh = nullptr;
+
+const char *pressureUnitName(uint8_t units) {
+  return units == cfg::PRESSURE_PSI ? "psi" : "bar";
+}
+
+const char *netRoleName(uint8_t role) {
+  return role == cfg::NET_ANCHOR ? "ANCHOR" : "FOLLOWER";
+}
+
+void setNetChLabel() {
+  if (!g_btnNetCh) return;
+  char b[8];
+  snprintf(b, sizeof b, "%u", (unsigned)g_edit.fleetChannel);
+  setText(lv_obj_get_child(g_btnNetCh, 0), b);
+}
+
+void onNetRole(lv_event_t *) {
+  g_edit.netRole = (g_edit.netRole == cfg::NET_ANCHOR) ? cfg::NET_FOLLOWER : cfg::NET_ANCHOR;
+  setText(lv_obj_get_child(g_btnNetRole, 0), netRoleName(g_edit.netRole));
+}
+
+void onNetChannel(lv_event_t *) {
+  g_edit.fleetChannel = (uint8_t)((g_edit.fleetChannel % 13) + 1);
+  setNetChLabel();
+}
 
 void onTempUnits(lv_event_t *) {
   g_edit.tempF = !g_edit.tempF;
   setText(lv_obj_get_child(g_btnTempUnits, 0), g_edit.tempF ? "\xC2\xB0" "F" : "\xC2\xB0" "C");
 }
 
-void onBoostUnits(lv_event_t *) {
-  g_edit.boostUnits = (g_edit.boostUnits + 1) % 3;
-  setText(lv_obj_get_child(g_btnBoostUnits, 0), kBoostUnitNames[g_edit.boostUnits]);
+void onPressureUnits(lv_event_t *) {
+  g_edit.pressureUnits =
+      (g_edit.pressureUnits == cfg::PRESSURE_PSI) ? cfg::PRESSURE_BAR : cfg::PRESSURE_PSI;
+  setText(lv_obj_get_child(g_btnPressure, 0), pressureUnitName(g_edit.pressureUnits));
 }
 
 // Distance only: km/h and km against mph and miles. The temperature toggle above
@@ -1181,8 +1278,20 @@ void onCfgSave(lv_event_t *) {
   // A new SSID means a different controller, so the remembered one is dropped.
   // A new password on the same SSID is still the same controller.
   const bool ssidChanged = strcmp(g_edit.ssid, cfg::get().ssid) != 0;
+  const uint8_t oldRole = cfg::get().netRole;
+  const uint8_t oldChannel = cfg::get().fleetChannel;
   cfg::apply(g_edit);
   if (ssidChanged) ohxnow::forgetController();
+  // The WiFi mode (AP+STA vs AP-only) cannot be switched safely with ESP-NOW
+  // live, so a role or fleet-channel change is applied by rebooting. The
+  // values are already in NVS; this is only the restart.
+  if (g_edit.netRole != oldRole || g_edit.fleetChannel != oldChannel) {
+    Serial.printf("[net] role/channel changed (%s ch%u) - rebooting to apply\n",
+                  netRoleName(g_edit.netRole), (unsigned)g_edit.fleetChannel);
+    Serial.flush();
+    delay(150);
+    esp_restart();
+  }
   // No setBacklight() here: the backlight is now decided from the config *and*
   // the car's Terminal 58s reading, and tick() applies it a frame later. Writing
   // the configured brightness straight to the panel would flash the day value at
@@ -1199,6 +1308,10 @@ void onCfgDefaults(lv_event_t *) {
   strncpy(fresh.host, keep.host, sizeof(fresh.host) - 1);
   fresh.port = keep.port;
   fresh.netUseStatic = keep.netUseStatic;  // learnt on this car, not a preference
+  // Network role and fleet channel are deployment choices, like the connection
+  // itself: DEFAULTS restores the dashboard thresholds, not the car's network.
+  fresh.netRole = keep.netRole;
+  fresh.fleetChannel = keep.fleetChannel;
   cfg::apply(fresh);
   ohxnow::forgetController();  // also how a replaced controller gets picked up
   g_edit = cfg::get();
@@ -1209,9 +1322,11 @@ void onCfgDefaults(lv_event_t *) {
   // The toggles above are buttons, not steppers, so nothing re-reads them: label
   // them here or DEFAULTS leaves them showing the settings it just replaced.
   setText(lv_obj_get_child(g_btnTempUnits, 0), g_edit.tempF ? "\xC2\xB0" "F" : "\xC2\xB0" "C");
-  setText(lv_obj_get_child(g_btnBoostUnits, 0), kBoostUnitNames[g_edit.boostUnits]);
+  setText(lv_obj_get_child(g_btnPressure, 0), pressureUnitName(g_edit.pressureUnits));
   setText(lv_obj_get_child(g_btnDistUnits, 0), g_edit.unitsMetric ? "km" : "mi");
   setText(lv_obj_get_child(g_btnDayNight, 0), kDayNightNames[g_edit.dayNight]);
+  setText(lv_obj_get_child(g_btnNetRole, 0), netRoleName(g_edit.netRole));
+  setNetChLabel();
   syncGauge();  // the zones and the numbers move with the scale
 }
 
@@ -1305,16 +1420,29 @@ void buildSettings() {
   rule(card, 0, y, L::W - 24);
   y += 10;
 
-  lv_obj_t *net = label(card, FONT_BODY, COL_DIM, "CONNECTION TO OPENHALDEX");
+  lv_obj_t *net = label(card, FONT_BODY, COL_DIM, "NETWORK");
   lv_obj_set_pos(net, 0, y);
   y += 20;
 
+  // Role and fleet channel. Changing either saves and reboots (the WiFi mode
+  // is AP+STA vs AP only, which cannot be swapped with ESP-NOW live); the
+  // console w/W do the same. In FOLLOWER the AP follows the controller once
+  // joined, so the channel is the fallback/standby value.
+  lv_obj_t *roleLbl = label(card, FONT_SMALL, COL_DIM, "Role");
+  lv_obj_set_pos(roleLbl, 0, y + 4);
+  g_btnNetRole = button(card, 110, y, 104, 24, netRoleName(g_edit.netRole), onNetRole);
+  lv_obj_t *chLbl = label(card, FONT_SMALL, COL_DIM, "Fleet ch");
+  lv_obj_set_pos(chLbl, 222, y + 4);
+  g_btnNetCh = button(card, 292, y, 38, 24, "1", onNetChannel);
+  setNetChLabel();
+  y += 30;
+
   g_taSsid = addField(card, y, "SSID", g_edit.ssid, false, 220);
-  y += 36;
-  g_taPass = addField(card, y, "AP PASSWORD", g_edit.pass, true, 220);
-  y += 36;
+  y += 32;
+  g_taPass = addField(card, y, "PASSWORD", g_edit.pass, true, 220);
+  y += 32;
   g_taHost = addField(card, y, "HOST", g_edit.host, false, 220);
-  y += 48;  // 14 px of air under the HOST box: see the note below
+  y += 44;  // air under the HOST box: the green status line starts below it
 
   // The password above is two things at once: the WPA key the station joins
   // the access point with, and the HMAC key every ESP-NOW command has to be
@@ -1332,12 +1460,12 @@ void buildSettings() {
   // the one that matters - it was losing "can send commands".
   w.ctrlLine = fixedLabel(card, 0, y, 368, 18, FONT_SMALL, COL_DIM, "control: waiting");
   y += 18;
-  w.ctrlWarn = fixedLabel(card, 0, y, 368, 36, FONT_SMALL, COL_AMBER, "");
+  w.ctrlWarn = fixedLabel(card, 0, y, 368, 30, FONT_SMALL, COL_AMBER, "");
   lv_label_set_long_mode(w.ctrlWarn, LV_LABEL_LONG_WRAP);
-  y += 36;
-  w.otaLine = fixedLabel(card, 0, y, 368, 36, FONT_SMALL, COL_DIM, "OTA: --");
+  y += 30;
+  w.otaLine = fixedLabel(card, 0, y, 368, 30, FONT_SMALL, COL_DIM, "OTA: --");
   lv_label_set_long_mode(w.otaLine, LV_LABEL_LONG_WRAP);
-  y += 46;
+  y += 32;
 
   lv_obj_t *disp = label(card, FONT_BODY, COL_DIM, "DISPLAY");
   lv_obj_set_pos(disp, 0, y);
@@ -1353,16 +1481,14 @@ void buildSettings() {
   lv_obj_set_pos(ul, 0, y + 4);
   g_btnTempUnits =
       button(card, 110, y, 44, 24, g_edit.tempF ? "\xC2\xB0" "F" : "\xC2\xB0" "C", onTempUnits);
-  g_btnBoostUnits = button(card, 162, y, 60, 24, kBoostUnitNames[g_edit.boostUnits], onBoostUnits);
+  g_btnPressure =
+      button(card, 162, y, 64, 24, pressureUnitName(g_edit.pressureUnits), onPressureUnits);
   g_btnDistUnits = button(card, 230, y, 56, 24, g_edit.unitsMetric ? "km" : "mi", onDistUnits);
   y += 30;
 
-  lv_obj_t *dn = label(card, FONT_SMALL, lv_color_hex(0xc6ced6), "Day / night");
+  lv_obj_t *dn = label(card, FONT_SMALL, lv_color_hex(0xc6ced6), "Day / Night");
   lv_obj_set_pos(dn, 0, y + 4);
   g_btnDayNight = button(card, 110, y, 90, 24, kDayNightNames[g_edit.dayNight], onDayNight);
-  // What automatic mode has actually decided, and the number it produced, so the
-  // two board_config numbers can be judged on the glass rather than trusted.
-  w.dayNightLine = fixedLabel(card, 208, y + 4, 148, 20, FONT_SMALL, COL_DIM, "");
   y += 30;
 
   // ---- right column: thresholds, two values to a row ----------------
@@ -1441,9 +1567,9 @@ void buildSettings() {
   // The drive log is a session, not a setting: started here or with 'l' on the
   // console, and it stops itself at 100 KB. It sits between the page buttons
   // and SAVE, with the line that says whether a session is running.
-  w.btnLog = button(card, 290, 414, 96, 30, "START LOG", onLogToggle);
+  w.btnLog = button(card, 284, 414, 96, 30, "START LOG", onLogToggle);
   w.logLine = fixedLabel(card, 396, 420, 216, 18, FONT_SMALL, COL_DIM, "");
-  button(card, 620, 414, 74, 30, "SAVE", onCfgSave);
+  button(card, 618, 414, 74, 30, "SAVE", onCfgSave);
   button(card, 702, 414, 74, 30, "CLOSE", onCfgClose);
 
   // Every cell above was created showing the stored value, so there is nothing
@@ -1479,10 +1605,6 @@ void setSuffix(lv_obj_t *valueLabel, const char *text, lv_color_t color) {
 // the metric / imperial setting cannot be applied twice or forgotten somewhere
 // (#7). Distance and speed only: the temperature toggle is its own setting.
 //
-// U+00B0 (degree) in UTF-8, written escaped and split into two literals: the
-// compiler would otherwise read "\xB0C" as one over-long hex escape.
-constexpr const char *kDegC = "\xC2\xB0" "C";
-constexpr const char *kDegF = "\xC2\xB0" "F";
 constexpr float kMilesPerKm = 0.621371f;
 
 bool metric() { return cfg::get().unitsMetric != 0; }
@@ -1505,18 +1627,19 @@ void groupDigits(char *buf, size_t n, long v) {
   snprintf(buf, n, "%s%s", v < 0 ? "-" : "", out);
 }
 
-/// The temperature, with its unit: "79°C" / "175°F", or "--" for a value that
-/// has never arrived. One helper feeds the coolant and oil rows, so the unit can
-/// never disagree with the setting.
-void fmtTemp(char *buf, size_t n, float celsius) {
+/// The temperature number only; the small unit label beside it is set from
+/// tempUnitText(), so the two can never disagree about C/F.
+void fmtTempValue(char *buf, size_t n, float celsius) {
   if (isnan(celsius)) {
     snprintf(buf, n, "--");
     return;
   }
   const bool f = cfg::get().tempF;
   const float v = f ? celsius * 9.0f / 5.0f + 32.0f : celsius;
-  snprintf(buf, n, "%d%s", (int)lroundf(v), f ? kDegF : kDegC);
+  snprintf(buf, n, "%d", (int)lroundf(v));
 }
+
+const char *tempUnitText() { return cfg::get().tempF ? kDegF : kDegC; }
 
 /// A speed in the current units, no suffix.
 void fmtSpeed(char *buf, size_t n, float kmh) {
@@ -1534,19 +1657,19 @@ void fmtDistance(char *buf, size_t n, float km) {
   snprintf(buf, n, "%s %s", num, metric() ? "km" : "mi");
 }
 
-/// The fuel level, always in litres: "49.6 L".
+/// The fuel level number only; the small "L" label beside it is fixed.
 ///
 /// Deliberately NOT tied to the metric / imperial toggle. The car reports litres
 /// (TankContents is one litre per count) and a tank size is a metric fact here,
 /// and the toggle is about *distance* - so switching to miles moves the speed and
 /// the odometer and leaves the fuel alone. Converting it would also put the fuel
 /// bar's full-scale (a litre figure) at odds with the number beside it.
-void fmtFuel(char *buf, size_t n, float litres) {
+void fmtFuelValue(char *buf, size_t n, float litres) {
   if (isnan(litres)) {
     snprintf(buf, n, "--");
     return;
   }
-  snprintf(buf, n, "%.1f L", (double)litres);
+  snprintf(buf, n, "%.1f", (double)litres);
 }
 
 void fmtBoost(char *buf, size_t n, float mbar) {
@@ -1554,11 +1677,8 @@ void fmtBoost(char *buf, size_t n, float mbar) {
     snprintf(buf, n, "--");
     return;
   }
-  switch (cfg::get().boostUnits) {
-    case cfg::BOOST_MBAR:
-      snprintf(buf, n, "%d", (int)lroundf(mbar));
-      break;
-    case cfg::BOOST_PSI:
+  switch (cfg::get().pressureUnits) {
+    case cfg::PRESSURE_PSI:
       snprintf(buf, n, "%.1f", (double)(mbar / 68.9476f));
       break;
     default:
@@ -1568,11 +1688,7 @@ void fmtBoost(char *buf, size_t n, float mbar) {
 }
 
 const char *boostUnitText() {
-  switch (cfg::get().boostUnits) {
-    case cfg::BOOST_MBAR: return "mbar";
-    case cfg::BOOST_PSI: return "psi";
-    default: return "bar";
-  }
+  return cfg::get().pressureUnits == cfg::PRESSURE_PSI ? "psi" : "bar";
 }
 
 // The rev bar, at the full render rate: the eye tracks its edge the way it
@@ -1667,7 +1783,6 @@ void updateGaugeText(const cfg::Data &c, float rpm) {
 }
 
 void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telemetry::Dash &d) {
-  (void)live;  // only the interpolated copy is drawn
   if (!dbg(8)) return;
   // The last known values stay on the glass when the data goes stale (the
   // status light says so); "--" is reserved for values never received, which
@@ -1749,16 +1864,30 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
   // so nothing here is visible on a stock car. Negative is drawn as it is: it
   // means the input is sitting below the sensor's 0.5 V zero (unwired or
   // unpowered), and a fake 0.0 bar on an oil gauge would be worse than that.
+  setText(w.oilPressUnit, c.pressureUnits == cfg::PRESSURE_PSI ? "psi" : "bar");
   if (isnan(v.oilPressure)) {
     setSuffix(w.oilPressVal, "--", COL_DIM);
-  } else {
-    snprintf(buf, sizeof(buf), "%.1f bar", (double)v.oilPressure);
+  } else if (c.pressureUnits == cfg::PRESSURE_PSI) {
+    snprintf(buf, sizeof(buf), "%.1f", (double)(v.oilPressure * 14.5038f));
     setSuffix(w.oilPressVal, buf, COL_FG);
+  } else {
+    snprintf(buf, sizeof(buf), "%.1f", (double)v.oilPressure);
+    setSuffix(w.oilPressVal, buf, COL_FG);
+  }
+  {
+    int pct = 0;
+    if (!isnan(v.oilPressure)) {
+      pct = (int)((v.oilPressure / kOilPressMaxBar) * 100.0f);
+      if (pct < 0) pct = 0;
+      if (pct > 100) pct = 100;
+    }
+    setBar(w.oilPressBar, pct);
   }
 
   // ---- temperatures
-  fmtTemp(buf, sizeof(buf), v.coolant);
+  fmtTempValue(buf, sizeof(buf), v.coolant);
   setSuffix(w.coolVal, buf, colFor(v.coolant, c.coolWarn, c.coolCrit));
+  setText(w.coolUnit, tempUnitText());
   {
     int pct = 0;
     if (!isnan(v.coolant)) {
@@ -1770,8 +1899,9 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
     setBgColor(w.coolBar, colFor(v.coolant, c.coolWarn, c.coolCrit), LV_PART_INDICATOR);
   }
 
-  fmtTemp(buf, sizeof(buf), v.oil);
+  fmtTempValue(buf, sizeof(buf), v.oil);
   setSuffix(w.oilVal, buf, colFor(v.oil, c.oilWarn, c.oilCrit));
+  setText(w.oilUnit, tempUnitText());
   {
     int pct = 0;
     if (!isnan(v.oil)) {
@@ -1788,7 +1918,7 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
   // litres. The value and the bar go amber on the car's low-fuel warning, which
   // is read straight off the frame and never smoothed - the warning is the one
   // thing on this row that must not lag.
-  fmtFuel(buf, sizeof(buf), v.fuel);
+  fmtFuelValue(buf, sizeof(buf), v.fuel);
   setSuffix(w.fuelVal, buf, isnan(v.fuel) ? COL_DIM : (d.fuelLow ? COL_AMBER : COL_FG));
   {
     int pct = 0;
@@ -1799,6 +1929,16 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
     }
     setBar(w.fuelBar, pct);
     setBgColor(w.fuelBar, d.fuelLow ? COL_AMBER : COL_GREEN, LV_PART_INDICATOR);
+  }
+
+  // ---- battery voltage, the fourth diagnostic row: the body-CAN box's 0x570
+  // on a PQ car (or the controller's supply field where that generation fills
+  // it). Number only, with the small V label already in place.
+  if (isnan(live.batteryV)) {
+    setSuffix(w.battVal, "--", COL_DIM);
+  } else {
+    snprintf(buf, sizeof(buf), "%.1f", (double)live.batteryV);
+    setSuffix(w.battVal, buf, COL_FG);
   }
 
   // ---- haldex
@@ -2017,20 +2157,38 @@ void updateConn(bool stale) {
   // Staleness now lives entirely in the status light: the dashboard keeps
   // showing the last values it had, and this is the only thing that changes.
   //
-  // Two sources feed it now, so "no WiFi" means *neither* of them is alive:
-  // ESP-NOW needs no association, so packets arriving prove the C6 is there
-  // even when our own station has dropped off its access point.
-  if (!s.wifiUp && !feed::onNow()) {
+  // Since 0.9.0 the dash runs its own AP in both roles, so "no WiFi" is a
+  // different failure from "no controller". Keep them apart:
+  //   NO WIFI  both radio interfaces are down and nothing is arriving (a real
+  //            radio failure, or the AP never started);
+  //   NO CTRL  FOLLOWER cannot reach the controller and nothing else (the
+  //            bodycan, OHX, HTTP) is arriving - what used to read NO WIFI;
+  //   WAIT / STALE  something has arrived before, but not recently.
+  const feed::Source src = feed::source();
+  const bool noData = src == feed::Source::None;
+  const bool follower = cfg::get().netRole == cfg::NET_FOLLOWER;
+
+  if (!s.apUp && !s.wifiUp && noData) {
     setText(w.connTxt, "NO WIFI");
     setTextColor(w.connTxt, COL_RED);
     setBgColor(w.dot, COL_RED, 0);
+  } else if (follower && !s.wifiUp && noData) {
+    setText(w.connTxt, "NO CTRL");
+    setTextColor(w.connTxt, COL_RED);
+    setBgColor(w.dot, COL_RED, 0);
   } else if (stale) {
-    // "WAIT" until one of the two has delivered something at all.
-    setText(w.connTxt, feed::source() == feed::Source::None ? "WAIT" : "STALE");
+    // "WAIT" until one of the transports has delivered something at all.
+    setText(w.connTxt, noData ? "WAIT" : "STALE");
     setTextColor(w.connTxt, COL_AMBER);
     setBgColor(w.dot, COL_AMBER, 0);
   } else {
-    setText(w.connTxt, "LIVE");
+    // The number is the relay senders heard in the last 3 s. It is the same
+    // set the CAN DATA page names, so LIVE(2) there and "C6, BCAN" on that
+    // page describe one state, not two. No senders: plain LIVE, as before.
+    const int online = canrelay::sendersOnline(nullptr, 0);
+    char b[16];
+    if (online > 0) snprintf(b, sizeof b, "LIVE(%d)", online); else snprintf(b, sizeof b, "LIVE");
+    setText(w.connTxt, b);
     setTextColor(w.connTxt, COL_GREEN);
     setBgColor(w.dot, COL_GREEN, 0);
   }
@@ -2071,22 +2229,24 @@ void buildSplash(lv_obj_t *parent) {
 
   // ---- the rule, at the picture's own coordinates: y 284, x 210 to 589.
   //
-  // The gradient is fixed across the full 380 px and *revealed*, not stretched:
-  // the parent grows and clips a child that is always full width. A child that
-  // grew instead would recompute the gradient over its own width, so the colour
-  // at the leading edge would crawl as the bar filled.
-  lv_obj_t *clip = plain(w.splash, kRuleX, kRuleY, 1, kRuleH);
-  lv_obj_t *grad = lv_obj_create(clip);
-  lv_obj_remove_style_all(grad);
-  lv_obj_remove_flag(grad, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_radius(grad, 0, 0);
-  lv_obj_set_style_bg_opa(grad, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(grad, lv_color_hex(0x22c55e), 0);
-  lv_obj_set_style_bg_grad_color(grad, lv_color_hex(0x22c0f0), 0);
-  lv_obj_set_style_bg_grad_dir(grad, LV_GRAD_DIR_HOR, 0);
-  lv_obj_set_pos(grad, 0, 0);
-  lv_obj_set_size(grad, kRuleW, kRuleH);
-  g_splashRule = clip;
+  // A real lv_bar, not a clipped custom object: the fixed-width gradient child
+  // this used to reveal was never repainted in its newly exposed part on this
+  // LVGL build (the width advanced in the log while the glass showed no fill;
+  // bench, 13 Nov 2026). The bar's track is transparent so the artwork's empty
+  // track shows through; only the green indicator is drawn.
+  lv_obj_t *splashBar = lv_bar_create(w.splash);
+  lv_obj_remove_style_all(splashBar);
+  lv_obj_remove_flag(splashBar, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_pos(splashBar, kRuleX, kRuleY);
+  lv_obj_set_size(splashBar, kRuleW, kRuleH);
+  lv_bar_set_range(splashBar, 0, 100);
+  lv_bar_set_value(splashBar, 0, LV_ANIM_OFF);
+  lv_obj_set_style_bg_opa(splashBar, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(splashBar, LV_OPA_COVER, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(splashBar, lv_color_hex(0x22c55e), LV_PART_INDICATOR);
+  lv_obj_set_style_radius(splashBar, 0, LV_PART_INDICATOR);
+  lv_obj_move_foreground(splashBar);  // above the full-panel picture
+  g_splashRule = splashBar;
 
   // ---- tagline under the rule, and the version in the bottom-right corner,
   // where it is out of the artwork's way. The version is the one thing here
@@ -2131,8 +2291,14 @@ void updateSplash(uint32_t now) {
     return;
   }
   if (g_splashRule) {
-    const int w = (int)(((uint32_t)kRuleW * (now - g_splashStartMs)) / kSplashMs);
-    lv_obj_set_width(g_splashRule, w < 1 ? 1 : w);
+    const int pct = (int)(((uint32_t)100 * (now - g_splashStartMs)) / kSplashMs);
+    lv_bar_set_value(g_splashRule, pct, LV_ANIM_OFF);
+    // The bar's own invalidation is a few pixels wide; in DIRECT mode a
+    // partial flush does not reach the panel until a full frame is flushed,
+    // so the splash would keep scanning the first picture with no fill. A
+    // full-splash invalidation makes the flush a complete frame and swaps the
+    // buffer. Three seconds of full-screen redraw at boot is the cost.
+    lv_obj_invalidate(w.splash);
   }
 }
 
@@ -2312,7 +2478,7 @@ void tick() {
     // single sample that moves the level faster than kFuelMaxRate l/s - a
     // one-sample spike is thrown away, while a real step (a fill-up) is believed
     // on its second sample, 100 ms later. On top of that the displayed level is a
-    // 5 s low-pass. The car's own low-fuel warning is not touched by any of this.
+    // 60 s low-pass. The car's own low-fuel warning is not touched by any of this.
     if (!isnan(l.fuel)) {
       const bool ok = isnan(g_fuelPrev) ||
                       fabsf(l.fuel - g_fuelPrev) <=
@@ -2404,19 +2570,6 @@ void updateControlStatus() {
     setText(w.otaLine, ubuf);
     setTextColor(w.otaLine, ota::onTrial() ? COL_AMBER : COL_DIM);
   }
-  // What automatic day / night has decided, and the number it produced, so the
-  // two board_config numbers can be judged on the glass (#8).
-  if (w.dayNightLine) {
-    char db[48];
-    if (g_term58s < 0) {
-      snprintf(db, sizeof db, "58s -- / %s", g_night ? "night" : "day");
-    } else {
-      snprintf(db, sizeof db, "58s %d%% / %s %u%%", g_term58s, g_night ? "night" : "day",
-               (unsigned)g_backlight);
-    }
-    setText(w.dayNightLine, db);
-    setTextColor(w.dayNightLine, g_night ? COL_AMBER : COL_DIM);
-  }
   const ohxnow::Status s = ohxnow::last();
   char buf[160];
   if (!s.valid) {
@@ -2455,9 +2608,11 @@ void showSettings(bool visible) {
     // the day/night button are not steppers, so they are re-labelled here too.
     refreshSteppers();
     setText(lv_obj_get_child(g_btnTempUnits, 0), g_edit.tempF ? "\xC2\xB0" "F" : "\xC2\xB0" "C");
-    setText(lv_obj_get_child(g_btnBoostUnits, 0), kBoostUnitNames[g_edit.boostUnits]);
+    setText(lv_obj_get_child(g_btnPressure, 0), pressureUnitName(g_edit.pressureUnits));
     setText(lv_obj_get_child(g_btnDistUnits, 0), g_edit.unitsMetric ? "km" : "mi");
     setText(lv_obj_get_child(g_btnDayNight, 0), kDayNightNames[g_edit.dayNight]);
+    setText(lv_obj_get_child(g_btnNetRole, 0), netRoleName(g_edit.netRole));
+    setNetChLabel();
   } else if (w.kb) {
     lv_keyboard_set_textarea(w.kb, nullptr);
     lv_obj_add_flag(w.kb, LV_OBJ_FLAG_HIDDEN);

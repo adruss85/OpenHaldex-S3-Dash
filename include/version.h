@@ -8,7 +8,51 @@
 // =====================================================================
 #pragma once
 
-#define OHX_DASH_VERSION "0.8.2"  // Relay receive: any sender, per-sender seq, bench channel pin
+#define OHX_DASH_VERSION "0.9.0"  // Fleet role: the dash is an AP in both modes
+// 0.9.0 - The dash is now the pseudo wireless CAN fleet's anchor, in both
+// roles. FOLLOWER keeps today's behaviour (STA joined to the controller) but
+// also runs its own AP, which rides the controller's channel; ANCHOR runs the
+// AP only, on cfg::fleetChannel (default 1), so a car with no controller still
+// has a network. The body-CAN box scans for "ohx-dash" (then the C6's
+// "OpenHaldex-C6") and locks to that AP's channel, instead of compiling in
+// channel 11. The update page is served on the AP in both roles, so a
+// controller-less or misconfigured dash is still reachable without USB; in
+// FOLLOWER it is also served during the join attempt, not only after it.
+// The relay now counts as a live source for the status light and the console's
+// source line (no OHX_STATUS exists in ANCHOR mode), and the ESP-NOW broadcast
+// peer uses the AP interface when there is no station. New settings netRole and
+// fleetChannel append to config v6; the Settings page's NETWORK row and the
+// console `w`/`W` set them (both reboot), and `N` prints the network state.
+// Also in this build: the splash progress bar is a real lv_bar and the whole
+// splash is invalidated each tick (the old revealed gradient child stopped
+// repainting its newly exposed part, so the bar vanished); fuel smoothing is
+// 60 s instead of 5 s; and the config reader accepts a newer blob's known
+// prefix, so flashing between later versions no longer looks like a settings
+// reset. The CAN DATA top bar names the online relay senders from the CANN kind
+// byte (C6, BCAN), and the dashboard's LIVE telltale becomes LIVE(N) with the
+// same count. The red no-data state is split: NO CTRL when the follower link
+// and every transport are down, NO WIFI only when the dash's own radio is down;
+// WAIT/STALE are unchanged. The speed tile puts mph and the speed peak
+// directly under the number. The temperatures column is now four diagnostic
+// rows (COOLANT, OIL, FUEL, BATT) on a 55 px pitch; BATT is the body-CAN box's
+// 0x570 through chassis -> can_relay -> datafeed (or the controller's OHX
+// supply field where that generation fills it). It reads "--" without the
+// box, which is a deliberate trade for this rig. The boost tile puts the peak
+// directly under the unit; OIL PRES sits on the bottom diagnostic line with
+// BATT, caption/value/unit on one line and a 0-10 bar scale underneath, as
+// FUEL has. Every unit in the tile band is now the small stock 14 px font beside
+// a larger value: COOLANT/OIL C (degree dropped so C/L/V share an edge),
+// FUEL L, BATT V, OIL PRES bar/psi, boost psi/bar and mph. The old inline "30°C" / "13.0 L" strings are gone. The pressure unit is
+// one system-wide bar/psi setting (config v7) shared by boost and OIL PRES;
+// the old boost bar/mbar/psi selector is gone, stored psi carries over and
+// mbar folds to bar. mph starts on the same left edge as peak, and OIL PRES
+// sits on the bottom diagnostic line with BATT so the four-row temperatures
+// column cannot push it into the boost peak. Verified on the bench and with the
+// C6 keyed on in the car (relay enabled): FOLLOWER AP+STA received 20 ids from
+// C6 + BCAN at 70-140 f/s, 2 senders online, BATT 13.00 V; ANCHOR and channel
+// moves were exercised too. Not yet verified: the dash's own render/RAM cost
+// on a car, the Settings/RAW pages after the final layout pass on glass, and
+// automatic follower->anchor rescue. Details in docs/status.md.
 // 0.8.2 - The relay is no longer one-sender-only. The body-CAN box
 // (ESP32-bodycan, a second CANN sender on the rig's channel 11) was invisible
 // to this dash three times over. The CAN-relay branch of the ESP-NOW callback

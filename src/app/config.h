@@ -5,7 +5,7 @@
 //   rpmMax 8000  rpmAmber 6000  rpmRedline 6800  rpmShift 7300
 //   coolWarn 100 coolCrit 110  oilWarn 120       oilCrit 135
 //   boostMax 2500 boostWarn 1800 boostCrit 2200 (millibar gauge)
-//   tempUnits "C"  boostUnits "bar"  brightness 1.0
+//   tempUnits "C"  pressureUnits "bar"  brightness 1.0
 //   pollLiveMs 100  pollDashMs 1000  staleMs 500
 // =====================================================================
 #pragma once
@@ -15,12 +15,26 @@
 
 namespace cfg {
 
+// Legacy pre-v7 boost-units values, kept only for the append-only NVS layout
+// and migration. The live setting is PressureUnits, shared by boost and oil.
 enum BoostUnits : uint8_t { BOOST_BAR = 0, BOOST_MBAR = 1, BOOST_PSI = 2 };
 
 /// How the backlight is decided. Auto reads Terminal 58s off the car's own bus
 /// (0 = lights off, 7..99 % = the dash dimmer wheel), which carries both the
 /// mode and the night brightness in one signal.
 enum DayNightMode : uint8_t { DN_AUTO = 0, DN_DAY = 1, DN_NIGHT = 2 };
+
+/// Which side of the fleet the dash is on. In both roles the dash runs its own
+/// access point, so the fleet always has an anchor to scan for (see
+/// docs/architecture.md, "The pseudo wireless CAN network"):
+///   FOLLOWER  AP+STA: the AP rides the controller's channel, the STA joins it.
+///   ANCHOR    AP only: the dash is the fleet's channel, no controller needed.
+enum NetRole : uint8_t { NET_FOLLOWER = 0, NET_ANCHOR = 1 };
+
+/// One pressure unit for the whole dash: the boost value/peak and the oil
+/// pressure row. The small unit labels carry the choice, because the 22 px
+/// number face has no letters.
+enum PressureUnits : uint8_t { PRESSURE_BAR = 0, PRESSURE_PSI = 1 };
 
 struct Data {
   // Connection to the OpenHaldex-C6. Stored in NVS, never in git.
@@ -43,7 +57,7 @@ struct Data {
   float boostCrit;
 
   bool tempF;           // false = degC, true = degF
-  uint8_t boostUnits;   // BoostUnits
+  uint8_t boostUnits;   // legacy BoostUnits; folded into pressureUnits (v7)
   float brightness;     // 0..100 %
 
   // Polling. pollDashMs must stay <= 2000 to keep the C6's WiFi awake:
@@ -74,6 +88,19 @@ struct Data {
   uint8_t unitsMetric;
 
   uint8_t dayNight;  // DayNightMode
+
+  // --- added in version 6. Network role and the channel the dash's own AP
+  // starts on. In FOLLOWER the AP follows the controller's channel once the
+  // STA joins; this channel is the fallback while it is not joined. In ANCHOR
+  // it is the fleet's channel. Appended for the same prefix-compatible reason
+  // as the version 5 fields above.
+  uint8_t netRole;      // NetRole
+  uint8_t fleetChannel; // 1..13
+
+  // --- added in version 7. System pressure units (PressureUnits): boost and
+  // oil pressure share it. The legacy boostUnits field above stays for the
+  // NVS layout and migration only.
+  uint8_t pressureUnits;
 };
 
 /// Load from NVS (or defaults + any build-time secrets on first boot).

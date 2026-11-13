@@ -3,24 +3,24 @@ Read this when you need to know what has actually been verified, on which firmwa
 # Status
 
 <!-- status:start -->
-Firmware version: 0.8.2
-Flash: 1 526 670 / 1 966 080 B (77.7%)
-Internal RAM (static): 60 268 / 327 680 B
-Measured: 2026-11-12, build abd51b1
+Firmware version: 0.9.0
+Flash: 1 532 198 / 1 966 080 B (77.9%)
+Internal RAM (static): 60 364 / 327 680 B
+Measured: 2026-11-13, working tree (uncommitted), bench
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
 about the current build. `tools/doc_status.py` regenerates the block above from
 a real `pio run` (or a saved log / a `firmware.elf`).
 
-This is **0.8.2**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
+This is **0.9.0**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
 to a pre-rendered picture (0.6.2), the drive log (0.7.0), a quieter cruise lamp
 (0.7.1), the rev bar with a settable scale (0.7.2), the four faults from the 11
 Nov drive (0.7.3), the CC lamp's three states (0.7.4), the cruise set speed in
 the `k` dump (0.7.5), boost plus oil pressure on the ForbesAutomotive ME7
 patch (0.8.0), the binary-size audit with the night-brightness floor lowered
-(0.8.1), and relay reception from any CANN sender with a bench listen-channel
-pin (0.8.2). The status below separates what was verified in the car, what has
+(0.8.1), relay reception from any CANN sender (0.8.2), and the dash as the
+fleet's AP anchor with the role/channel settings (0.9.0). The status below separates what was verified in the car, what has
 been exercised on the bench, and what is still unproven; measured figures carry
 the version they came from.
 
@@ -147,6 +147,86 @@ sender's packets are missed (`air lost` ~44%); staying parked on the pinned
 channel between attempts is the named next lever. Not verified here: the C6
 path itself (no controller on this bench), and the two-sender interleave
 (only one sender was transmitting).
+
+**0.9.0 makes the dash the fleet's access-point anchor, in both roles.**
+FOLLOWER keeps the station join to the controller and adds the dash's own AP
+(`ohx-dash`, open, `192.168.4.1`), which rides the controller's channel.
+ANCHOR runs the AP only on `cfg::fleetChannel` (default 1), with no join
+attempts and no HTTP pollers. The body-CAN box was upgraded to 0.2.0 in the
+same session: it scans for `ohx-dash` first and `OpenHaldex-C6` second and
+locks to that AP's channel instead of compiling in 11.
+
+Bench-verified on 13 Nov 2026, first with the dash and bodycan on USB and the
+C6 on USB power only, then with the C6 keyed on in the car and its chassis
+relay enabled:
+
+* **Follower, C6 on channel 1:** `[net] follower AP "ohx-dash" ch 1: up`, then
+  `[net] connected ... rssi -39 dBm`, `[stats] net role follower, fleet ch 1 |
+  AP up ip 192.168.4.1 | radio ch 1 | STA up`. The C6's `OHX_STATUS` arrived at
+  ~9 Hz and the bodycan's synthetic CANN packets arrived alongside it
+  (`[stats] relay 2 f/s, 3 ids, ... 1 sender(s)`).
+* **Anchor, no join:** `w` switched the role and rebooted. `[stats] net role
+  anchor, fleet ch 1 | AP up ... | STA down`, no `[net] joining`, no
+  reconnects, render 59.6 fps. `relay` counted the bodycan's frames and `C`
+  listed **3 ids, 18 frames, air lost 0**: 0x470 `BodyECU_Cluster`,
+  0x570 `BodyECU_Load` (`02 00 B4 00`, the byte proven as 14.00 V in the 0.8.2
+  decode) and 0x578 `BattMan_1`; the selected id's signals
+  (`Terminal_58s` 70 %) decoded. The update page answered on
+  `http://192.168.4.1/`.
+* **Channel move:** `W` took the dash to channel 2 and rebooted. The bodycan
+  re-scanned (`r`) and reported `anchor "ohx-dash" ch 2 (-19 dBm)` — it
+  preferred the dash AP over the C6 AP, which was still on channel 1 — and the
+  dash's relay table survived the move. Switching back to follower moved the
+  dash AP onto the C6's channel 1; the bodycan followed it there.
+* **A bug found and fixed on the way:** `updateNetStats()` called `WiFi.RSSI()`
+  inside `taskENTER_CRITICAL`, which took the WiFi/coex semaphore with
+  interrupts disabled and tripped the interrupt watchdog on the first AP+STA
+  boot. The driver is now sampled before the lock.
+* **Splash and settings, same session:** the progress bar was invisible because
+  a partial flush never reached the panel; it is now a real `lv_bar` and the
+  whole splash is invalidated each tick, so the 3 s fill is visible again on
+  the glass. The Settings page's NETWORK row (`Role`, `Fleet ch`) was added in
+  the space made by tightening the connection block; the page still fits above
+  the bottom rule. Fuel smoothing is 60 s (was 5 s), and the config reader
+  accepts a newer blob's known prefix.
+* **Tile layout and battery:** the speed tile puts `mph` and `peak` under the
+  big number; the temperatures column is four rows (`COOLANT`, `OIL`, `FUEL`,
+  `BATT`) on a 55 px pitch, with `BATT` the diagnostic number at the bottom.
+  The boost tile puts `peak` directly under the `bar` unit and makes
+  `OIL PRES` a caption/value/unit row on the bottom diagnostic line with
+  `BATT`, and a 0-10 bar scale underneath as FUEL has. Every value is the larger face;
+  every unit — `C`/`F`, `L`, `V`, `bar`/`psi`, boost and speed — is the small
+  stock 14 px grey label beside it; `C`/`L`/`V` share one left edge (the degree
+  sign is dropped in the tile). Pressure units are one system-wide bar/psi
+  setting (config v7) for boost and oil; the old boost mbar option folds to
+  bar. Battery voltage comes from the
+  bodycan's 0x570 through `chassis.cpp` -> `can_relay::Values` ->
+  `datafeed.cpp`; the console `k` line now prints `batt`. With the bodycan off
+  USB the tile reads `--` (the C6's Gen1 OHX packet has no supply field).
+* **Sender names and count:** the CAN DATA top bar reads
+  `SENDERS: BCAN | 2 f/s | 3 ids | lost 0.0% | vw_pq` with only the bodycan,
+  and `C` prints `senders online (1): BCAN`. With the C6 keyed on and its
+  chassis relay enabled, the same session reported **2 sender(s) (2 online)**
+  and `C` printed `senders online (2): C6, BCAN`; the top bar and dashboard
+  use the same 3 s window (`SENDERS: C6, BCAN`, `LIVE(2)`). The names come
+  from the CANN `kind` byte; senders are sorted C6 first so the list does not
+  swap places between boots. `WAIT`/`STALE` are unchanged; the old red
+  no-controller state is `NO CTRL`, while `NO WIFI` is reserved for the dash's
+  own radio/AP being down.
+* **Real C6, car, relay on:** the dash stayed in FOLLOWER on the C6's channel
+  (`radio ch 1`, `STA up`) at −72…−75 dBm. The C6 relayed its chassis bus at
+  **70–140 f/s across 20 ids**, alongside the bodycan's synthetic frames;
+  `C` decoded `BatteryVoltage_VehicleBattery` **13.00 V** from the bodycan's
+  ramping 0x570 byte. Air loss was **~27–29 %** on the high-rate C6 relay at
+  this bench-to-car range, while the bodycan's low-rate packets reported 0
+  lost — link margin, not sender logic. The dash and bodycan were still on the
+  bench; this was not a car install.
+
+Not verified: the render/RAM cost of the AP on a car; the Settings page on the
+glass as a final layout check (the row was present in the `d` dump);
+automatic follower→anchor rescue; and any in-car dash behaviour. The 0.8.2
+bench reception note still applies in FOLLOWER with no controller: the join
+loop hops channels and loses packets — use ANCHOR for a controller-less car.
 
 **In the car** (0.5.x):
 

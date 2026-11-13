@@ -44,6 +44,10 @@ struct Live {
   // with the ForbesAutomotive ME7 patch. The controller does not publish it, so
   // this is NAN without ESP-NOW/CAN relay, or when no long frame is heard.
   float oilPressure;
+  // Battery voltage, from the body-CAN box's 0x570 over the relay (or the
+  // controller's OHX supply field on a generation that fills it). NAN = no
+  // source has a recent reading.
+  float batteryV;
   bool everOk;
   uint32_t ageMs;  // ms since the last successful parse
 };
@@ -120,8 +124,11 @@ struct Stats {
   uint32_t dashFail;
   uint32_t reconnects;
   int16_t rssi;
-  bool wifiUp;
-  uint32_t ip;
+  bool wifiUp;   // the STA is associated to the controller
+  uint32_t ip;   // STA address
+  bool apUp;     // the dash's own access point is running (both roles)
+  uint32_t apIp; // AP address, e.g. 192.168.4.1
+  uint8_t channel; // the radio's current channel (AP channel in anchor mode)
 };
 
 /// Start the network task (core 0). Called once from setup().

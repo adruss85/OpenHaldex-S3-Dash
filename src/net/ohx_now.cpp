@@ -432,15 +432,25 @@ bool begin() {
     return false;
   }
   esp_now_register_recv_cb(onRecv);
-  WiFi.macAddress(g_ownMac);  // to tell our own ack from anyone else's
+  // To tell our own ack from anyone else's. In ANCHOR mode there is no station
+  // interface and WiFi.macAddress() reads all zeros; the AP's MAC is the one
+  // actually on the air.
+  if (WiFi.getMode() == WIFI_MODE_AP)
+    WiFi.softAPmacAddress(g_ownMac);
+  else
+    WiFi.macAddress(g_ownMac);
 
   // A peer entry is only needed to *send*. The broadcast peer is registered
   // here so the peer table is exercised from boot, and a command to a specific
   // controller (sendMode) adds that controller's unicast peer on demand.
   esp_now_peer_info_t peer = {};
   memset(peer.peer_addr, 0xFF, 6);
-  peer.channel = 0;  // 0 = whatever channel the station is on: we follow the C6
-  peer.ifidx = WIFI_IF_STA;
+  peer.channel = 0;  // 0 = the radio's current channel (the AP's in anchor mode)
+  // In ANCHOR mode there is no station interface to send from; the AP's own
+  // interface is the one on the air. The peer is only needed to *send*, and a
+  // dash with no controller never sends a mode command, but adding it with the
+  // wrong interface would fail the peer table at boot.
+  peer.ifidx = (WiFi.getMode() == WIFI_MODE_AP) ? WIFI_IF_AP : WIFI_IF_STA;
   peer.encrypt = false;
   const esp_err_t perr = esp_now_add_peer(&peer);
   g_peerAdded = (perr == ESP_OK);

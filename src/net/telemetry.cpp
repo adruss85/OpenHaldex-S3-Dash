@@ -53,6 +53,60 @@ bool g_httpDashReady = false;
 
 TaskHandle_t g_netTask = nullptr;  // the network task, so its stack can be reported
 
+// The dash's own access point. In both roles it is the fleet's anchor: the
+// body-CAN box and any other sender scan for this SSID, take the channel it is
+// on, and lock. In FOLLOWER the AP rides the controller's channel once the STA
+// joins; in ANCHOR it stays on cfg::fleetChannel. The name is deliberately
+// distinct from the C6's "OpenHaldex-C6" so the bodycan can tell them apart.
+constexpr const char *kDashApSsid = "ohx-dash";
+bool g_mdnsStarted = false;
+
+bool apUp() {
+  const wifi_mode_t mode = WiFi.getMode();
+  if (mode != WIFI_AP && mode != WIFI_AP_STA) return false;
+  return (uint32_t)WiFi.softAPIP() != 0;
+}
+
+// Start the AP if it is not already running. Returns false only when the AP
+// itself could not be started, which is the one failure the network task must
+// not mistake for "no controller".
+bool wifiStartAp() {
+  if (apUp()) return true;
+  const cfg::Data &c = cfg::get();
+  WiFi.mode(c.netRole == cfg::NET_ANCHOR ? WIFI_AP : WIFI_AP_STA);
+  WiFi.setSleep(false);
+  const bool ok = WiFi.softAP(kDashApSsid, nullptr, c.fleetChannel);
+  Serial.printf("[net] %s AP \"%s\" ch %u: %s, ip %s\n",
+                c.netRole == cfg::NET_ANCHOR ? "anchor" : "follower", kDashApSsid,
+                (unsigned)c.fleetChannel, ok ? "up" : "FAILED",
+                WiFi.softAPIP().toString().c_str());
+  if (ok && !g_mdnsStarted) g_mdnsStarted = MDNS.begin("ohx-dash");
+  return ok;
+}
+
+// Snapshot the radio into the stats the UI and the console read. Called from
+// the network task only; the fields are copied under the lock.
+void updateNetStats() {
+  // Sample the driver *before* taking the spinlock. WiFi.RSSI() takes the
+  // WiFi/coex semaphore, and doing that with interrupts disabled is an
+  // interrupt-watchdog panic (seen on the bench: the first AP+STA boot).
+  const bool sta = WiFi.status() == WL_CONNECTED;
+  const int16_t rssi = sta ? (int16_t)WiFi.RSSI() : 0;
+  const uint32_t ip = sta ? (uint32_t)WiFi.localIP() : 0;
+  const bool ap = apUp();
+  const uint32_t apIp = (uint32_t)WiFi.softAPIP();
+  const uint8_t channel = (uint8_t)WiFi.channel();
+
+  taskENTER_CRITICAL(&g_mux);
+  g_stats.wifiUp = sta;
+  g_stats.rssi = rssi;
+  g_stats.ip = ip;
+  g_stats.apUp = ap;
+  g_stats.apIp = apIp;
+  g_stats.channel = channel;
+  taskEXIT_CRITICAL(&g_mux);
+}
+
 float numOrNan(JsonVariantConst v) {
   if (v.isNull()) return NAN;
   if (v.is<float>()) return v.as<float>();
@@ -82,15 +136,11 @@ void wifiDisconnect() { WiFi.disconnect(false, false); }
 // High enough to stay clear of the DHCP pool's usual .2 ... .10 range.
 constexpr uint8_t kStaticLastOctet = 203;
 
-// Listen channel while nothing is joined. The dash's ESP-NOW reception rides on
-// the station's channel, and the association is what parks the radio on the
-// C6's: with no controller on the air (bench, or a car with the C6 off) the
-// station sits wherever the last scan left it - measured, channels 1/4/12/13
-// within one boot - and a sender on the rig's channel 11 is then invisible.
-// So after every failed join attempt the radio is parked on this channel,
-// which is where the rig's other ESP-NOW devices transmit. Never touched while
-// joined: the access point's channel rules then, as before.
-#define OHX_NOW_IDLE_CHANNEL 11
+// The AP is the fleet anchor, so a failed join must not leave the radio (and
+// the AP with it) on whatever channel the scan happened to stop on - 0.8.2
+// measured 1/4/12/13 within one boot. Park it on cfg::fleetChannel; once the
+// station joins, the AP follows the controller's channel and this is not used.
+// The bodycan scans for this AP, so the pin is a beacon, not a private guess.
 
 // Association state, which tells "on the radio but no address" apart from
 // "never got near the AP". Asked of the driver directly: with the radio left on
@@ -113,6 +163,11 @@ bool waitForJoin(uint32_t timeoutMs) {
   const uint32_t deadline = millis() + timeoutMs;
   uint32_t lastLog = 0;
   while (!wifiLinkUp() && (int32_t)(millis() - deadline) < 0) {
+    // The AP is up throughout the join attempt, so its update page must keep
+    // being served while the STA scans and retries. Without this the page is
+    // unreachable for the 8-15 s each attempt takes.
+    ota::serveBegin();
+    ota::servePoll();
     if ((uint32_t)(millis() - lastLog) >= 2000) {
       lastLog = millis();
       const int st = (int)WiFi.status();
@@ -129,6 +184,12 @@ bool waitForJoin(uint32_t timeoutMs) {
 bool wifiEnsureConnected() {
   static uint32_t lastAttempt = 0;
   static uint32_t lastRevision = 0;
+
+  // The AP comes up first, in both roles. It is the fleet anchor even while
+  // the STA is still trying to join the controller, and it is what makes the
+  // update page reachable when there is no controller at all.
+  if (!wifiStartAp()) return false;
+  if (cfg::get().netRole == cfg::NET_ANCHOR) return true;
 
   const uint32_t rev = cfg::revision();
   const bool revisionChanged = (rev != lastRevision);
@@ -177,7 +238,7 @@ bool wifiEnsureConnected() {
   g_httpDash.end();
 
   WiFi.setAutoReconnect(false);  // we drive this loop ourselves
-  WiFi.mode(WIFI_STA);
+  WiFi.mode(WIFI_AP_STA);        // the AP is already up: keep it
   WiFi.setSleep(false);  // 10 Hz polling: latency beats power saving here
   wifiDisconnect();
 
@@ -269,15 +330,15 @@ bool wifiEnsureConnected() {
     }
     WiFi.scanDelete();
 
-    // Not joined: park the radio on the listen channel, so ESP-NOW from the
-    // rig's other senders is still heard between join attempts (see
-    // OHX_NOW_IDLE_CHANNEL). The next WiFi.begin() scans and overrides it,
-    // which is fine - it is re-pinned on the next failure here.
+    // Not joined: park the AP (and therefore the radio) on the fleet channel,
+    // so the bodycan can find it between join attempts. The next WiFi.begin()
+    // scans and moves it, and it is re-pinned on the next failure here.
+    const uint8_t idleChannel = cfg::get().fleetChannel;
     const int wasChannel = (int)WiFi.channel();
-    if (wasChannel != OHX_NOW_IDLE_CHANNEL) {
-      const esp_err_t err = esp_wifi_set_channel(OHX_NOW_IDLE_CHANNEL, WIFI_SECOND_CHAN_NONE);
-      Serial.printf("[net] not joined - listen channel %d -> %d (%s)\n", wasChannel,
-                    OHX_NOW_IDLE_CHANNEL, err == ESP_OK ? "pinned" : esp_err_to_name(err));
+    if (wasChannel != idleChannel) {
+      const esp_err_t err = esp_wifi_set_channel(idleChannel, WIFI_SECOND_CHAN_NONE);
+      Serial.printf("[net] not joined - AP/fleet channel %d -> %d (%s)\n", wasChannel,
+                    (int)idleChannel, err == ESP_OK ? "pinned" : esp_err_to_name(err));
     }
     return false;
   }
@@ -286,12 +347,9 @@ bool wifiEnsureConnected() {
                 WiFi.localIP().toString().c_str(), WiFi.gatewayIP().toString().c_str(),
                 (int)WiFi.RSSI());
 
-  // Registering mDNS lets "openhaldex.local" resolve wherever the C6 is
-  // published under that name instead of its access-point address.
-  static bool mdnsStarted = false;
-  if (!mdnsStarted) {
-    mdnsStarted = MDNS.begin("ohx-dash");
-  }
+  // mDNS is normally started with the AP (wifiStartAp), so this is only the
+  // fallback for a build that joined a controller before the AP came up.
+  if (!g_mdnsStarted) g_mdnsStarted = MDNS.begin("ohx-dash");
   return true;
 }
 
@@ -378,8 +436,10 @@ void pollLive() {
     // and datafeed.cpp fills it in. NAN here means "this source has nothing",
     // which is exactly what the merge expects.
     v.fuel = NAN;
-    // Oil pressure is a relay decode too; /api/live never carries it.
+    // Oil pressure and battery voltage are relay decodes too; /api/live never
+    // carries them.
     v.oilPressure = NAN;
+    v.batteryV = NAN;
     v.everOk = true;
     v.ageMs = 0;
     g_liveOkMs = now;
@@ -457,22 +517,23 @@ void netTask(void *) {
   uint32_t dashPeriod = cfg::get().pollDashMs;
 
   for (;;) {
-    if (!wifiEnsureConnected()) {
-      // Say so: the status light's "NO WIFI" reads this, and the block further
-      // down that normally sets it is skipped while the link is down.
-      taskENTER_CRITICAL(&g_mux);
-      g_stats.wifiUp = false;
-      taskEXIT_CRITICAL(&g_mux);
+    const bool linked = wifiEnsureConnected();
+
+    // The update page is served on the AP in both roles and on the station when
+    // one is joined. It stays above the polling pause and above the failure
+    // branch on purpose: a dash with no controller, or a paused one, must still
+    // be updatable.
+    ota::serveBegin();
+    ota::servePoll();
+    updateNetStats();
+
+    // Anchor mode has no controller to poll. Follower mode with no controller
+    // is not a failure either: the AP is up and the fleet (bodycan) can still
+    // reach the relay. Only the HTTP pollers are skipped.
+    if (!linked || cfg::get().netRole == cfg::NET_ANCHOR) {
       vTaskDelay(pdMS_TO_TICKS(100));
       continue;
     }
-
-    // The update page lives on the station's own address, so it can only be
-    // served once there is one. Both calls are trivial when nothing is
-    // happening, and both sit above the polling pause on purpose: a paused
-    // dash must still be updatable.
-    ota::serveBegin();
-    ota::servePoll();
 
     if (g_paused) {
       vTaskDelay(pdMS_TO_TICKS(50));
@@ -499,14 +560,7 @@ void netTask(void *) {
       lastDash = millis();
     }
 
-    const bool up = (WiFi.status() == WL_CONNECTED);
-    const int16_t rssi = up ? (int16_t)WiFi.RSSI() : 0;
-    const uint32_t ip = up ? (uint32_t)WiFi.localIP() : 0;
-    taskENTER_CRITICAL(&g_mux);
-    g_stats.wifiUp = up;
-    g_stats.rssi = rssi;
-    g_stats.ip = ip;
-    taskEXIT_CRITICAL(&g_mux);
+    updateNetStats();
 
     // 2 ms granularity keeps the 100 ms live tick accurate without spinning.
     vTaskDelay(pdMS_TO_TICKS(2));
@@ -521,7 +575,7 @@ void setPaused(bool paused) {
 }
 
 void begin() {
-  g_live = Live{NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, false, UINT32_MAX};
+  g_live = Live{NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, false, UINT32_MAX};
   g_dash = Dash{-1, -1, -1, -1, false, false, false, false, false, false,
                 false, false, false, false, UINT32_MAX, NAN, -1, -1};
   g_stats = Stats{};

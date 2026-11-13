@@ -42,6 +42,12 @@ struct Chassis {
   bool fuelLow = false;    // the cluster's low-fuel warning
   bool fuelValid = false;
 
+  // --- battery voltage, from BodyECU_Load (0x570) byte 2 on the comfort CAN.
+  // The body-CAN box is usually the sender on this car; the controller's
+  // powertrain bus does not carry 0x570. NAN = never heard.
+  float batteryV = NAN;  // V, BatteryVoltage_VehicleBattery: x0.05 + 5
+  bool batteryValid = false;
+
   // --- lighting: Terminal 58, the lighting switch and dimmer wheel
   int term58s = -1;      // 0 = lights off; 1..99 = dimmer %, from Cluster_2
   bool termValid = false;

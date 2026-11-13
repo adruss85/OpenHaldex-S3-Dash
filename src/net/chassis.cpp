@@ -54,6 +54,15 @@ void readPq(Chassis &c) {
     c.handbrake = (f.data[1] >> 1) & 0x01;
   }
 
+  // ---- BodyECU_Load (0x570). BatteryVoltage_VehicleBattery, 16|8 x0.05 +5 V.
+  // The body-CAN box broadcasts this on the comfort bus; the controller's
+  // powertrain relay does not see it on a PQ car. Four bytes is the frame the
+  // box sends; three is enough to hold byte 2.
+  if (recent(0x570, 3, f)) {
+    c.batteryV = (float)f.data[2] * 0.05f + 5.0f;
+    c.batteryValid = true;
+  }
+
   // ---- Cluster_2 (0x420). Temperatures, ambient, and the lighting switch.
   if (recent(0x420, 5, f)) {
     // The same two bytes the controller reads, so the dashboard and the
@@ -225,7 +234,7 @@ void print(const uint8_t generation) {
   // "num unit" when present, "--" when not: an absent value must never print as
   // 0, which is how a missing tank reading becomes an empty tank.
   char fuel[24], odo[24], amb[24], cool[16], oil[16], bar[16], setSpd[16];
-  char boostAbs[20], oilPress[16];
+  char boostAbs[20], oilPress[16], batt[16];
   auto num = [](char *out, size_t n, float v, int dec, const char *unit) {
     if (isnan(v)) {
       snprintf(out, n, "--");
@@ -254,10 +263,11 @@ void print(const uint8_t generation) {
   num(setSpd, sizeof setSpd, c.cruiseSetKmh, 0, "km/h");
   num(boostAbs, sizeof boostAbs, c.manifoldBar, 2, "bar abs");
   num(oilPress, sizeof oilPress, c.oilPressureBar, 1, "bar");
+  num(batt, sizeof batt, c.batteryV, 1, "V");
 
-  Serial.printf("[chassis] gen %u | fuel %s low %d %s | odo %s | 58s %d %s | outside %s\n",
+  Serial.printf("[chassis] gen %u | fuel %s low %d %s | odo %s | 58s %d %s | outside %s | batt %s\n",
                 (unsigned)generation, fuel, c.fuelLow ? 1 : 0, c.fuelValid ? "" : "(invalid)", odo,
-                c.term58s, c.termValid ? "" : "(no frame)", amb);
+                c.term58s, c.termValid ? "" : "(no frame)", amb, batt);
   Serial.printf("[chassis] coolant %s | oil %s | brake %s | hand %s\n", cool, oil,
                 c.brake < 0 ? "--" : (c.brake ? "1" : "0"),
                 c.handbrake < 0 ? "--" : (c.handbrake ? "1" : "0"));

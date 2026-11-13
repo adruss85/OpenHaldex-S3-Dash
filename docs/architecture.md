@@ -160,8 +160,8 @@ logged as one line at boot:
 | Capability | This car | Consequence |
 |---|---|---|
 | boost | **ME7 patch** | the BOOST panel is built into the band; a stock Gen1 keeps NoBoost |
-| engine oil pressure | **ME7 patch** | a quiet OIL row is drawn inside the BOOST panel, hidden without the patch |
-| supply voltage | absent | not shown |
+| engine oil pressure | **ME7 patch** | a quiet OIL PRES row is drawn inside the BOOST panel, hidden without the patch; system pressure units are bar/psi |
+| battery voltage | body-CAN box `0x570` | the `BATT` row in the temperatures column; reads `--` without the box |
 | Haldex oil / clutch / module temps | absent | not shown |
 | steering angle | **packet only** | the packet is authoritative; the JSON path gates it off for Gen1 |
 | handbrake | **chassis CAN only** | the lamp lights from the CAN bit; the wired input never moves on this car |
@@ -232,6 +232,35 @@ oil, the fuel level and the odometer arrive over the CAN relay instead
 — broadcast has no retransmission, so gaps are expected. Listening costs
 nothing in render rate: the loop stays at ~60.2 ms busy out of a 61.0 ms
 period with the listener on or off.
+
+### The fleet role and the dash's own access point
+
+From 0.9.0 the dash is also the pseudo wireless CAN fleet's **anchor**. It runs
+an open access point called **`ohx-dash`** at `192.168.4.1` in both roles:
+
+* **FOLLOWER** (default): `WIFI_AP_STA`. The AP is started on
+  `cfg::fleetChannel` and then follows the controller's channel once the
+  station joins it. The dash hears the controller's `OHX_STATUS` and the
+  body-CAN box's CANN packets on that one channel, as before.
+* **ANCHOR**: `WIFI_AP` only. No join, no HTTP pollers, the AP stays on
+  `cfg::fleetChannel`. This is the controller-less mode: the CAN DATA page and
+  every relay-carried value work; the Haldex band and mode tile have no
+  source (they are not yet hidden — TODO 1.5). The update page is served on
+  the AP.
+
+The body-CAN box (0.2.0) does not compile in a channel. It **scans** for
+`ohx-dash` first and `OpenHaldex-C6` second, takes that AP's channel, and
+re-scans every 30 s or on `r`. This is deliberate: ESP-NOW has no discovery or
+channel negotiation, and a radio can only hear a packet on the channel it is
+tuned to. The AP's WiFi beacon is the “I am on channel N” signal, and a scan is
+how it is heard. The `channel` field in `OHX_STATUS` is diagnostic only — it
+cannot be read while off-channel, so it is not a discovery mechanism.
+
+The update page is reachable on the dash AP even when there is no controller,
+and in follower mode it is served during the join attempt rather than only
+after it. The Settings page's **NETWORK** row sets the role and fleet channel;
+console `w` toggles the role, `W` the fleet channel (both reboot), and `N`
+prints the result.
 
 ### Which controller
 
@@ -339,7 +368,12 @@ for what still is identity-bound.) That gives it:
   low-fuel warning, the odometer, the turn-indicator bits and Terminal 58s (the
   lighting switch and dimmer, which drives [day/night](display-and-memory.md#display-tuning));
 * **the CAN DATA page**: **SETTINGS → CAN DATA**, or `c` on the console. Every id on
-  the bus with its name and rate. Tap one to see every signal in it, decoded.
+  the bus with its name and rate. Tap one to see every signal in it, decoded. Its
+  top bar names the senders heard in the last 3 s from the CANN `kind` byte —
+  **C6** (OpenHaldex) and **BCAN** (ADC/body-CAN box) — and the dashboard's
+  `LIVE` telltale becomes `LIVE(N)` with the same count (plain `LIVE` when N is
+  0). That makes “the relay is alive” and “which boxes are feeding it” one
+  glance instead of a console session.
 
 The names and scaling come from tables compiled into the firmware: `vw_pq` (Gen1,
 Gen2, Gen4, 0AY) and `vw_mqb` (Gen5), about 72 KB of flash for 199 messages and 2612
@@ -378,9 +412,9 @@ Data the controller does not expose, or has no room for here:
   [ME7 patch](#the-me7-patch-boost-and-oil-pressure); without it the row is not
   drawn. Where the car's powertrain CAN has these others, the CAN DATA page
   shows them with the relay on.
-* Battery voltage — this *is* available, but only in the ESP-NOW broadcast
-  (`supplyMv`), not over HTTP. The dash receives it; it has no space on the
-  layout yet.
+* Battery voltage — the controller's `supplyMv` where its generation fills it,
+  and the body-CAN box's `0x570` on a PQ car. It is the `BATT` row in the
+  temperatures column; `--` when neither source is present.
 * Anything at all while the chassis CAN is silent: on the bench with no
   vehicle, the controller reports `rpm`/`speed`/`throttle`/`boost` as JSON
   `null`, and this firmware correctly shows `--`.

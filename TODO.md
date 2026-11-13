@@ -24,11 +24,20 @@ small DHCP server and one more page; maybe 60–80 KB of flash.
 **Deferred, not rejected.** An edge case you have to walk into on purpose.
 Worth doing if this ever ships to someone who cannot reach the USB port.
 
+**0.9.0 changed the shape of this:** the dash now runs `ohx-dash` in both
+roles, and that AP already serves the update page while a join is failing. What
+is left is making it *useful* for credentials — a page and a way back to
+FOLLOWER — and deciding whether the AP should have its own password. See 1.7.
+
 ### 1.2 Authenticate the update page
 Right now anyone on the controller's access point can flash the dash. That is
 a different risk class from the mode switch — a stranger changing the Haldex
 map is annoying, a stranger writing your firmware is not — and the open access
 point is broadcast, so "who is on it" is everyone in range.
+
+0.9.0 makes this more urgent: `ohx-dash` is always on, not just the
+controller's AP, so the page is reachable wherever the dash is powered. The
+AP has no password by default.
 
 Cheapest fix: a 6-digit code in the URL, shown on the dash's SETTINGS page next
 to the address. Not a login, just enough that the page cannot be *found* by a
@@ -97,7 +106,10 @@ What changed in 0.8.2, and what is still deliberate:
   tile and `/api/dashboard` polling all assume the C6; on an adc2can-only car
   the main band would stay `--`. What a dash without OpenHaldex *is* — the CAN
   DATA page plus gauges, or nothing beyond raw/CAN — is a product question,
-  since can2gauge already covers the display-only road-car use well.
+  since can2gauge already covers the display-only road-car use well. 0.9.0's
+  ANCHOR role is the built transport for that mode (own AP, relay only, no HTTP
+  pollers); what remains is the glass: hide the Haldex band/mode tile and
+  decide which relay-fed values earn a tile.
 * **No command path, and none to build.** adc2can is one-way over the air; the
   dash would be display-only, which matches the house rule but means the mode
   tile must hide rather than transmit into silence.
@@ -115,26 +127,27 @@ side is free.
 The direction is a pseudo wireless CAN network: several ESP32 devices each
 broadcasting one thing (the controller's chassis relay, the body-CAN box,
 later an adc2can), with the dash a silent listener in the middle — 0.8.2
-accepts them all. Today the dash *counts* them (`[stats] relay ... N sender(s)`)
-but cannot *show* them: the CAN DATA page has no idea which sender carries
-which id, and a sender that drops out is visible only as its ids going stale
-and the `air lost` counter creeping up — easy to misread as radio loss (seen
-on the bench, 12 Nov 2026).
+accepts them all. **0.9.0 shows them:** the CAN DATA top bar names the
+senders heard in the last 3 s from the CANN `kind` byte
+(`SENDERS: C6, BCAN | …`), the dashboard's `LIVE` telltale becomes
+`LIVE(N)`, and `C` prints the same names. The bench saw `BCAN`; the C6's
+`C6` label is code-mapped but its relay was off on this bench.
 
-Wanted: a user-friendly way to identify senders and see liveness at a glance
-— which are transmitting now, which has gone quiet, ideally by a name the
-owner chose rather than a MAC.
+Still wanted: a per-sender console line with packets / f/s / age (the
+`[stats] relay` line only totals), a dedicated sender chip row rather than
+the title-line list, and an owner-chosen name per MAC.
 
 What exists to build on:
 
-* `can_relay.cpp` tracks per-sender seq under its own lock (8 slots) and
-  exposes `Stats.senders`; the source MACs are in that table but not surfaced.
-* The CANN `kind` byte (`CANN_K_*`) rides in every packet header and is
-  ignored today; it is the natural *type* label ("the Haldex controller", "a
-  body/sensor box") with no pairing at all. A friendly *name* per MAC would
-  need NVS (append-only, config.h rules) or an adoption key, like the
-  controller's own.
-* Per-sender last-heard age is derivable where the packet is accepted.
+* `can_relay.cpp` tracks per-sender seq, kind and last-heard under its own
+  lock (8 slots), exposes `Stats.senders` / `Stats.sendersOnline`, and
+  `sendersOnline()` copies `SenderInfo { mac, kind, ageMs }` for the UI.
+* The CANN `kind` byte is now used: `CANN_K_OPENHALDEX` → `C6`,
+  `CANN_K_ADC2CAN` → `BCAN`. A friendly *name* per MAC would need NVS
+  (append-only, config.h rules) or an adoption key, like the controller's
+  own.
+* Per-sender last-heard age is exposed; the online window is 3 s, longer
+  than the 1 s relay freshness so a quiet-but-present sender is still named.
 
 Shape to weigh, cheapest first — this page shares PSRAM bandwidth with the
 panel, so glass cost is the constraint:
@@ -153,60 +166,54 @@ it goes quiet) is the contract the whole network runs on.
 
 ---
 
-### 1.7 One shared channel for the pseudo wireless CAN network — direction chosen, architecture deferred
+### 1.7 One shared channel — built as the dash's own AP (0.9.0), car/verification open
 
-The owner set the direction on 12 Nov 2026 and deliberately stopped before
-any code, to think the architecture through properly. The direction: the
-pseudo network's channel becomes **1 unless a C6 is on the air, then the
-C6's channel** — senders that hear `OHX_STATUS` follow the `channel` field
-it already carries (`ohx_proto.h:132`, added for exactly this) and revert to
-1 when the C6 goes quiet. The dash side of that is a one-line change
-(`OHX_NOW_IDLE_CHANNEL` 11→1 in `telemetry.cpp`, its comment block
-rewritten); the sender side is the bodycan's follow upgrade (its TODO 3.4).
-Nothing is built. This entry is the problem statement for that pass.
+**Built in 0.9.0.** The original 12 Nov direction — default channel 1, and a
+sender follows the `channel` field in `OHX_STATUS` — was superseded during the
+architecture pass. That field cannot be read while off-channel, so it is a
+confirmation, not a discovery mechanism. The fleet instead agrees on an **AP**:
 
-Why this is a decision and not a config knob: every device here has one
-radio, so the whole network shares a single channel, and today that channel
-is agreed in three places that only match through per-rig edits — the C6's
-AP (whatever its configuration or home join makes it), this dash's idle pin
-(a 0.8.2 bench patch, currently 11), and each sender's own constant (bodycan
-11, adc2can 1). The family default is channel 1, recorded twice:
-`ohx_proto.h` ("in the car both APs default to channel 1") and measured on
-the original ESP-NOW bench day ([esp-now-plan.md](docs/esp-now-plan.md) —
-the C6, the same MAC this dash remembers, broadcasting on channel 1 with the
-station riding it). This rig's 11 is the anomaly.
+* The dash runs an open AP, **`ohx-dash`**, in both roles. FOLLOWER is
+  `WIFI_AP_STA`: the AP starts on `cfg::fleetChannel` and rides the
+  controller's channel once joined. ANCHOR is `WIFI_AP` only: no controller,
+  no HTTP pollers, the AP stays on the fleet channel. The update page is on
+  the AP in both roles.
+* The bodycan (0.2.0) **scans** for `ohx-dash` first and `OpenHaldex-C6`
+  second, takes that AP's channel, and re-scans every 30 s or on `r`. It no
+  longer compiles in channel 11 and no longer needs an `ohx_proto.h` receive
+  path. Fallback is channel 1 when neither AP is on the air.
+* `cfg::Data` v6 gains `netRole` and `fleetChannel` (appended, migrated in
+  place). The Settings page's NETWORK row sets both; console `w` toggles the
+  role, `W` cycles the fleet channel (both save and reboot), `N` prints the
+  network state.
+* On a failed join the radio is parked on `cfg::fleetChannel` (not the old
+  hard-coded 11), so the AP stays where a sender can find it.
+* Bench-verified 13 Nov 2026: follower AP+STA on the C6's channel 1 with the
+  C6's OHX stream and the bodycan's CANN arriving together; anchor AP-only on
+  channels 1 and 2, no join attempts; the bodycan preferring `ohx-dash` on
+  channel 2 (−19 dBm) over the C6 on channel 1; the dash's `C` listing
+  0x570/0x470/0x578 with 0 air lost after the channel move; the update page on
+  `http://192.168.4.1/`. Anchor render ~59.6 fps, follower ~57.8 fps with the
+  AP+STA up; internal RAM held at ~150.6 KB free.
 
-Open questions for the architecture pass:
+**Still open:**
 
-* **Why is this C6 on 11?** Its own configuration, or the hazard the shared
-  header itself names — "if either joins a home network" (ESP32 is one
-  radio: an AP+STA device's AP is dragged onto the home network's channel,
-  and the strong home APs here sit exactly on 11). First step: the C6's web
-  UI — is there an AP channel setting, and is it joining the home WiFi? If
-  the C6 cannot hold 1, the follow design absorbs it; that is the point of
-  the choice.
-* **Where the follow logic lives.** `cannow_tx.h` is a verbatim shared copy
-  and stays untouched (rule 1); the follow is sender-local glue around it.
-  The bodycan needs a receive path it does not have today: an ESP-NOW recv
-  callback, a verbatim copy of `ohx_proto.h`, and follow/revert glue.
-* **Revert policy.** How quiet is "quiet" (a timeout on no `OHX_STATUS`),
-  and the behaviour on a rig with two C6s — the dash already carries that
-  ambiguity; a sender would follow the first or strongest heard.
-* **adc2can cannot follow** (Forbes design, fixed channel 1): on a rig whose
-  C6 sits elsewhere, the joined dash is deaf to it in-car. An upstream
-  report, or a per-rig constant for that one device — decision to make.
-* **The flip is coordinated or nothing.** This pin, the bodycan's default
-  and anything the C6 needs land in one bench session and are verified
-  together — a half-moved fleet is worse than today. Verify with a pinned
-  steady-state loss measurement on 1 vs 11: every bench number so far is
-  polluted by join-attempt hopping, and on this rig channel 1 is the
-  measurably quieter half (strong home APs -48 dBm on 11, their ch1 copies
-  -75..-79 dBm).
-* **What this decision does not touch.** The bursty ~50% bench reception is
-  join hopping, not channel choice — the stronger fix there is remembering
-  the C6's BSSID and channel and joining directly (`WiFi.begin` takes
-  both), which belongs in the same architecture pass. The wire format and
-  the 6 Mbit/s rate are channel-independent.
+* **Follower → anchor rescue**: after ~3 minutes without a join, raise the
+  anchor role automatically? The AP is already up, so this is a mode switch
+  plus a policy for rejoining when the controller returns (no flapping).
+* **AP+STA cost with a real relay load**: the bench C6 had USB power only, so
+  the 57.8 fps figure is with its 10 Hz status stream, not a 100 Hz CAN relay.
+  Re-measure with the C6 relaying.
+* **Two-sender interleave**: the C6 and the bodycan were never transmitting
+  CANN at the same time; the per-sender seq table is built but only exercised
+  with one sender.
+* **Car verification**, and a steady-state loss measurement on channel 1 vs
+  11. The C6 on this bench is channel 1; the rig's 11 is almost certainly
+  bridge mode dragging the AP onto the home network.
+* **adc2can** remains fixed on channel 1 (Forbes design). On a rig whose C6
+  sits elsewhere it is still deaf; an upstream report or a per-rig constant.
+* **Scan cost**: the bodycan's 30 s re-scan drops 1–2 s of relay. Decide
+  whether 30 s, 60 s, or an on-demand `r` is right for a car.
 
 ---
 
@@ -243,6 +250,13 @@ while relaying, which has less margin than the 1 Mbit/s the link was measured at
 and which relay setting to recommend. MQB coolant and oil from `Motor_07` have
 never been on a car through this path. The whole test is in
 [`docs/can-relay-test.md`](docs/can-relay-test.md).
+
+**Half measured 13 Nov 2026:** the C6 was keyed on in the car with its chassis
+relay enabled while the dash and bodycan stayed on the bench. The air path
+carried **70–140 f/s across 20 ids at −72…−75 dBm, with 2 senders online and
+~27–29 % air loss** on the high-rate relay; the bodycan's low-rate frames lost
+nothing. That measures the sender/air side, not an in-car dash: the render
+cost and the in-car link margin are still open.
 
 The bench half of this is now done (0.6.0): with no controller in range the panel
 runs at 61.8 fps and internal RAM holds at 163 KB free, so the PSRAM moves are no

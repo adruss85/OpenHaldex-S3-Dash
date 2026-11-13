@@ -46,15 +46,33 @@ const char *label(const Source s) {
 
 }  // namespace
 
-uint32_t nowAgeMs() { return ohxnow::stats().ageMs; }
+uint32_t nowAgeMs() {
+  // The newest of the two ESP-NOW streams. In ANCHOR mode there is no
+  // OHX_STATUS at all; the relay's age is what the dashboard can honestly
+  // report, and what the console's source line should print.
+  const uint32_t now = ohxnow::stats().ageMs;
+  if (now != UINT32_MAX) return now;
+  return canrelay::stats().ageMs;
+}
 
 bool onNow() {
-  const uint32_t age = nowAgeMs();
+  const uint32_t age = ohxnow::stats().ageMs;
   return age != UINT32_MAX && age <= kHoldMs;
+}
+
+// The CAN relay is the other ESP-NOW stream. In ANCHOR mode there is no
+// OHX_STATUS at all (no controller), so without this the dash would call a
+// perfectly live CAN relay "stale" and show nothing on the status light. It is
+// deliberately separate from onNow(): the OHX packet fields are still only
+// merged when a controller is actually speaking.
+bool onRelay() {
+  const canrelay::Stats r = canrelay::stats();
+  return r.ageMs != UINT32_MAX && r.ageMs <= kHoldMs;
 }
 
 Source source() {
   if (onNow()) return Source::EspNow;
+  if (onRelay()) return Source::EspNow;  // the relay rides the same radio
   // "HTTP" only once the poll has actually produced something; before that
   // the honest answer is "nothing has arrived yet".
   return telemetry::live().ageMs == UINT32_MAX ? Source::None : Source::Http;
@@ -79,14 +97,27 @@ void poll() {
 
 telemetry::Live live() {
   const telemetry::Live http = telemetry::live();
-  if (!onNow()) return http;
+  const bool now = onNow();
+  const bool relayNow = onRelay();
+  if (!now && !relayNow) return http;
 
-  const Status p = ohxnow::last();
   telemetry::Live v = http;  // keeps coolant and engine oil unless the relay has them
-  v.rpm = pick(p.rpm, http.rpm);
-  v.speed = pick(p.speed, http.speed);
-  v.throttle = pick(p.throttle, http.throttle);
-  v.boost = pick(p.boost, http.boost);
+  int generation = 0;        // no controller: the relay decodes as PQ
+
+  if (now) {
+    const Status p = ohxnow::last();
+    v.rpm = pick(p.rpm, http.rpm);
+    v.speed = pick(p.speed, http.speed);
+    v.throttle = pick(p.throttle, http.throttle);
+    v.boost = pick(p.boost, http.boost);
+    v.lockTarget = pick(p.lockTarget, http.lockTarget);
+    v.lockActual = pick(p.lockActual, http.lockActual);
+    // The controller fills this on Gen5 (and Gen4 with KWP); on a Gen1 it is
+    // NAN and the body-CAN box's 0x570 below is the source.
+    if (!isnan(p.supplyV)) v.batteryV = p.supplyV;
+    generation = p.generation;
+  }
+
   // Boost is decided from the Haldex generation, with a lengthened Motor_7
   // (0x588) as evidence that can add it on a Gen1 (capability.h): a stock PQ
   // car's frame is three bytes long, so the controller's own decode reads a
@@ -99,7 +130,7 @@ telemetry::Live live() {
   // Not the packet's oilTemp: that is the Haldex's own oil (Gen4, over KWP), and
   // the OIL tile is engine oil from Kombi_2 with engine thresholds on it. They
   // are different fluids, so one is no fallback for the other.
-  const canrelay::Values relay = canrelay::values(p.generation);
+  const canrelay::Values relay = canrelay::values(generation);
   if (!isnan(relay.oil)) v.oil = relay.oil;
   if (!isnan(relay.coolant)) v.coolant = relay.coolant;
   // Fuel level, same story as the temperatures: the relay is the only source
@@ -109,43 +140,50 @@ telemetry::Live live() {
   // exist with the ForbesAutomotive ME7 patch. Same gate as boost: a value with
   // no capability behind it must not reach the row.
   v.oilPressure = (caps.settled && caps.oilPressure) ? relay.oilPressureBar : NAN;
-  v.lockTarget = pick(p.lockTarget, http.lockTarget);
-  v.lockActual = pick(p.lockActual, http.lockActual);
+  // The body-CAN box's 0x570 is the battery source on a Gen1; if both it and
+  // the controller's supply field are present, the direct body reading wins.
+  if (!isnan(relay.batteryV)) v.batteryV = relay.batteryV;
 
   // Report the age of whichever sample the fields above actually came from,
   // so the console's "live data age" stays truthful.
-  const uint32_t nowAge = nowAgeMs();
-  v.ageMs = nowAge < http.ageMs ? nowAge : http.ageMs;
+  const uint32_t age = now ? ohxnow::stats().ageMs : canrelay::stats().ageMs;
+  v.ageMs = age < http.ageMs ? age : http.ageMs;
   v.everOk = true;
   return v;
 }
 
 telemetry::Dash dash() {
   const telemetry::Dash http = telemetry::dash();
-  if (!onNow()) return http;
+  const bool now = onNow();
+  const bool relayNow = onRelay();
+  if (!now && !relayNow) return http;
 
-  const Status p = ohxnow::last();
   telemetry::Dash v = http;  // keeps awdWarning, which only HTTP has
-  v.mode = (int)p.mode;      // always a real byte in the packet
-  v.haldexState = (int)p.haldexState;
-  v.lockTarget = pickInt(p.lockTarget, http.lockTarget);
-  v.lockActual = pickInt(p.lockActual, http.lockActual);
-  // Steering: packet first, because /api/dashboard gates steeringAngle on the
-  // Haldex generation and reports null on Gen1 while the same angle is in every
-  // packet (see docs/upstream-steering-report.md). Merged here, not in the
-  // transport, so the JSON's own null is still what 'e' compares.
-  v.steeringAngle = pick(p.steering, http.steeringAngle);
-  v.chassisCAN = p.chassisCan;
-  v.haldexCAN = p.haldexCan;
-  v.brakeIn = p.brake;
-  v.handbrakeIn = p.handbrake;
-  v.couplingOpen = p.couplingOpen;
-  v.tempProtection = p.tempProtection;
-  // The API works these out from the same two flags: on = not forced off, and
-  // null (so off here) without chassis CAN.
-  v.tcOn = p.chassisCan && !p.tcForce;
-  v.asrOn = p.chassisCan && !p.asrOff;
-  const canrelay::Values relay = canrelay::values(p.generation);
+  int generation = 0;        // no controller: the relay decodes as PQ
+  if (now) {
+    const Status p = ohxnow::last();
+    v.mode = (int)p.mode;  // always a real byte in the packet
+    v.haldexState = (int)p.haldexState;
+    v.lockTarget = pickInt(p.lockTarget, http.lockTarget);
+    v.lockActual = pickInt(p.lockActual, http.lockActual);
+    // Steering: packet first, because /api/dashboard gates steeringAngle on the
+    // Haldex generation and reports null on Gen1 while the same angle is in every
+    // packet (see docs/upstream-steering-report.md). Merged here, not in the
+    // transport, so the JSON's own null is still what 'e' compares.
+    v.steeringAngle = pick(p.steering, http.steeringAngle);
+    v.chassisCAN = p.chassisCan;
+    v.haldexCAN = p.haldexCan;
+    v.brakeIn = p.brake;
+    v.handbrakeIn = p.handbrake;
+    v.couplingOpen = p.couplingOpen;
+    v.tempProtection = p.tempProtection;
+    // The API works these out from the same two flags: on = not forced off, and
+    // null (so off here) without chassis CAN.
+    v.tcOn = p.chassisCan && !p.tcForce;
+    v.asrOn = p.chassisCan && !p.asrOff;
+    generation = p.generation;
+  }
+  const canrelay::Values relay = canrelay::values(generation);
   if (relay.brake >= 0) v.brakeFromCAN = relay.brake;
   if (relay.handbrake >= 0) v.handbrakeFromCAN = relay.handbrake;
   // The cluster's own traction tell-tale and its intervention bit, straight off
@@ -165,6 +203,8 @@ telemetry::Dash dash() {
   if (relay.indicators >= 0) v.indicators = relay.indicators;
   // Terminal 58s, the automatic day/night source.
   if (relay.term58s >= 0) v.term58s = relay.term58s;
+  const uint32_t age = now ? ohxnow::stats().ageMs : canrelay::stats().ageMs;
+  v.ageMs = age < http.ageMs ? age : http.ageMs;
   v.everOk = true;
   return v;
 }
@@ -187,6 +227,9 @@ uint32_t dashPeriodMs() {
 bool fresh(uint32_t staleMs) {
   const uint32_t age = nowAgeMs();
   if (age != UINT32_MAX && age <= staleMs) return true;
+  // No controller, but the relay is arriving: the dash is live in ANCHOR mode.
+  const canrelay::Stats r = canrelay::stats();
+  if (r.ageMs != UINT32_MAX && r.ageMs <= staleMs) return true;
   return telemetry::liveFresh(staleMs);
 }
 

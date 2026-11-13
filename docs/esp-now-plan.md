@@ -254,7 +254,9 @@ Consequences worth noting:
 * `brake`, `handbrake`, `couplingOpen` and `tempProtection` now update at
   10 Hz instead of 1 Hz — the brake lamp is 900 ms quicker than it was.
 * The status light's `NO WIFI` now means *neither* transport is alive, so the
-  dashboard can read `LIVE` while the station is not even associated.
+  dashboard can read `LIVE` while the station is not even associated. (0.9.0
+  splits the red state: `NO CTRL` when the follower link and every transport
+  are down, `NO WIFI` only when the dash's own radio interfaces are down.)
 * `/api/live` drops from 10 Hz to 1 Hz (it is now only coolant plus the
   fallback), which also takes ~90 % of the HTTP CPU load off the C6. A config
   version bump (3 → 4) migrates an existing settings blob rather than

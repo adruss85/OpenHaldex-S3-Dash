@@ -83,7 +83,7 @@ predate the fuel row, the repeaters and the odometer.*
 | Band | Contents |
 |---|---|
 | Rev bar | One continuous bar across the full 800 px (80 cells drawn edge to edge), one number per 1000 rpm above it and `x1000` at the right, then the rpm as a large centred number on its own row — with a **turn-indicator arrow at each end of that row**, hidden until the car blinks, then flashing green |
-| Tiles | `SPEED` (km/h or mph + peak) · `BOOST` (value, unit, a bar, peak — plus a quiet `OIL` pressure row on a car with the [ME7 patch](#boost-and-oil-pressure-on-the-me7-patch)) · the **temperatures card** (`COOLANT`, `OIL` and `FUEL`, each with its unit and a bar; no caption of its own — its first row lines up with the other cards' captions) · `HALDEX` (mode, coupling state, lock requested / actual, throttle) — **tap it to step the Haldex mode** |
+| Tiles | `SPEED` (km/h or mph + peak) · `BOOST` (value, unit, a bar, peak — plus a quiet `OIL PRES` row on a car with the [ME7 patch](#boost-and-oil-pressure-on-the-me7-patch)) · the **temperatures card** (`COOLANT`, `OIL` and `FUEL`, each with a bar, and the diagnostic `BATT` number with a `V` label; no caption of its own — its first row lines up with the other cards' captions) · `HALDEX` (mode, coupling state, lock requested / actual, throttle) — **tap it to step the Haldex mode** |
 | Status bar | Data-state dot, the BRAKE / HAND / TC / ASR / **CC** lamps, the **odometer**, and the RESET PEAKS / SETTINGS buttons |
 
 The tile band follows the same geometry as the browser page, from one unit:
@@ -115,8 +115,12 @@ controller is carried all the way to the screen as "unknown", with a dash
 **Staleness moves the status light, not the data.** When live data stops
 arriving the dashboard keeps the last values it had — bars stop where they
 were, tiles keep their numbers — and the status dot turns amber with `STALE`.
-Before the first sample ever arrives it reads `WAIT`, and `NO WIFI` in red if
-the link itself is down. Nothing is blanked and no overlay covers the screen.
+Before the first sample ever arrives it reads `WAIT`. In FOLLOWER, if the
+controller link is down and nothing else (bodycan relay, OHX, HTTP) is
+arriving, it reads `NO CTRL` in red; `NO WIFI` is reserved for both of the
+dash's own radio interfaces being down. `LIVE` carries the number of relay
+senders heard in the last 3 s, e.g. `LIVE(2)`; no senders stays plain `LIVE`.
+Nothing is blanked and no overlay covers the screen.
 
 **Design choices specific to this display:**
 
@@ -148,7 +152,7 @@ which can carry a **PST-F 1 oil-pressure sensor**. Byte 7 copies `Motor_3`'s
 intake-air temperature, and that copy is what the dash uses to recognise the
 patch rather than a coincidence of length.
 
-So a patched Gen1 gets the Full band and a quiet `OIL` row inside the BOOST
+So a patched Gen1 gets the Full band and a quiet `OIL PRES` row inside the BOOST
 tile, right-aligned under the boost bar, without a setting to turn on. A stock
 Gen1 keeps NoBoost, and a car whose relay is off keeps whatever the generation
 table gave it — evidence can add a panel, never take one away. Oil pressure is
@@ -300,24 +304,26 @@ the flashing side of OTA needs no new partition to be useful.
 ## 5. Updating it in the car (over the air)
 
 Once the dash is screwed into a pod there is no USB cable, so it can update
-itself from a phone. The dash is **already** a station on the controller's
-access point — that is how it gets its data — so this needs no new networking
-at all:
+itself from a phone. From 0.9.0 the dash runs its own access point in **both**
+roles — `ohx-dash`, open, at `192.168.4.1` — so the update page no longer
+depends on the controller being present:
 
 1. Download `firmware.bin` from the
    [releases page](https://github.com/adruss85/OpenHaldex-S3-Dash/releases)
    onto the phone.
-2. Join the controller's access point (`OpenHaldex-C6` by default) — the same
-   thing you do to see the controller's own dashboard.
+2. Join the dash's access point, **`ohx-dash`**. In follower mode the
+   controller's access point works too, exactly as before.
 3. Open the address shown on the dash's SETTINGS page, under **UPDATE**:
-   `http://192.168.1.203/` (or `http://ohx-dash.local/`).
+   `http://192.168.4.1/` (or `http://ohx-dash.local/`; in follower mode the
+   station address `http://192.168.1.203/` also works).
 4. Choose the file and press **Upload and reboot**. It takes about 15 s for
    the ~1.8 MB image, and the page reports the version, the slot and how many
    bytes went in.
 
-Both addresses work because the dash takes a **static** address after the
-first join: the controller's access point hands out no leases when it is also
-sitting on a home LAN with the same subnet, which is a quirk of this setup
+The AP address is always available, including when no controller is on the
+air. In follower mode the dash also takes a **static** station address after
+the first join: the controller's access point hands out no leases when it is
+also sitting on a home LAN with the same subnet, which is a quirk of this setup
 rather than a fault, and the dash learns its way around it.
 
 ### The way back, which is the part that matters
@@ -374,16 +380,26 @@ Defaults match the browser page:
 |---|---|
 | SSID / password | `OpenHaldex-C6` / *(empty — the controller's AP is open by default)* |
 | Host | `192.168.1.1` (the access-point address; `openhaldex.local` also works) |
+| Network role | follower (AP+STA: own AP `ohx-dash` rides the controller's channel) |
+| Fleet channel | 1 (the dash AP's channel; in follower it follows the controller once joined) |
 | rpm max / amber / redline / shift | 8000 / 6000 / 6800 / 6500 |
 | Coolant warn / crit (C) | 100 / 110 |
 | Oil warn / crit (C) | 120 / 135 |
 | Boost max / warn / crit (mbar gauge) | 2500 / 1800 / 2200 |
 | Fuel tank | 62 l |
-| Temperature / boost units | C / bar |
+| Temperature units | C |
+| Pressure units | bar (boost and oil pressure; or psi) |
 | Distance units | km (metric) |
 | Day / night | Auto (from the car's Terminal 58s) |
 | Brightness (day) | 100 % |
 | Poll live / dash / stale | 1000 / 1000 / 1500 ms |
+
+The network role and fleet channel are in the Settings page's **NETWORK** row
+(`Role` and `Fleet ch`), and on the console (`w` toggles follower/anchor, `W`
+cycles the fleet channel, both save to NVS and reboot); `N` prints what is
+actually up. In **anchor** mode the dash runs only its own AP on the fleet
+channel; in **follower** mode it runs the AP and joins the controller, and the
+AP follows the controller's channel.
 
 The rev bar's scale is a setting: **max, amber, redline and shift all move in
 100 rpm** on the Settings page (max 1000–12000). The tick numbers are placed
@@ -410,6 +426,16 @@ a firmware update that adds a setting keeps everything else, including the stati
 address the network task learnt on the car. Saving only rejoins the WiFi if the
 SSID, password, host or port actually changed.
 
+The settings live in the **NVS** partition, so a normal app flash
+(`pio run -t upload`) or an OTA update leaves them alone. A full-chip restore
+(`esptool write_flash 0x0` of the 4 MB backup) or `esptool erase_flash` does
+overwrite or erase NVS, and the next boot is defaults; the release
+`firmware.factory.bin` is sparse (it lists only the bootloader, partition
+table, boot_app0 and app regions) and does not touch NVS. From 0.9.0 the
+reader also accepts a **newer** blob's known prefix, so flashing between
+later versions no longer looks like a settings reset; an image older than the
+blob's version still cannot know the newer fields.
+
 **No credentials are in git.** For bench work, copy
 `include/wifi_secrets.h.example` to `include/wifi_secrets.h` (gitignored) and
 fill it in. It is only a first-boot seed — the settings page always wins
@@ -421,18 +447,23 @@ Boost is **millibar gauge** (above ambient). The controller decodes both MQB
 `Ladedruck` (0x107) and PQ (0x588) as `(raw * 10) - 1000` and clamps to
 `>= 0`, so 1000 mbar ≈ 1.00 bar ≈ 14.5 psi. On a Gen1 that only has a boost
 value at all through the [ME7 patch](#boost-and-oil-pressure-on-the-me7-patch),
-and the dash decodes the patch's byte 4 with the same formula; its OIL row is
-always **bar**, because that is the sensor's own unit and the boost unit toggle
-is about the turbo, not the oil pump.
+and the dash decodes the patch's byte 4 with the same formula. Boost and
+`OIL PRES` share one **bar/psi** pressure setting; the underlying boost value
+stays mbar and the oil value stays bar internally.
 
-There are three toggles in the Settings page's **Units** row and they are
-deliberately not one:
+There are three toggles in the Settings page's **Units** row:
 
-* **Temperature** — `°C` or `°F`, shown on the COOLANT and OIL rows and used for
-  the two warning thresholds.
-* **Boost** — bar, mbar or psi.
+* **Temperature** — `°C` or `°F` in the setting, shown as `C`/`F` on the
+  COOLANT and OIL rows (the degree sign is dropped so `C`, `L` and `V` share
+  one left edge), and used for the two warning thresholds.
+* **Pressure** — `bar` or `psi`, used by the boost value/peak and the `OIL PRES`
+  row.
 * **Distance** — the `km` / `mi` button, which moves the speed, the speed peak and
   the odometer.
+
+Every tile value is drawn in its larger face and every unit is the small grey
+stock 14 px label beside it — `C`/`F`, `L`, `V`, `bar`/`psi`, boost and speed —
+so the units never depend on the digits-only value subset.
 
 **Fuel is always litres.** The car reports litres (`TankContents` is one litre
 per count), a tank size is a metric figure here, and "switch to miles" is a
