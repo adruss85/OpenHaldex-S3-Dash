@@ -3,17 +3,17 @@ Read this when you need to know what has actually been verified, on which firmwa
 # Status
 
 <!-- status:start -->
-Firmware version: 0.9.2
-Flash: 1 532 518 / 1 966 080 B (77.9%)
+Firmware version: 0.9.3
+Flash: 1 532 810 / 1 966 080 B (78.0%)
 Internal RAM (static): 60 372 / 327 680 B
-Measured: 2026-11-17, build ca4e645
+Measured: 2026-11-17, build 59fa217
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
 about the current build. `tools/doc_status.py` regenerates the block above from
 a real `pio run` (or a saved log / a `firmware.elf`).
 
-This is **0.9.2**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
+This is **0.9.3**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
 to a pre-rendered picture (0.6.2), the drive log (0.7.0), a quieter cruise lamp
 (0.7.1), the rev bar with a settable scale (0.7.2), the four faults from the 11
 Nov drive (0.7.3), the CC lamp's three states (0.7.4), the cruise set speed in
@@ -21,11 +21,22 @@ the `k` dump (0.7.5), boost plus oil pressure on the ForbesAutomotive ME7
 patch (0.8.0), the binary-size audit with the night-brightness floor lowered
 (0.8.1), relay reception from any CANN sender (0.8.2), the dash as the
 fleet's AP anchor with the role/channel settings (0.9.0), the BOOST panel as a
-setting with OIL PRES moved into the temperatures card (0.9.1), and the two
-faults from that car run fixed (0.9.2). The status
+setting with OIL PRES moved into the temperatures card (0.9.1), the two
+faults from that car run fixed (0.9.2), and the rename to **CANvas dash** with a
+new splash and the `CANv-dash` AP (0.9.3). The status
 below separates what was verified in the car, what has
 been exercised on the bench, and what is still unproven; measured figures carry
 the version they came from.
+
+**0.9.3 is a rename and has not been on hardware.** The banner, update page and
+docs say CANvas dash; the splash is the new `assets/canvas-dash-splash-base.jpg`
+whose progress rule was re-measured to the same x 210..589 / y 284 (the lv_bar
+did not move) with the tagline below the artwork's "d a s h" subtitle. The dash
+AP is `CANv-dash` (mDNS `canv-dash.local`), and the bodycan and gauge now prefer
+that name while still accepting `ohx-dash`. What to check: the splash decodes
+and the tagline sits clear of the subtitle; the update page answers at
+`http://canv-dash.local/`; a sender on the old name still finds a dash on the
+new one (and vice versa).
 
 **0.9.1 did go on the car**: the temperatures card lost BATT, FUEL took the
 bottom row, and the BOOST tile switch re-placed the band. Two faults came back
