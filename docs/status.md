@@ -3,26 +3,36 @@ Read this when you need to know what has actually been verified, on which firmwa
 # Status
 
 <!-- status:start -->
-Firmware version: 0.9.0
-Flash: 1 532 198 / 1 966 080 B (77.9%)
-Internal RAM (static): 60 364 / 327 680 B
-Measured: 2026-11-13, build bea78f1
+Firmware version: 0.9.1
+Flash: 1 532 138 / 1 966 080 B (77.9%)
+Internal RAM (static): 60 372 / 327 680 B
+Measured: 2026-11-17, build b1bf3c0
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
 about the current build. `tools/doc_status.py` regenerates the block above from
 a real `pio run` (or a saved log / a `firmware.elf`).
 
-This is **0.9.0**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
+This is **0.9.1**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
 to a pre-rendered picture (0.6.2), the drive log (0.7.0), a quieter cruise lamp
 (0.7.1), the rev bar with a settable scale (0.7.2), the four faults from the 11
 Nov drive (0.7.3), the CC lamp's three states (0.7.4), the cruise set speed in
 the `k` dump (0.7.5), boost plus oil pressure on the ForbesAutomotive ME7
 patch (0.8.0), the binary-size audit with the night-brightness floor lowered
-(0.8.1), relay reception from any CANN sender (0.8.2), and the dash as the
-fleet's AP anchor with the role/channel settings (0.9.0). The status below separates what was verified in the car, what has
+(0.8.1), relay reception from any CANN sender (0.8.2), the dash as the
+fleet's AP anchor with the role/channel settings (0.9.0), and the BOOST panel
+as a setting with OIL PRES moved into the temperatures card (0.9.1). The status
+below separates what was verified in the car, what has
 been exercised on the bench, and what is still unproven; measured figures carry
 the version they came from.
+
+**0.9.1 is a layout change and has not been on hardware.** The temperatures card
+now reads COOLANT / OIL / OIL PRES / FUEL (BATT removed from the glass, oil
+pressure moved out of the BOOST tile), and the BOOST panel is switched on and
+off from the Settings page instead of being inferred from the car. The four-row
+pitch, the unit column, the re-place and the new settings button are all
+unseen on glass - see TODO 2.7. Everything below that names an earlier version
+still describes that version.
 
 **0.7.0 has been run on the bench and against a live controller, not driven.**
 The drive log works end to end: the blank partition formats itself, a session
