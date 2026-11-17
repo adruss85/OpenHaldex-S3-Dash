@@ -23,12 +23,18 @@ git status -sb                  # the branch line must not end in [behind N]
 git log --oneline HEAD..origin/main
 ```
 
-* **Behind** — fast-forward before touching anything: `git merge --ff-only
-  origin/main`. If it refuses, stop and tell the user rather than working from
-  the old tree.
+If it is not current, **stop and ask before touching anything** - do not pull on
+your own. Use this shape, with the real status filled in:
+
+```
+Tree isn't current - behind 2 commits on main - do you want to pull the latest?
+```
+
+* **Behind** — ask; pull only after the user says yes (`git merge --ff-only
+  origin/main`). If the fast-forward refuses, say why and let them decide.
 * **Ahead** — unpushed local commits: say so; do not push unless asked.
-* **Diverged** — stop and ask. Never rebase or rewrite published history
-  without being told to.
+* **Diverged** — stop and ask, with both counts (ahead/behind). Never rebase or
+  rewrite published history without being told to.
 * A dirty working tree is normal mid-task; it is not the same as stale.
 
 Never decide a version or cut a release before this check has passed - a release
