@@ -10,6 +10,30 @@ Native dashboard firmware for the Elecrow **CrowPanel 7.0"** (ESP32-S3, 800x480 
 Haldex AWD controller: it reads what the controller publishes (ESP-NOW broadcast, CAN relay,
 HTTP `/api/*`) and sends one thing back, the signed Haldex mode-change command.
 
+## First thing on every task: is this tree current?
+
+Before reading, editing, building or releasing anything, check that the working
+directory matches GitHub. This has already cost a whole change once: 0.9.0 was
+published from another machine while an agent was working on a two-commit-old
+tree, and the work had to be redone against the real code.
+
+```bash
+git fetch origin
+git status -sb                  # the branch line must not end in [behind N]
+git log --oneline HEAD..origin/main
+```
+
+* **Behind** — fast-forward before touching anything: `git merge --ff-only
+  origin/main`. If it refuses, stop and tell the user rather than working from
+  the old tree.
+* **Ahead** — unpushed local commits: say so; do not push unless asked.
+* **Diverged** — stop and ask. Never rebase or rewrite published history
+  without being told to.
+* A dirty working tree is normal mid-task; it is not the same as stale.
+
+Never decide a version or cut a release before this check has passed - a release
+cut from a stale tree is the usual way a wrong binary gets published.
+
 **The C6 controller firmware is out of scope and must not need changes.** Do not propose
 edits to it; report upstream problems in `docs/upstream-steering-report.md` style instead.
 
