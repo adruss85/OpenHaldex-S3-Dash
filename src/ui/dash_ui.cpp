@@ -2117,6 +2117,9 @@ uint32_t g_nightWantedMs = 0;
 int g_term58s = -1;
 uint8_t g_backlight = 0;
 bool g_backlightValid = false;
+// True while an OTA upload owns the panel: the glass is blank and ui::tick()
+// does nothing. See tick() for why.
+bool g_uploadBlank = false;
 
 // Write the backlight, but only when the number changes: it is a PWM write and
 // the result is compared every tick.
@@ -2410,6 +2413,31 @@ void applyDebugMask() {
 }
 
 void tick() {
+  // An OTA upload writes flash with the cache disabled. The RGB panel's DMA
+  // prefetches out of PSRAM through that cache, so it underruns and the
+  // picture tears, shifts and flickers - the corruption is in the scan-out,
+  // not in our buffer, so no amount of drawing can avoid it (seen on 0.9.1:
+  // the update itself was fine, the glass looked broken). Blank the backlight
+  // and stop drawing for the duration. The update page in the browser is the
+  // progress display; a success reboots into the new image's splash, and only
+  // a failed or aborted upload brings the glass back, through the normal
+  // day/night path.
+  if (ota::busy()) {
+    if (!g_uploadBlank) {
+      g_uploadBlank = true;
+      g_backlight = 0;
+      g_backlightValid = true;
+      crowpanel::setBacklight(0);
+      Serial.println("[ui] OTA upload: glass blanked, drawing suspended");
+    }
+    return;
+  }
+  if (g_uploadBlank) {
+    g_uploadBlank = false;
+    g_backlightValid = false;  // applyBacklight() re-asserts the real value
+    Serial.println("[ui] OTA upload ended: drawing resumed");
+  }
+
   const uint32_t now = millis();
   const float dt = (float)(now - g_lastTickMs) / 1000.0f;
   g_lastTickMs = now;

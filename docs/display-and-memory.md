@@ -75,6 +75,18 @@ test the bandwidth theory live — the first press goes *up* to 24 MHz, which is
 right at the outer edge for this panel, so treat anything above 16 as a bench
 experiment.
 
+### Over-the-air updates and the glass
+
+Writing the inactive slot disables the flash cache for the length of each erase
+and program. The RGB panel's DMA reads through that same cache, so it underruns:
+`esp_lcd_rgb_panel_restart()` turns a lost sync into a jitter, but the picture
+still tears and shifts for the duration of the write. That is a scan-out problem,
+not a drawing one, so 0.9.2 blanks the backlight and suspends drawing for the
+whole upload (`ui::tick()` blanks once and returns; the main loop skips
+`lv_timer_handler()`), and the update page is the progress display. A successful
+upload reboots into the new image's splash; a failed or aborted one hands the
+glass back through the normal day/night path.
+
 ### Where the layout lives
 
 Bar cell size, the big number's row, tile widths and padding are all derived

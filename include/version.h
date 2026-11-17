@@ -8,7 +8,23 @@
 // =====================================================================
 #pragma once
 
-#define OHX_DASH_VERSION "0.9.1"  // Boost tile is a setting; OIL PRES joins the temperatures card
+#define OHX_DASH_VERSION "0.9.2"  // Late oil-pressure evidence; a blank glass during OTA
+// 0.9.2 - Two fixes from the first car run of 0.9.1.
+// The OIL PRES row never appeared on a car that has the patch: the capability
+// check revised its evidence only for 15 s after the decision settled, and the
+// patched Motor_7 arrives over the CAN relay, which on 0.9.x starts after the
+// body-CAN box has scanned for the dash's AP. poll() now watches for the whole
+// boot and re-places the temperatures card when the evidence turns up, with the
+// console line it already had. The row stays capability-gated: it is drawn only
+// on a frame carrying the patch's signature.
+// The picture tore during an OTA upload. Writing flash disables the cache, the
+// RGB panel's DMA underruns and the scan-out shifts and flickers - the update
+// itself succeeded, but the glass looked broken. The backlight is now blanked
+// and drawing suspended for the whole upload (ui::tick blanks once and returns;
+// the main loop skips lv_timer_handler), the update page says the screen will go
+// dark, and a failed or aborted upload hands it back through the normal
+// day/night path.
+// Not verified on hardware: see TODO 2.8.
 // 0.9.1 - Two layout changes, both about the tile band.
 // First, the BOOST panel is a setting again rather than a capability decision:
 // the tiles were shaped by what the car could feed, which meant a Gen1 without

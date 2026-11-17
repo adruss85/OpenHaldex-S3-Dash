@@ -154,6 +154,9 @@ void handleRoot() {
        "(CrowPanel 7.0\" ESP32-S3, 4 MB flash, the two-slot OTA layout). Nothing is written to "
        "flash until the upload has finished arriving, and the image boots <b>on trial</b>: if it "
        "does not come up and keep running, this one comes back by itself.</p>"
+       "<p>The dash's screen goes dark while the image is written - that is deliberate, the "
+       "flash write would otherwise tear the picture. This page reports when it is done, and a "
+       "failed upload hands the screen back.</p>"
        "<form method='post' action='/update' enctype='multipart/form-data'>"
        "<input type='file' name='firmware' accept='.bin'><br>"
        "<button type='submit'>Upload and reboot</button></form>";

@@ -37,9 +37,11 @@
 //
 // The decision is made once and latched. It is not re-evaluated per frame: a
 // layout that changed shape while the car was moving would be worse than a
-// widget that reads "--". It is, however, revised for a short window after the
-// decision settles if the generation or the patch's frames only arrive then -
-// see poll().
+// widget that reads "--". What *is* still watched after it settles is evidence
+// that only ever adds something - a generation, or the patched Motor_7 that
+// offers oil pressure - because the CAN relay can come up long after the
+// controller's first packet (0.9.x makes the body-CAN box scan for the dash's
+// AP first). There is no time limit on that: see poll().
 // =====================================================================
 #pragma once
 
@@ -64,7 +66,9 @@ struct Caps {
   uint32_t revision;        // bumped if a capability changes after `settled`
 };
 
-/// Feed this from loop(). Cheap: it does nothing at all once settled.
+/// Feed this from loop(). Cheap: after it settles it only compares a couple of
+/// latched booleans, and does so for the life of the boot - the relay can start
+/// long after the controller.
 void poll();
 
 const Caps &get();

@@ -322,7 +322,10 @@ depends on the controller being present:
    station address `http://192.168.1.203/` also works).
 4. Choose the file and press **Upload and reboot**. It takes about 15 s for
    the ~1.8 MB image, and the page reports the version, the slot and how many
-   bytes went in.
+   bytes went in. **The dash's screen goes dark while the image is written** —
+   that is deliberate: the flash write disables the cache and the panel's DMA
+   tears the picture otherwise. It comes back on the new image's splash, or on
+   the old image if the upload fails.
 
 The AP address is always available, including when no controller is on the
 air. In follower mode the dash also takes a **static** station address after

@@ -184,10 +184,12 @@ Two tile bands exist, both approved as mock-ups in `docs/mockups/`:
   with the ME7 patch (0.8.0).
 
 The band is re-placed, not rebuilt, when the setting changes or when the
-oil-pressure row appears. The oil-pressure decision still latches: it is revised
-once for 15 s after it settles if a patched `Motor_7` arrives late. `v` on the
-console forces either band, which is how the second shape gets looked at on the
-bench.
+oil-pressure row appears. That row is still capability-gated, but the evidence
+is watched for the whole boot with no time limit: the CAN relay can start long
+after the controller (the body-CAN box scans for the dash's AP first), and the
+fixed 15 s window is what left `OIL PRES` hidden on a patched car in 0.9.1.
+`v` on the console forces either band, which is how the second shape gets looked
+at on the bench.
 
 ### The ME7 patch: boost and oil pressure
 

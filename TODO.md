@@ -349,6 +349,24 @@ the bars, a car without the patch closes the OIL PRES gap and widens the rows,
 and toggling the setting re-places the band without a rebuild. The settings
 button itself has not been photographed.
 
+### 2.8 The two bugs the first 0.9.1 car run found
+Both are fixed in 0.9.2 and neither has been re-run on hardware.
+
+* **`OIL PRES` never appeared.** The capability check revised its evidence only
+  for 15 s after the decision settled, and the patched `Motor_7` arrives over the
+  CAN relay, which on 0.9.x starts after the body-CAN box has scanned for the
+  dash's AP. The row therefore stayed hidden on a car that has the patch.
+  `cap::poll()` now watches for the whole boot and re-places the card when the
+  evidence turns up. Check by powering the dash first and the body-CAN box a
+  minute later: the row should appear without a reboot (and the console should
+  print `[cap] revised after late data`).
+* **The picture tore during an OTA upload.** The flash write disables the cache,
+  the RGB panel's DMA underruns and the scan-out shifts and flickers - the update
+  itself succeeds, but the glass looks broken. The backlight is now blanked and
+  drawing suspended for the upload (the update page says so). Check by updating
+  over OTA: the screen should go dark and stay dark until the reboot, and a
+  deliberately failed upload should bring it back.
+
 ---
 
 ## 3. Requested, and worth doing

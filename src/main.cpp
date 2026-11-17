@@ -526,15 +526,26 @@ void loop() {
     g_lastUiMs = now;
     // The raw page is refreshed first: while it is up the dashboard tick
     // returns immediately, so this is the only thing drawing.
-    rawui::tick();
-    canui::tick();
+    if (!ota::busy()) {
+      rawui::tick();
+      canui::tick();
+    }
+    // Called even during an upload: its first job then is to blank the glass
+    // and stop drawing (see ui::tick), and it does that once.
     ui::tick();
   }
 
+  // While an OTA upload writes flash the cache is off and the panel is already
+  // tearing; do not add LVGL flushes on top of it. The update page in the
+  // browser is the progress display, and the glass is dark until a failure
+  // hands it back.
+  const bool updating = ota::busy();
   const uint32_t t0 = micros();
-  const uint32_t next = lv_timer_handler();
-  g_renderUs += micros() - t0;
-  g_frames++;
+  const uint32_t next = updating ? kUiPeriodMs : lv_timer_handler();
+  if (!updating) {
+    g_renderUs += micros() - t0;
+    g_frames++;
+  }
 
   if ((uint32_t)(now - g_lastStatsMs) >= 5000) {
     g_lastStatsMs = now;

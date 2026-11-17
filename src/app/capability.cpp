@@ -28,7 +28,6 @@ bool g_sawEngine7 = false;
 bool g_sawOilPressure = false;
 
 uint32_t g_firstPacketMs = 0;
-uint32_t g_settledMs = 0;
 char g_summary[192] = "waiting for data";
 
 // 20 packets is ~2 s at 10 Hz: long enough that a sentinel-only field has had
@@ -38,11 +37,15 @@ constexpr uint16_t kSettlePackets = 20;
 // If the packets stop or never start, decide anyway rather than sit
 // undecided: an unsettled dashboard would keep whatever shape it booted with.
 constexpr uint32_t kSettleMs = 8000;
-// The decision is not final immediately after it settles. The relay can start
-// a second or two behind the controller's first packet, and on a Gen1 the
-// patch's own frames are what say whether it has boost. Without this window a
-// Gen1 would keep NoBoost for the whole drive. After it, poll() does nothing.
-constexpr uint32_t kLateMs = 15000;
+// There is deliberately no "late" cutoff after the decision. The CAN relay can
+// come up many seconds behind the controller - since 0.9.0 the body-CAN box has
+// to scan for the dash's own AP before it knows the channel, and on a cold boot
+// that is later than any fixed window we could pick. The only evidence that
+// adds the oil-pressure row is the patched Motor_7, and losing it because it
+// arrived at t+20 s rather than t+10 s is exactly the bug 0.9.1 shipped: the
+// row never appeared on a car that has the patch. poll() therefore keeps
+// watching; the work it does when nothing has changed is two latched structs
+// and a comparison.
 
 // Boost comes from the generation table, except that a Gen1 can prove the table
 // wrong by broadcasting a lengthened Motor_7 - which is exactly what the
@@ -57,12 +60,10 @@ bool boostFor(const bool genKnown, const uint8_t gen, const bool sawEngine7) {
 
 void poll() {
 #if OHX_USE_ESP_NOW
-  // Settled, but still inside the revision window: catch a generation or a
-  // patched Motor_7 that turned up after the decision. Outside the window this
-  // is the first line that runs, so a settled dash reads no frames at all.
+  // Settled, but still watching: catch a generation or a patched Motor_7 that
+  // turned up after the decision. This runs on every loop pass, forever - see
+  // the note above on why there is no cutoff.
   if (g.settled) {
-    if ((uint32_t)(millis() - g_settledMs) > kLateMs) return;
-
     const ohxnow::Status s = ohxnow::last();
     const chassis::PatchedEngine pe = chassis::patchedEngine();
     if (pe.boost) g_sawEngine7 = true;
@@ -139,7 +140,6 @@ void poll() {
   g.haldexTemps = g_sawTemps;
   g.steering = g_sawSteer;
   g.settled = true;
-  g_settledMs = now;
 
   Serial.printf("[cap] %s\n", summary());
 }
