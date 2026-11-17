@@ -8,7 +8,22 @@
 // =====================================================================
 #pragma once
 
-#define OHX_DASH_VERSION "0.9.2"  // Late oil-pressure evidence; a blank glass during OTA
+#define OHX_DASH_VERSION "0.9.3"  // CANvas dash: new name, new splash, AP "CANv-dash"
+// 0.9.3 - The project is renamed CANvas dash. The boot banner, the update page
+// and the docs say so, and the splash is a new pre-rendered base
+// (assets/canvas-dash-splash-base.jpg, 800x480) carrying the CANvas wordmark and
+// its "d a s h" subtitle. The progress rule was re-measured on the artwork: it
+// is in the same place as before (x 210..589, y 284), so the lv_bar geometry is
+// unchanged, but the tagline moved down to y 360 so it clears the subtitle.
+// The dash's access point is now "CANv-dash" (it was "ohx-dash") and mDNS
+// follows it, so the update page is http://192.168.4.1/ or
+// http://canv-dash.local/. The old splash JPEG is deleted.
+// The rename is a fleet change, not only a paint job: the body-CAN box and the
+// gauge learn the channel from an AP name. Both siblings now scan for
+// "CANv-dash" first and still accept "ohx-dash", so a sender and a dash on
+// different sides of this release keep finding each other.
+// Not verified on hardware: the new splash decode, the tagline position and the
+// renamed AP as seen by the senders.
 // 0.9.2 - Two fixes from the first car run of 0.9.1.
 // The OIL PRES row never appeared on a car that has the patch: the capability
 // check revised its evidence only for 15 s after the decision settled, and the

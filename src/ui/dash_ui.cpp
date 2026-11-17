@@ -2270,12 +2270,13 @@ void buildSplash(lv_obj_t *parent) {
   lv_obj_move_foreground(splashBar);  // above the full-panel picture
   g_splashRule = splashBar;
 
-  // ---- tagline under the rule, and the version in the bottom-right corner,
-  // where it is out of the artwork's way. The version is the one thing here
-  // worth reading off the glass at boot: it is what says which build an
-  // over-the-air trial actually booted.
+  // ---- tagline under the wordmark, and the version in the bottom-right
+  // corner, where it is out of the artwork's way. The new artwork carries the
+  // name and its "d a s h" subtitle down to y 331, so the tagline sits below
+  // that. The version is the one thing here worth reading off the glass at
+  // boot: it is what says which build an over-the-air trial actually booted.
   lv_obj_t *tag =
-      fixedLabel(w.splash, 0, 302, L::W, 20, FONT_BODY, COL_DIM, "TRACK DASH FOR OPENHALDEX");
+      fixedLabel(w.splash, 0, 360, L::W, 20, FONT_BODY, COL_DIM, "TRACK DASH FOR OPENHALDEX");
   lv_obj_set_style_text_align(tag, LV_TEXT_ALIGN_CENTER, 0);
   char vbuf[32];
   snprintf(vbuf, sizeof(vbuf), "v%s", OHX_DASH_VERSION);

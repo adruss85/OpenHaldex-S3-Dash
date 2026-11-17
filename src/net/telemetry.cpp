@@ -58,7 +58,10 @@ TaskHandle_t g_netTask = nullptr;  // the network task, so its stack can be repo
 // on, and lock. In FOLLOWER the AP rides the controller's channel once the STA
 // joins; in ANCHOR it stays on cfg::fleetChannel. The name is deliberately
 // distinct from the C6's "OpenHaldex-C6" so the bodycan can tell them apart.
-constexpr const char *kDashApSsid = "ohx-dash";
+// Renamed from "ohx-dash" in 0.9.3; the senders scan for this one first and
+// keep the old name as a fallback for a dash that has not been updated yet.
+constexpr const char *kDashApSsid = "CANv-dash";
+constexpr const char *kDashMdnsHost = "canv-dash";
 bool g_mdnsStarted = false;
 
 bool apUp() {
@@ -80,7 +83,7 @@ bool wifiStartAp() {
                 c.netRole == cfg::NET_ANCHOR ? "anchor" : "follower", kDashApSsid,
                 (unsigned)c.fleetChannel, ok ? "up" : "FAILED",
                 WiFi.softAPIP().toString().c_str());
-  if (ok && !g_mdnsStarted) g_mdnsStarted = MDNS.begin("ohx-dash");
+  if (ok && !g_mdnsStarted) g_mdnsStarted = MDNS.begin(kDashMdnsHost);
   return ok;
 }
 
@@ -349,7 +352,7 @@ bool wifiEnsureConnected() {
 
   // mDNS is normally started with the AP (wifiStartAp), so this is only the
   // fallback for a build that joined a controller before the AP came up.
-  if (!g_mdnsStarted) g_mdnsStarted = MDNS.begin("ohx-dash");
+  if (!g_mdnsStarted) g_mdnsStarted = MDNS.begin(kDashMdnsHost);
   return true;
 }
 
@@ -375,7 +378,7 @@ int fetchJson(HTTPClient &http, NetworkClient &tcp, bool &ready, const char *pat
     http.setReuse(true);
     http.setConnectTimeout(timeoutMs);
     http.setTimeout(timeoutMs);
-    http.setUserAgent("OpenHaldex-S3-Dash/0.1");
+    http.setUserAgent("CANvas-dash/0.1");
     ready = true;
   }
 

@@ -108,7 +108,7 @@ void revertToOtherSlot(const char *why) {
 const char kPageHead[] PROGMEM =
     "<!doctype html><html><head><meta charset='utf-8'>"
     "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<title>OpenHaldex S3 Dash</title><style>"
+    "<title>CANvas dash</title><style>"
     "body{font-family:system-ui,-apple-system,sans-serif;background:#0e1116;color:#e8edf2;"
     "margin:0;padding:24px;line-height:1.5}h1{font-size:19px;margin:0 0 4px}"
     "h2{font-size:14px;color:#7c8894;font-weight:600;margin:22px 0 6px;text-transform:uppercase}"
@@ -125,7 +125,7 @@ void sendPage(int code, const String &body) {
 }
 
 String factsHtml() {
-  String s = "<h1>OpenHaldex S3 Dash</h1>";
+  String s = "<h1>CANvas dash</h1>";
   s += "<table><tr><td>Firmware</td><td><code>";
   s += OHX_DASH_VERSION;
   s += "</code> (";
@@ -297,11 +297,11 @@ void serveBegin() {
   g_server.begin();
   g_serving = true;
 
-  // mDNS is up under "ohx-dash" (started with the AP), so this only has to
+  // mDNS is up under "canv-dash" (started with the AP), so this only has to
   // advertise the page: the same name then reaches the dash on either
   // interface.
   if (MDNS.addService("http", "tcp", 80)) {
-    Serial.println("[ota] update page: http://ohx-dash.local/");
+    Serial.println("[ota] update page: http://canv-dash.local/");
   }
   const IPAddress addr = sta ? WiFi.localIP() : WiFi.softAPIP();
   snprintf(g_url, sizeof g_url, "http://%s/", addr.toString().c_str());

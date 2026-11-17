@@ -242,7 +242,8 @@ period with the listener on or off.
 ### The fleet role and the dash's own access point
 
 From 0.9.0 the dash is also the pseudo wireless CAN fleet's **anchor**. It runs
-an open access point called **`ohx-dash`** at `192.168.4.1` in both roles:
+an open access point called **`CANv-dash`** at `192.168.4.1` in both roles
+(renamed from `ohx-dash` in 0.9.3):
 
 * **FOLLOWER** (default): `WIFI_AP_STA`. The AP is started on
   `cfg::fleetChannel` and then follows the controller's channel once the
@@ -255,8 +256,9 @@ an open access point called **`ohx-dash`** at `192.168.4.1` in both roles:
   the AP.
 
 The body-CAN box (0.2.0) does not compile in a channel. It **scans** for
-`ohx-dash` first and `OpenHaldex-C6` second, takes that AP's channel, and
-re-scans every 30 s or on `r`. This is deliberate: ESP-NOW has no discovery or
+`CANv-dash` first (and still accepts `ohx-dash` from a dash that has not been
+updated), then `OpenHaldex-C6`, takes that AP's channel, and re-scans every 30 s
+or on `r`. This is deliberate: ESP-NOW has no discovery or
 channel negotiation, and a radio can only hear a packet on the channel it is
 tuned to. The AP's WiFi beacon is the “I am on channel N” signal, and a scan is
 how it is heard. The `channel` field in `OHX_STATUS` is diagnostic only — it

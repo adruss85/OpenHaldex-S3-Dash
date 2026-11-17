@@ -1,4 +1,4 @@
-# OpenHaldex S3 Dash
+# CANvas dash
 
 A native dashboard for the **[OpenHaldex](#credits)** Haldex AWD controller,
 running directly on a **7" ESP32-S3 touch panel**. It replaces the browser
@@ -309,16 +309,16 @@ the flashing side of OTA needs no new partition to be useful.
 
 Once the dash is screwed into a pod there is no USB cable, so it can update
 itself from a phone. From 0.9.0 the dash runs its own access point in **both**
-roles — `ohx-dash`, open, at `192.168.4.1` — so the update page no longer
+roles — `CANv-dash`, open, at `192.168.4.1` — so the update page no longer
 depends on the controller being present:
 
 1. Download `firmware.bin` from the
    [releases page](https://github.com/adruss85/OpenHaldex-S3-Dash/releases)
    onto the phone.
-2. Join the dash's access point, **`ohx-dash`**. In follower mode the
+2. Join the dash's access point, **`CANv-dash`**. In follower mode the
    controller's access point works too, exactly as before.
 3. Open the address shown on the dash's SETTINGS page, under **UPDATE**:
-   `http://192.168.4.1/` (or `http://ohx-dash.local/`; in follower mode the
+   `http://192.168.4.1/` (or `http://canv-dash.local/`; in follower mode the
    station address `http://192.168.1.203/` also works).
 4. Choose the file and press **Upload and reboot**. It takes about 15 s for
    the ~1.8 MB image, and the page reports the version, the slot and how many
@@ -387,7 +387,7 @@ Defaults match the browser page:
 |---|---|
 | SSID / password | `OpenHaldex-C6` / *(empty — the controller's AP is open by default)* |
 | Host | `192.168.1.1` (the access-point address; `openhaldex.local` also works) |
-| Network role | follower (AP+STA: own AP `ohx-dash` rides the controller's channel) |
+| Network role | follower (AP+STA: own AP `CANv-dash` rides the controller's channel) |
 | Fleet channel | 1 (the dash AP's channel; in follower it follows the controller once joined) |
 | rpm max / amber / redline / shift | 8000 / 6000 / 6800 / 6500 |
 | Coolant warn / crit (C) | 100 / 110 |
@@ -497,7 +497,7 @@ AGENTS.md                   short guidance for AI agents working in this repo
 README.md                   this file
 TODO.md                     deliberately unbuilt, unverified or undecided
 assets/
-  candash-splash-base-92.jpg  the boot splash's picture, embedded in the app
+  canvas-dash-splash-base.jpg the boot splash's picture, embedded in the app
 
 include/
   board_config.h            panel pins, timing, I2C, expander, touch

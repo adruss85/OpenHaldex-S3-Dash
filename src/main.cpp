@@ -1,5 +1,5 @@
 // =====================================================================
-// main.cpp - OpenHaldex S3 Dash
+// main.cpp - CANvas dash
 //
 // A native dashboard for the Elecrow CrowPanel 7.0" (ESP32-S3), driven by
 // the unmodified OpenHaldex-C6 HTTP API.
@@ -93,7 +93,7 @@ void printBanner() {
 #endif
   Serial.println();
   Serial.println("=========================================");
-  Serial.println(" OpenHaldex S3 Dash");
+  Serial.println(" CANvas dash");
   Serial.printf(" version  : %s (%s)\n", OHX_DASH_VERSION, OHX_DASH_BUILD);
   Serial.printf(" board    : %s\n", BOARD_NAME);
   Serial.printf(" chip     : %s rev %d, %d core(s) @ %u MHz\n", ESP.getChipModel(),

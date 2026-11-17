@@ -171,15 +171,15 @@ the same header before assuming the renderer can draw it.
 
 ## The boot splash's picture
 
-The splash is a pre-rendered 800x480 JPEG (`assets/candash-splash-base-92.jpg`,
-30 395 B) with the progress rule, the tagline and the version drawn over it by
+The splash is a pre-rendered 800x480 JPEG (`assets/canvas-dash-splash-base.jpg`,
+30 696 B) with the progress rule, the tagline and the version drawn over it by
 LVGL. It is put in the app image, not the file system, by
 
 ```ini
-board_build.embed_files = assets/candash-splash-base-92.jpg
+board_build.embed_files = assets/canvas-dash-splash-base.jpg
 ```
 
-which the linker turns into `_binary_assets_candash_splash_base_92_jpg_start`
+which the linker turns into `_binary_assets_canvas_dash_splash_base_jpg_start`
 / `_end` symbols ([`src/ui/splash_img.cpp`](../src/ui/splash_img.cpp) is the only
 thing that refers to them; without a reference the linker drops the data again).
 In the app image rather than LittleFS on purpose: it can then be replaced by an

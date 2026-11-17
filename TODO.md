@@ -17,14 +17,14 @@ access point — so it cannot fetch data, and the over-the-air update page is
 unreachable. USB is the only way back.
 
 The fix: if the station has failed to join for ~3 minutes, raise our own access
-point (`ohx-dash-rescue`), put the address on the glass, and serve the same
+point (`canv-dash-rescue`), put the address on the glass, and serve the same
 update page plus a way to fix the stored credentials. Roughly a softAP, a
 small DHCP server and one more page; maybe 60–80 KB of flash.
 
 **Deferred, not rejected.** An edge case you have to walk into on purpose.
 Worth doing if this ever ships to someone who cannot reach the USB port.
 
-**0.9.0 changed the shape of this:** the dash now runs `ohx-dash` in both
+**0.9.0 changed the shape of this:** the dash now runs `CANv-dash` in both
 roles, and that AP already serves the update page while a join is failing. What
 is left is making it *useful* for credentials — a page and a way back to
 FOLLOWER — and deciding whether the AP should have its own password. See 1.7.
@@ -35,7 +35,7 @@ a different risk class from the mode switch — a stranger changing the Haldex
 map is annoying, a stranger writing your firmware is not — and the open access
 point is broadcast, so "who is on it" is everyone in range.
 
-0.9.0 makes this more urgent: `ohx-dash` is always on, not just the
+0.9.0 makes this more urgent: `CANv-dash` is always on, not just the
 controller's AP, so the page is reachable wherever the dash is powered. The
 AP has no password by default.
 
@@ -173,13 +173,13 @@ sender follows the `channel` field in `OHX_STATUS` — was superseded during the
 architecture pass. That field cannot be read while off-channel, so it is a
 confirmation, not a discovery mechanism. The fleet instead agrees on an **AP**:
 
-* The dash runs an open AP, **`ohx-dash`**, in both roles. FOLLOWER is
+* The dash runs an open AP, **`CANv-dash`** (then `ohx-dash`), in both roles. FOLLOWER is
   `WIFI_AP_STA`: the AP starts on `cfg::fleetChannel` and rides the
   controller's channel once joined. ANCHOR is `WIFI_AP` only: no controller,
   no HTTP pollers, the AP stays on the fleet channel. The update page is on
   the AP in both roles.
-* The bodycan (0.2.0) **scans** for `ohx-dash` first and `OpenHaldex-C6`
-  second, takes that AP's channel, and re-scans every 30 s or on `r`. It no
+* The bodycan (0.2.0) **scans** for the dash AP first (`CANv-dash`, then the
+  legacy `ohx-dash`) and `OpenHaldex-C6` second, takes that AP's channel, and re-scans every 30 s or on `r`. It no
   longer compiles in channel 11 and no longer needs an `ohx_proto.h` receive
   path. Fallback is channel 1 when neither AP is on the air.
 * `cfg::Data` v6 gains `netRole` and `fleetChannel` (appended, migrated in
@@ -190,7 +190,7 @@ confirmation, not a discovery mechanism. The fleet instead agrees on an **AP**:
   hard-coded 11), so the AP stays where a sender can find it.
 * Bench-verified 13 Nov 2026: follower AP+STA on the C6's channel 1 with the
   C6's OHX stream and the bodycan's CANN arriving together; anchor AP-only on
-  channels 1 and 2, no join attempts; the bodycan preferring `ohx-dash` on
+  channels 1 and 2, no join attempts; the bodycan preferring the dash AP on
   channel 2 (−19 dBm) over the C6 on channel 1; the dash's `C` listing
   0x570/0x470/0x578 with 0 air lost after the channel move; the update page on
   `http://192.168.4.1/`. Anchor render ~59.6 fps, follower ~57.8 fps with the

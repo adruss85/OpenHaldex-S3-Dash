@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for AI coding agents working on **OpenHaldex S3 Dash**. Read this first; it is
+Guidance for AI coding agents working on **CANvas dash** (formerly OpenHaldex S3 Dash). Read this first; it is
 deliberately short. Detail lives in the files it points to.
 
 ## What this is
@@ -154,7 +154,7 @@ not facts about the current build.
 | **Drive log** (RAM ring, CSV session, download) | `src/app/logbook.cpp`; button in `buildSettings()`, REC in `updateReadouts()`; routes attached from `ota::serveBegin()` |
 | **CAN DATA page** names and scaling | `dbc/*.dbc`, regenerate with `tools/make_dbc_tables.py` |
 | **Panel, touch, backlight** | `src/hal/crowpanel.cpp`, pins and timings in `include/board_config.h` |
-| **Boot splash** | in `src/ui/dash_ui.cpp`; background JPEG is `assets/candash-splash-base-92.jpg`, embedded via `board_build.embed_files` in `platformio.ini` |
+| **Boot splash** | in `src/ui/dash_ui.cpp`; background JPEG is `assets/canvas-dash-splash-base.jpg`, embedded via `board_build.embed_files` in `platformio.ini` |
 | **Console key** | the `switch` in `src/main.cpp` and the table in `docs/console.md` |
 | **Version bump** | `include/version.h` (the history comment is the changelog) |
 | **Cut a release** | section "Cutting a release": tag + `gh release` with both `.bin` assets. Never a `releases/` folder |
@@ -205,11 +205,11 @@ last release and GitHub will show nothing. Never create one unprompted — "push
    git push origin v0.6.2
    ```
 5. **Publish with both assets.** Copy them to the release names first, because `gh` uses the
-   filename on disk: `OpenHaldex-S3-Dash-<ver>-firmware.bin` (OTA, what the update page takes)
-   and `OpenHaldex-S3-Dash-<ver>-factory.bin` (first USB flash, written at `0x0`).
+   filename on disk: `CANvas-dash-<ver>-firmware.bin` (OTA, what the update page takes)
+   and `CANvas-dash-<ver>-factory.bin` (first USB flash, written at `0x0`).
    ```bash
    gh release create v0.6.2 --verify-tag --title "v0.6.2 — <short>" --notes-file notes.md \
-     OpenHaldex-S3-Dash-0.6.2-firmware.bin OpenHaldex-S3-Dash-0.6.2-factory.bin
+     CANvas-dash-0.6.2-firmware.bin CANvas-dash-0.6.2-factory.bin
    ```
    Notes follow the shape of `v0.6.2` and `v0.4.1`: which file to pick and why the app-only
    image alone can lose to stale `otadata`, the OTA/trial/fall-back paragraph, what is new,

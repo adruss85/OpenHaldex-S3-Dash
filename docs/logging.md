@@ -67,7 +67,7 @@ settings page says, so one file from two cars stays comparable.
 The update page already runs an HTTP server on the dash's own address, so a
 phone on the controller's access point can take the file:
 
-1. SETTINGS shows the address under **UPDATE** (`http://ohx-dash.local/` or the
+1. SETTINGS shows the address under **UPDATE** (`http://canv-dash.local/` or the
    IP).
 2. Open it, find **Drive log**, press **Download drive.csv**.
 3. `Start log`, `Stop log` and `Delete` are on the same page.
