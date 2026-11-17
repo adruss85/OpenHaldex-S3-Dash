@@ -83,7 +83,7 @@ predate the fuel row, the repeaters and the odometer.*
 | Band | Contents |
 |---|---|
 | Rev bar | One continuous bar across the full 800 px (80 cells drawn edge to edge), one number per 1000 rpm above it and `x1000` at the right, then the rpm as a large centred number on its own row — with a **turn-indicator arrow at each end of that row**, hidden until the car blinks, then flashing green |
-| Tiles | `SPEED` (km/h or mph + peak) · `BOOST` (value, unit, a bar, peak — plus a quiet `OIL PRES` row on a car with the [ME7 patch](#boost-and-oil-pressure-on-the-me7-patch)) · the **temperatures card** (`COOLANT`, `OIL` and `FUEL`, each with a bar, and the diagnostic `BATT` number with a `V` label; no caption of its own — its first row lines up with the other cards' captions) · `HALDEX` (mode, coupling state, lock requested / actual, throttle) — **tap it to step the Haldex mode** |
+| Tiles | `SPEED` (km/h or mph + peak) · `BOOST` (value, unit, a bar, peak; turned on and off with the **Boost tile** setting) · the **temperatures card** (`COOLANT`, `OIL`, `FUEL`, each with a bar, plus an `OIL PRES` row under the oil bar on a car with the [ME7 patch](#boost-and-oil-pressure-on-the-me7-patch); no caption of its own — its first row lines up with the other cards' captions) · `HALDEX` (mode, coupling state, lock requested / actual, throttle) — **tap it to step the Haldex mode** |
 | Status bar | Data-state dot, the BRAKE / HAND / TC / ASR / **CC** lamps, the **odometer**, and the RESET PEAKS / SETTINGS buttons |
 
 The tile band follows the same geometry as the browser page, from one unit:
@@ -144,20 +144,24 @@ Nothing is blanked and no overlay covers the screen.
 
 ### Boost and oil pressure on the ME7 patch
 
-A stock PQ car's `Motor_7` (0x588) is three bytes, so a Gen1 gets the NoBoost
-band: there is no boost signal anywhere on its bus. The
+A stock PQ car's `Motor_7` (0x588) is three bytes, so a Gen1 has no boost
+signal anywhere on its bus. The
 **ForbesAutomotive ME7 patch** lengthens that frame to eight bytes and fills
 byte 4 with a boost sensor and bytes 5–6 with the raw ADC of the rear-O2 input,
 which can carry a **PST-F 1 oil-pressure sensor**. Byte 7 copies `Motor_3`'s
 intake-air temperature, and that copy is what the dash uses to recognise the
 patch rather than a coincidence of length.
 
-So a patched Gen1 gets the Full band and a quiet `OIL PRES` row inside the BOOST
-tile, right-aligned under the boost bar, without a setting to turn on. A stock
-Gen1 keeps NoBoost, and a car whose relay is off keeps whatever the generation
-table gave it — evidence can add a panel, never take one away. Oil pressure is
-offered only when the signature is present, and it is deliberately **not
+So a patched Gen1 shows `COOLANT / OIL / OIL PRES / FUEL`, with oil pressure
+directly under the oil-temperature bar, and the card's four rows tighten to make
+room. The `BOOST` panel is a **setting**, not a capability: on by default, turned
+off on the Settings page, which gives its width to SPEED / TEMPERATURES / HALDEX.
+A car with no patch loses the `OIL PRES` row and the remaining rows return to
+their wide pitch, so no slot is left empty. Oil pressure is deliberately **not
 clamped**: an unwired sensor shows a negative number rather than a fake `0.0`.
+The diagnostic `BATT` row that 0.9.0 drew is gone from the dashboard (the
+temperature card's bottom row is FUEL's now); the voltage is still on the raw
+page and in the drive log.
 
 The boost number on the glass is still the controller's own (`/api/live` or
 ESP-NOW). The dash's own decode of byte 4 is the console's `k` line, labelled
@@ -390,6 +394,7 @@ Defaults match the browser page:
 | Temperature units | C |
 | Pressure units | bar (boost and oil pressure; or psi) |
 | Distance units | km (metric) |
+| Boost tile | on |
 | Day / night | Auto (from the car's Terminal 58s) |
 | Brightness (day) | 100 % |
 | Poll live / dash / stale | 1000 / 1000 / 1500 ms |
@@ -461,9 +466,13 @@ There are three toggles in the Settings page's **Units** row:
 * **Distance** — the `km` / `mi` button, which moves the speed, the speed peak and
   the odometer.
 
+The **Boost tile** `ON` / `OFF` switch (DISPLAY, beside Day / Night) is a layout
+choice rather than a unit: it decides whether the fourth panel is in the band.
+It is the only way the tile band's shape changes now.
+
 Every tile value is drawn in its larger face and every unit is the small grey
-stock 14 px label beside it — `C`/`F`, `L`, `V`, `bar`/`psi`, boost and speed —
-so the units never depend on the digits-only value subset.
+stock 14 px label beside it — `C`/`F`, `L`, `bar`/`psi`, boost and speed — so
+the units never depend on the digits-only value subset.
 
 **Fuel is always litres.** The car reports litres (`TankContents` is one litre
 per count), a tank size is a metric figure here, and "switch to miles" is a

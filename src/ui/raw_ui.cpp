@@ -465,7 +465,9 @@ void refresh() {
   setText(g_val[F_CAP_STEER],
           waiting ? waiting : (cp.steering ? "yes (detected)" : "no (detected)"));
   setText(g_val[F_CAP_OIL], waiting ? waiting : (cp.oilPressure ? "yes (motor_7)" : "no"));
-  setText(g_val[F_CAP_LAYOUT], layout::bandFor(cp.variant).name);
+  setText(g_val[F_CAP_LAYOUT],
+          layout::bandFor(cfg::get().boostTile ? layout::Variant::Full : layout::Variant::NoBoost)
+              .name);
 
   // ---- the CAN relay
   {

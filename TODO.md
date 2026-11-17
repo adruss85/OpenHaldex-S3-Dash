@@ -227,9 +227,9 @@ ForbesAutomotive ME7 patch (0.8.0). That car fills BOOST from the patch and OIL
 pressure from its ADC bytes, so the **Full (B)** band has been rendered on a
 car and its boost decode has been seen moving — but only through this patch:
 
-* the Full band has **not** been seen on a Gen4/5 car, where it comes from the
-  generation table and the controller's own boost source rather than a patched
-  `Motor_7`;
+* the Full band has **not** been seen on a Gen4/5 car; since 0.9.1 it is the
+  Boost tile setting, so any tester can turn the fourth panel on, but the boost
+  values beside it have only been proven through this patch on this engine;
 * the packet's `boost` (documented as *mbar above ambient*) has still only been
   cross-checked against the patch's byte 4 on this one engine;
 * Gen2/4/50/52 differences still unknown: which generations fill `slip[4]`,
@@ -326,9 +326,6 @@ render-rate regression below.
   stored log has ever contained it, because no raw CAN dump (`C`) was ever taken —
   so whether this engine populates the byte is exactly what one `k` dump with a
   speed set settles. Not shown on the glass yet.
-* **Boost tile on a Gen1 car.** `cap::poll()` now revises the band once if the
-  Haldex generation only arrives after the decision settled by timeout. A cold
-  boot with the controller off, then `[cap] revised after late generation`.
 * **Slowdown while the bar flashes.** The flash is one full-width plate instead
   of one style write per lit cell (80 of them on the 0.7.2 bar, which overflowed
   LVGL's 32-slot invalidation buffer into a whole-screen repaint), and
@@ -341,6 +338,16 @@ render-rate regression below.
   controller talking, `9` then `1`/`2`/`3`/`4`/`5` to name the redraw group.
 * **Flash should span the full width.** Confirmed by `d` on the bench: the plate
   is solid across all 120 columns in both halves.
+
+### 2.7 The 0.9.1 card and band changes
+Built, not seen on hardware. The temperatures card's rows are now COOLANT / OIL /
+OIL PRES / FUEL, with BATT gone and the four rows on the 55 px pitch; the BOOST
+tile is a setting (append-only `boostTile`, blob v8, default on) with its own
+`ON`/`OFF` button beside Day / Night. Check on the glass: the four rows do not
+collide in the 204 px Full band, the shorter unit column still ends flush with
+the bars, a car without the patch closes the OIL PRES gap and widens the rows,
+and toggling the setting re-places the band without a rebuild. The settings
+button itself has not been photographed.
 
 ---
 

@@ -293,9 +293,9 @@ void handleSerial() {
                        "w=role W=fleet channel N=network");
         break;
       case 'v': {
-        // Force the tile band, for bench work: the capability decision is made
-        // once at boot, and this is how the other band is seen without
-        // pretending to be another car.
+        // Force the tile band, for bench work: the band follows the Boost tile
+        // setting, and this is how the other shape is seen without opening
+        // settings. A later setting or capability change re-places it.
         const layout::Variant next = (ui::layoutVariant() == layout::Variant::Full)
                                          ? layout::Variant::NoBoost
                                          : layout::Variant::Full;
@@ -500,19 +500,25 @@ void loop() {
   // prove itself, in which case this is what confirms it or gives up on it.
   ota::tick();
 
-  // What the car can fill, and the dashboard's shape, decided once. The
-  // capability poll does nothing at all once it has settled; the layout is
-  // applied only on the transition, so the console can then force a band by
-  // hand without the decision immediately overwriting it.
+  // What the car can fill still decides the oil-pressure row; the tile band
+  // itself now follows the Boost tile setting. Re-place when either input
+  // changes. The last values are tracked so the console's `v` force survives
+  // until something genuinely changes.
   cap::poll();
   {
-    static uint32_t appliedRev = 0;
+    static uint32_t appliedCapRev = 0;
+    static bool appliedSettled = false;
+    static bool appliedBoost = false;
     static bool layoutApplied = false;
     const cap::Caps &caps = cap::get();
-    if (caps.settled && (!layoutApplied || caps.revision != appliedRev)) {
+    const bool boostTile = cfg::get().boostTile != 0;
+    if (!layoutApplied || caps.revision != appliedCapRev || caps.settled != appliedSettled ||
+        boostTile != appliedBoost) {
       layoutApplied = true;
-      appliedRev = caps.revision;
-      ui::applyLayout(caps.variant);
+      appliedCapRev = caps.revision;
+      appliedSettled = caps.settled;
+      appliedBoost = boostTile;
+      ui::applyLayout(boostTile ? layout::Variant::Full : layout::Variant::NoBoost);
     }
   }
 

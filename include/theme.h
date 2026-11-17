@@ -155,16 +155,17 @@ constexpr int RPM_NUM_Y = 132;
 constexpr int RPM_NUM_H = TILE_Y - RPM_NUM_Y;  // 98
 
 // ---------------------------------------------------------- tile band
-// The tile band is the one part of the dashboard that changes shape with the
-// car. Two geometries exist, both approved as mock-ups:
+// The tile band is the one part of the dashboard whose shape can change.
+// Two geometries exist, both approved as mock-ups:
 //
 //   Full     SPEED | BOOST | TEMPERATURES | HALDEX, the widths dash.html
 //            gives them (186 / 186 / 204 / 224) - docs/mockups/B
 //   NoBoost  SPEED | TEMPERATURES | HALDEX, three equal panels - mock-up A,
-//            for a car with no boost source to put in the fourth
+//            for a car whose owner turns the BOOST panel off
 //
-// Which one is used is decided once at boot from what the car can actually
-// feed (app/capability.h) and is never changed while the car is moving.
+// Which one is used follows the Boost tile setting (config::Data::boostTile),
+// rather than a capability decision. It is changed from the Settings page; the
+// view is re-placed, not rebuilt.
 enum class Tile : uint8_t { Speed, Boost, Temps, Haldex };
 
 struct TileCol {

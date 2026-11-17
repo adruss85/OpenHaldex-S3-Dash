@@ -230,12 +230,15 @@ struct Widgets {
   lv_obj_t *indLeft = nullptr, *indRight = nullptr;
 
   lv_obj_t *speedVal = nullptr, *speedPeak = nullptr, *speedUnit = nullptr;
-  lv_obj_t *battCap = nullptr, *battVal = nullptr, *battUnit = nullptr;
   lv_obj_t *boostVal = nullptr, *boostUnit = nullptr, *boostBar = nullptr, *boostPeak = nullptr;
-  // The ForbesAutomotive patch's second reading, inside the BOOST tile because
-  // that is the panel that only exists when the same frame does.
+  // The ForbesAutomotive patch's second reading, in the temperatures card under
+  // the oil-temperature bar. It belongs with the engine readings and stays on
+  // the glass when the BOOST panel is switched off.
   lv_obj_t *oilPressCap = nullptr, *oilPressVal = nullptr, *oilPressBar = nullptr;
   lv_obj_t *oilPressUnit = nullptr;
+  // The temperatures card's captions move when the card gains or loses the
+  // oil-pressure row, so they are kept.
+  lv_obj_t *tempCapCool = nullptr, *tempCapOil = nullptr, *tempCapFuel = nullptr;
   lv_obj_t *coolVal = nullptr, *coolBar = nullptr, *coolUnit = nullptr;
   lv_obj_t *oilVal = nullptr, *oilBar = nullptr, *oilUnit = nullptr;
   lv_obj_t *fuelVal = nullptr, *fuelBar = nullptr, *fuelUnit = nullptr;
@@ -702,35 +705,41 @@ void buildGauge(lv_obj_t *parent) {
 // back as a tile of its own: boost the bar is gone, so the value is shown
 // once, here, with its own small bar and its peak.
 //
-// The four panels are always built; which of them are on the glass, and where
-// they sit, is decided by applyLayout() below from what the car can feed.
+// The four panels are always built; whether BOOST is on the glass, and where
+// the other three sit, follows the Boost tile setting and is applied by
+// applyLayout() below.
 lv_obj_t *g_tileSpeed = nullptr, *g_tileBoost = nullptr;
 lv_obj_t *g_tileTemps = nullptr, *g_tileHaldex = nullptr;
 layout::Variant g_variant = layout::Variant::Full;
 bool g_placed = false;
-bool g_oilShown = false;  // the OIL row is on the glass (capability, not layout)
+bool g_oilShown = false;  // the OIL PRESS row is on the glass (capability, not layout)
 
-// The temperatures panel's four rows (coolant / oil / fuel / battery) share one
-// pitch, so the build pass and the placement pass cannot drift apart.
+// The temperatures panel's rows share one pitch, so the build pass and the
+// placement pass cannot drift apart. Four rows are usual (coolant / oil / oil
+// pressure / fuel) at 55 px; a car without the ME7 patch loses the pressure row
+// and its three rows go back to the wide 80 px pitch, so nothing is left empty.
 //
-// The card carries no title of its own - the four captions say what the card
-// is - so its first row has to sit where every other card's caption sits,
-// TILE_PAD_V, and the four rows then fill the tile (#11). The anchor per row is
-// therefore the *caption's* box top, not a notional row top.
+// The card carries no title of its own - the captions say what the card is - so
+// its first row has to sit where every other card's caption sits, TILE_PAD_V.
+// The anchor per row is therefore the *caption's* box top, not a notional row
+// top.
 //
 // The caption and the value share a baseline. At montserrat_12 (FONT_CAP) the
 // caption's baseline is 12 px below its box top; at montserrat_22 (FONT_TEMP)
 // the value's is 20 px below its. So a value box 8 px above the caption's puts
 // the two on one line - the relationship the Haldex tile's LOCK REQ / LOCK ACT
 // rows already use. The bar runs 30 px below the caption.
-constexpr int kTempRows = 4;
-constexpr int kTempPitch = 55;  // four rows: coolant, oil, fuel, battery
-constexpr int kTempCapY[kTempRows] = {L::TILE_PAD_V, L::TILE_PAD_V + kTempPitch,
-                                      L::TILE_PAD_V + 2 * kTempPitch,
-                                      L::TILE_PAD_V + 3 * kTempPitch};
+constexpr int kTempY0 = L::TILE_PAD_V;
+constexpr int kTempPitchTight = 55;  // four rows: coolant, oil, oil press, fuel
+constexpr int kTempPitchWide = 80;   // three rows, no oil-pressure sensor
 constexpr int kTempValDY = -8;   // value box top, from the caption's
 constexpr int kTempValH = 30;
 constexpr int kTempBarDY = 30;   // bar top, from the caption's
+// Every reading in the card ends with a unit label, and "bar"/"psi" needs 24 px
+// where "°C" and "L" need 16. One unit column for all rows keeps the numbers on
+// one right edge; the labels are right-aligned so the units themselves finish
+// flush with the bar.
+constexpr int kTempUnitW = 24;
 
 // The tile unit labels are single letters: C, F, L, V all start on the same
 // left edge. The Settings button still spells the choice as °C/°F.
@@ -760,18 +769,11 @@ void buildTiles(lv_obj_t *parent) {
   w.speedVal = fixedLabel(t0, L::TILE_PAD_H - 2, 44, 132, 58, FONT_BIG, COL_FG, "--");
 
   // The unit and peak sit directly under the big number, as they do on the
-  // boost side; the battery voltage gets the space below them.
+  // boost side.
   w.speedUnit = fixedLabel(t0, L::TILE_PAD_H, kTileUnitY, 70, 18, FONT_SMALL, COL_DIM, "km/h");
 
   w.speedPeak = fixedLabel(t0, L::TILE_PAD_H, kTilePeakY, L::COL0_W - 2 * L::TILE_PAD_H, 18,
                            FONT_SMALL, COL_DIM, "peak --");
-
-  // Battery voltage, from the body-CAN box's 0x570 (or the controller's supply
-  // field on a generation that fills it). A number only: this is a slow-moving
-  // reading, not something with a useful bar. The caption/value baseline
-  // relationship is the temperatures panel's.
-  // The speed tile ends at the peak; the diagnostic BATT row lives in the
-  // temperatures column with the other car readings.
 
   // ---- BOOST ------------------------------------------------------
   lv_obj_t *t1 = opaque(parent, L::COL1_X, y, L::COL1_W, h, COL_BG);
@@ -786,23 +788,11 @@ void buildTiles(lv_obj_t *parent) {
   const int bw = L::COL1_W - 2 * L::TILE_PAD_H;
   w.boostVal = fixedLabel(t1, L::TILE_PAD_H, 40, bw, 52, FONT_NUM, COL_FG, "--");
   w.boostUnit = fixedLabel(t1, L::TILE_PAD_H, kTileUnitY, bw, 18, FONT_SMALL, COL_DIM, "bar");
-  // Peak directly under the unit, then the bar, then the oil row.
+  // Peak under the unit, then the bar. The oil-pressure row that used to share
+  // this tile now lives in the temperatures card, with the other engine
+  // readings, so this panel is boost alone again.
   w.boostPeak = fixedLabel(t1, L::TILE_PAD_H, kTilePeakY, bw, 18, FONT_SMALL, COL_DIM, "peak --");
   w.boostBar = bar(t1, L::TILE_PAD_H, 140, bw, 10, COL_WHITE, 0, 100);
-
-  // The oil-pressure reading the same ME7 patch adds to Motor_7 bytes 5-6.
-  // It sits on the bottom diagnostic line, level with the temperatures column's
-  // BATT row: caption and value on one line, bar 30 px under the caption. The
-  // value is the 22 px face and the unit is the small stock 14 px font, the
-  // arrangement every reading in this band now uses. Hidden unless capability
-  // detection found the patch - a stock car must not show an empty row.
-  w.oilPressCap = label(t1, FONT_CAP, COL_DIM, "OIL PRES");
-  lv_obj_set_pos(w.oilPressCap, L::TILE_PAD_H, kTempCapY[3]);
-  w.oilPressVal = fixedLabel(t1, L::TILE_PAD_H, kTempCapY[3] + kTempValDY, 80, 30, FONT_TEMP,
-                             COL_FG, "--");
-  lv_obj_set_style_text_align(w.oilPressVal, LV_TEXT_ALIGN_RIGHT, 0);
-  w.oilPressUnit = fixedLabel(t1, 0, kTempCapY[3], 22, 18, FONT_SMALL, COL_DIM, "bar");
-  w.oilPressBar = bar(t1, L::TILE_PAD_H, kTempCapY[3] + kTempBarDY, bw, 10, COL_GREEN, 0, 100);
 
   // ---- TEMPERATURES -----------------------------------------------
   lv_obj_t *t2 = opaque(parent, L::COL2_X, y, L::COL2_W, h, COL_BG);
@@ -811,49 +801,61 @@ void buildTiles(lv_obj_t *parent) {
   lv_obj_set_style_border_width(t2, 1, 0);
   lv_obj_set_style_border_color(t2, COL_LINE, 0);
 
-  // Four rows: coolant, oil, fuel and the diagnostic battery. The card is
-  // named by its contents, so the first row starts where the cards beside it
-  // put their captions. Values are the 22 px face; every unit is the same small
-  // grey stock font on the caption's baseline - the arrangement OIL PRES uses.
+  // Four rows: coolant, oil, oil pressure, fuel. The card is named by its
+  // contents, so the first row starts where the cards beside it put their
+  // captions. Values are the 22 px face; every unit is the same small grey
+  // stock font on the caption's baseline, right-aligned in one unit column so
+  // "°C", "L", "bar" and "psi" all finish flush with the bar.
   const int tw = L::COL2_W - 2 * L::TILE_PAD_H;
-  const int *const rowY = kTempCapY;
+  const int valX = L::TILE_PAD_H + tw - 104;
+  const int unitX = L::TILE_PAD_H + tw - kTempUnitW;
+  const int rowCool = kTempY0;
+  const int rowOil = kTempY0 + kTempPitchTight;
+  const int rowPress = kTempY0 + 2 * kTempPitchTight;
+  const int rowFuel = kTempY0 + 3 * kTempPitchTight;
 
-  lv_obj_t *cl = label(t2, FONT_CAP, COL_DIM, "COOLANT");
-  lv_obj_set_pos(cl, L::TILE_PAD_H, rowY[0]);
-  w.coolVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[0] + kTempValDY, 80, kTempValH,
-                         FONT_TEMP, COL_FG, "--");
+  w.tempCapCool = label(t2, FONT_CAP, COL_DIM, "COOLANT");
+  lv_obj_set_pos(w.tempCapCool, L::TILE_PAD_H, rowCool);
+  w.coolVal = fixedLabel(t2, valX, rowCool + kTempValDY, 80, kTempValH, FONT_TEMP, COL_FG, "--");
   lv_obj_set_style_text_align(w.coolVal, LV_TEXT_ALIGN_RIGHT, 0);
-  w.coolUnit = fixedLabel(t2, L::TILE_PAD_H + tw - 16, rowY[0], 16, 18, FONT_SMALL, COL_DIM,
-                          kDegC);
-  w.coolBar = bar(t2, L::TILE_PAD_H, rowY[0] + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
+  w.coolUnit = fixedLabel(t2, unitX, rowCool, kTempUnitW, 18, FONT_SMALL, COL_DIM, kDegC);
+  lv_obj_set_style_text_align(w.coolUnit, LV_TEXT_ALIGN_RIGHT, 0);
+  w.coolBar = bar(t2, L::TILE_PAD_H, rowCool + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
 
-  lv_obj_t *ol = label(t2, FONT_CAP, COL_DIM, "OIL");
-  lv_obj_set_pos(ol, L::TILE_PAD_H, rowY[1]);
-  w.oilVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[1] + kTempValDY, 80, kTempValH,
-                        FONT_TEMP, COL_FG, "--");
+  w.tempCapOil = label(t2, FONT_CAP, COL_DIM, "OIL");
+  lv_obj_set_pos(w.tempCapOil, L::TILE_PAD_H, rowOil);
+  w.oilVal = fixedLabel(t2, valX, rowOil + kTempValDY, 80, kTempValH, FONT_TEMP, COL_FG, "--");
   lv_obj_set_style_text_align(w.oilVal, LV_TEXT_ALIGN_RIGHT, 0);
-  w.oilUnit = fixedLabel(t2, L::TILE_PAD_H + tw - 16, rowY[1], 16, 18, FONT_SMALL, COL_DIM,
-                         kDegC);
-  w.oilBar = bar(t2, L::TILE_PAD_H, rowY[1] + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
+  w.oilUnit = fixedLabel(t2, unitX, rowOil, kTempUnitW, 18, FONT_SMALL, COL_DIM, kDegC);
+  lv_obj_set_style_text_align(w.oilUnit, LV_TEXT_ALIGN_RIGHT, 0);
+  w.oilBar = bar(t2, L::TILE_PAD_H, rowOil + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
 
-  lv_obj_t *fl = label(t2, FONT_CAP, COL_DIM, "FUEL");
-  lv_obj_set_pos(fl, L::TILE_PAD_H, rowY[2]);
-  w.fuelVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[2] + kTempValDY, 80, kTempValH,
-                         FONT_TEMP, COL_FG, "--");
+  // The ME7 patch's oil pressure, directly under the oil-temperature bar. It
+  // has a bar of its own (a fraction of kOilPressMaxBar) and the shared
+  // pressure unit. Hidden until capability detection proves the patch, and
+  // placeTempsTile() then either keeps the four-row pitch or closes the gap.
+  w.oilPressCap = label(t2, FONT_CAP, COL_DIM, "OIL PRES");
+  lv_obj_set_pos(w.oilPressCap, L::TILE_PAD_H, rowPress);
+  lv_obj_add_flag(w.oilPressCap, LV_OBJ_FLAG_HIDDEN);
+  w.oilPressVal =
+      fixedLabel(t2, valX, rowPress + kTempValDY, 80, kTempValH, FONT_TEMP, COL_FG, "--");
+  lv_obj_set_style_text_align(w.oilPressVal, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_add_flag(w.oilPressVal, LV_OBJ_FLAG_HIDDEN);
+  w.oilPressUnit = fixedLabel(t2, unitX, rowPress, kTempUnitW, 18, FONT_SMALL, COL_DIM, "bar");
+  lv_obj_set_style_text_align(w.oilPressUnit, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_add_flag(w.oilPressUnit, LV_OBJ_FLAG_HIDDEN);
+  w.oilPressBar = bar(t2, L::TILE_PAD_H, rowPress + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
+  lv_obj_add_flag(w.oilPressBar, LV_OBJ_FLAG_HIDDEN);
+
+  // FUEL is the bottom row, where the diagnostic battery voltage used to be.
+  // BATT is no longer drawn: it stays on the raw page as a diagnostic.
+  w.tempCapFuel = label(t2, FONT_CAP, COL_DIM, "FUEL");
+  lv_obj_set_pos(w.tempCapFuel, L::TILE_PAD_H, rowFuel);
+  w.fuelVal = fixedLabel(t2, valX, rowFuel + kTempValDY, 80, kTempValH, FONT_TEMP, COL_FG, "--");
   lv_obj_set_style_text_align(w.fuelVal, LV_TEXT_ALIGN_RIGHT, 0);
-  w.fuelUnit = fixedLabel(t2, L::TILE_PAD_H + tw - 16, rowY[2], 16, 18, FONT_SMALL, COL_DIM,
-                          "L");
-  w.fuelBar = bar(t2, L::TILE_PAD_H, rowY[2] + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
-
-  // BATT is the fourth diagnostic row: number plus a small V label, no bar.
-  // It reads "--" on a car without the body-CAN box; this build is for the rig
-  // that has one.
-  w.battCap = label(t2, FONT_CAP, COL_DIM, "BATT");
-  lv_obj_set_pos(w.battCap, L::TILE_PAD_H, rowY[3]);
-  w.battVal = fixedLabel(t2, L::TILE_PAD_H + tw - 100, rowY[3] + kTempValDY, 80, 30,
-                         FONT_TEMP, COL_FG, "--");
-  lv_obj_set_style_text_align(w.battVal, LV_TEXT_ALIGN_RIGHT, 0);
-  w.battUnit = fixedLabel(t2, L::TILE_PAD_H + tw - 16, rowY[3], 16, 18, FONT_SMALL, COL_DIM, "V");
+  w.fuelUnit = fixedLabel(t2, unitX, rowFuel, kTempUnitW, 18, FONT_SMALL, COL_DIM, "L");
+  lv_obj_set_style_text_align(w.fuelUnit, LV_TEXT_ALIGN_RIGHT, 0);
+  w.fuelBar = bar(t2, L::TILE_PAD_H, rowFuel + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
 
   // ---- HALDEX -----------------------------------------------------
   lv_obj_t *t3 = opaque(parent, L::COL3_X, y, L::COL3_W, h, COL_BG);
@@ -909,38 +911,54 @@ void placeBoostTile(lv_obj_t *t, int x, int width, int height) {
   lv_obj_set_width(w.boostBar, bw);
   lv_obj_set_pos(w.boostPeak, L::TILE_PAD_H, kTilePeakY);
   lv_obj_set_width(w.boostPeak, bw);
-  // The OIL value is right-aligned to the tile edge; its caption and bar sit at
-  // the padding edge and span the tile.
-  lv_obj_set_pos(w.oilPressVal, width - L::TILE_PAD_H - 106, kTempCapY[3] + kTempValDY);
-  lv_obj_set_width(w.oilPressVal, 80);
-  lv_obj_set_pos(w.oilPressUnit, width - L::TILE_PAD_H - 22, kTempCapY[3]);
-  lv_obj_set_width(w.oilPressUnit, 22);
-  lv_obj_set_width(w.oilPressBar, bw);
 }
 
 void placeTempsTile(lv_obj_t *t, int x, int width, int height) {
   lv_obj_set_pos(t, x, L::TILE_Y);
   lv_obj_set_size(t, width, height);
   const int tw = width - 2 * L::TILE_PAD_H;
-  lv_obj_set_pos(w.coolVal, L::TILE_PAD_H + tw - 100, kTempCapY[0] + kTempValDY);
-  lv_obj_set_width(w.coolVal, 80);
-  lv_obj_set_pos(w.coolUnit, L::TILE_PAD_H + tw - 16, kTempCapY[0]);
-  lv_obj_set_width(w.coolUnit, 16);
+  const int valX = L::TILE_PAD_H + tw - 104;
+  const int unitX = L::TILE_PAD_H + tw - kTempUnitW;
+
+  // Four rows on a patched car: coolant, oil, oil pressure, fuel. Without the
+  // patch the pressure row is hidden and the three remaining rows use the wide
+  // pitch, so a stock car gets no gap where a reading it cannot make would be.
+  const bool press = cap::get().oilPressure;
+  const int pitch = press ? kTempPitchTight : kTempPitchWide;
+  const int rowOil = kTempY0 + pitch;
+  const int rowPress = rowOil + pitch;
+  const int rowFuel = press ? rowPress + pitch : rowOil + pitch;
+
+  lv_obj_set_pos(w.tempCapOil, L::TILE_PAD_H, rowOil);
+  lv_obj_set_pos(w.tempCapFuel, L::TILE_PAD_H, rowFuel);
+
   lv_obj_set_width(w.coolBar, tw);
-  lv_obj_set_pos(w.oilVal, L::TILE_PAD_H + tw - 100, kTempCapY[1] + kTempValDY);
-  lv_obj_set_width(w.oilVal, 80);
-  lv_obj_set_pos(w.oilUnit, L::TILE_PAD_H + tw - 16, kTempCapY[1]);
-  lv_obj_set_width(w.oilUnit, 16);
+  lv_obj_set_pos(w.coolVal, valX, kTempY0 + kTempValDY);
+  lv_obj_set_pos(w.coolUnit, unitX, kTempY0);
+  lv_obj_set_pos(w.oilVal, valX, rowOil + kTempValDY);
+  lv_obj_set_pos(w.oilUnit, unitX, rowOil);
   lv_obj_set_width(w.oilBar, tw);
-  lv_obj_set_pos(w.fuelVal, L::TILE_PAD_H + tw - 100, kTempCapY[2] + kTempValDY);
-  lv_obj_set_width(w.fuelVal, 80);
-  lv_obj_set_pos(w.fuelUnit, L::TILE_PAD_H + tw - 16, kTempCapY[2]);
-  lv_obj_set_width(w.fuelUnit, 16);
+  lv_obj_set_pos(w.oilBar, L::TILE_PAD_H, rowOil + kTempBarDY);
+  lv_obj_set_pos(w.oilPressVal, valX, rowPress + kTempValDY);
+  lv_obj_set_pos(w.oilPressUnit, unitX, rowPress);
+  lv_obj_set_pos(w.oilPressBar, L::TILE_PAD_H, rowPress + kTempBarDY);
+  lv_obj_set_width(w.oilPressBar, tw);
+  lv_obj_set_pos(w.fuelVal, valX, rowFuel + kTempValDY);
+  lv_obj_set_pos(w.fuelUnit, unitX, rowFuel);
   lv_obj_set_width(w.fuelBar, tw);
-  lv_obj_set_pos(w.battVal, L::TILE_PAD_H + tw - 100, kTempCapY[3] + kTempValDY);
-  lv_obj_set_width(w.battVal, 80);
-  lv_obj_set_pos(w.battUnit, L::TILE_PAD_H + tw - 16, kTempCapY[3]);
-  lv_obj_set_width(w.battUnit, 16);
+  lv_obj_set_pos(w.fuelBar, L::TILE_PAD_H, rowFuel + kTempBarDY);
+
+  if (press) {
+    lv_obj_remove_flag(w.oilPressCap, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(w.oilPressVal, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(w.oilPressUnit, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(w.oilPressBar, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(w.oilPressCap, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(w.oilPressVal, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(w.oilPressUnit, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(w.oilPressBar, LV_OBJ_FLAG_HIDDEN);
+  }
 }
 
 void placeHaldexTile(lv_obj_t *t, int x, int width, int height) {
@@ -954,9 +972,9 @@ void placeHaldexTile(lv_obj_t *t, int x, int width, int height) {
   lv_obj_set_width(w.thrBar, hw);
 }
 
-// Called once, when the capability decision settles, and by hand from the
-// console for bench work. Idempotent: re-applying the same band re-places the
-// same pixels and repaints nothing.
+// Called when the Boost tile setting or a capability-derived row changes, and
+// by hand from the console for bench work. Idempotent: re-applying the same
+// band re-places the same pixels and repaints nothing.
 void placeBand(layout::Variant v) {
   const layout::TileBand &band = layout::bandFor(v);
   bool boostShown = false;
@@ -983,24 +1001,10 @@ void placeBand(layout::Variant v) {
       lv_obj_add_flag(g_tileBoost, LV_OBJ_FLAG_HIDDEN);
     }
   }
-  // The OIL row is a capability rather than a band: it belongs on the glass
-  // only when the car's Motor_7 carries the patch's bytes 5-6, and it is hidden
-  // for the same reason the whole BOOST panel is. Its appearance is a
-  // repaint-worthy change, so it counts towards `changed` below.
+  // The oil-pressure row is the one capability still on the glass. It lives in
+  // the temperatures card, and placeTempsTile() has already shown or hidden it
+  // and chosen the pitch, so here it only counts as a repaint-worthy change.
   const bool oilShown = cap::get().oilPressure;
-  if (w.oilPressCap && w.oilPressVal) {
-    if (oilShown) {
-      lv_obj_remove_flag(w.oilPressCap, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_remove_flag(w.oilPressVal, LV_OBJ_FLAG_HIDDEN);
-      if (w.oilPressUnit) lv_obj_remove_flag(w.oilPressUnit, LV_OBJ_FLAG_HIDDEN);
-      if (w.oilPressBar) lv_obj_remove_flag(w.oilPressBar, LV_OBJ_FLAG_HIDDEN);
-    } else {
-      lv_obj_add_flag(w.oilPressCap, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_add_flag(w.oilPressVal, LV_OBJ_FLAG_HIDDEN);
-      if (w.oilPressUnit) lv_obj_add_flag(w.oilPressUnit, LV_OBJ_FLAG_HIDDEN);
-      if (w.oilPressBar) lv_obj_add_flag(w.oilPressBar, LV_OBJ_FLAG_HIDDEN);
-    }
-  }
   const bool oilChanged = oilShown != g_oilShown;
   g_oilShown = oilShown;
 
@@ -1218,7 +1222,7 @@ lv_obj_t *addField(lv_obj_t *parent, int y, const char *name, const char *value,
 
 lv_obj_t *g_taSsid = nullptr, *g_taPass = nullptr, *g_taHost = nullptr;
 lv_obj_t *g_btnTempUnits = nullptr, *g_btnPressure = nullptr;
-lv_obj_t *g_btnDistUnits = nullptr, *g_btnDayNight = nullptr;
+lv_obj_t *g_btnDistUnits = nullptr, *g_btnDayNight = nullptr, *g_btnBoostTile = nullptr;
 lv_obj_t *g_btnNetRole = nullptr, *g_btnNetCh = nullptr;
 
 const char *pressureUnitName(uint8_t units) {
@@ -1269,6 +1273,14 @@ void onDistUnits(lv_event_t *) {
 void onDayNight(lv_event_t *) {
   g_edit.dayNight = (uint8_t)((g_edit.dayNight + 1) % 3);
   setText(lv_obj_get_child(g_btnDayNight, 0), kDayNightNames[g_edit.dayNight]);
+}
+
+// The BOOST panel's on/off switch. Off hands the fourth tile's width to SPEED /
+// TEMPERATURES / HALDEX (the three-panel band), on restores the four-panel one.
+// The dashboard is re-placed on SAVE, with the rest of the settings.
+void onBoostTile(lv_event_t *) {
+  g_edit.boostTile = g_edit.boostTile ? 0 : 1;
+  setText(lv_obj_get_child(g_btnBoostTile, 0), g_edit.boostTile ? "ON" : "OFF");
 }
 
 void onCfgSave(lv_event_t *) {
@@ -1325,6 +1337,7 @@ void onCfgDefaults(lv_event_t *) {
   setText(lv_obj_get_child(g_btnPressure, 0), pressureUnitName(g_edit.pressureUnits));
   setText(lv_obj_get_child(g_btnDistUnits, 0), g_edit.unitsMetric ? "km" : "mi");
   setText(lv_obj_get_child(g_btnDayNight, 0), kDayNightNames[g_edit.dayNight]);
+  setText(lv_obj_get_child(g_btnBoostTile, 0), g_edit.boostTile ? "ON" : "OFF");
   setText(lv_obj_get_child(g_btnNetRole, 0), netRoleName(g_edit.netRole));
   setNetChLabel();
   syncGauge();  // the zones and the numbers move with the scale
@@ -1489,6 +1502,13 @@ void buildSettings() {
   lv_obj_t *dn = label(card, FONT_SMALL, lv_color_hex(0xc6ced6), "Day / Night");
   lv_obj_set_pos(dn, 0, y + 4);
   g_btnDayNight = button(card, 110, y, 90, 24, kDayNightNames[g_edit.dayNight], onDayNight);
+  // The BOOST panel is a preference now, not a capability decision. It shares
+  // the Day / Night row: the left column ends 14 px above the button rule, so
+  // there is no room for a row of its own, and this row has 180 px of space
+  // after its button.
+  lv_obj_t *btl = label(card, FONT_SMALL, lv_color_hex(0xc6ced6), "Boost tile");
+  lv_obj_set_pos(btl, 208, y + 4);
+  g_btnBoostTile = button(card, 288, y, 42, 24, g_edit.boostTile ? "ON" : "OFF", onBoostTile);
   y += 30;
 
   // ---- right column: thresholds, two values to a row ----------------
@@ -1784,6 +1804,10 @@ void updateGaugeText(const cfg::Data &c, float rpm) {
 
 void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telemetry::Dash &d) {
   if (!dbg(8)) return;
+  // The battery reading was the only thing here drawn from the raw copy; every
+  // other value is the interpolated g_shown. Kept in the signature because the
+  // caller has both and a future slow-moving row will want the same source.
+  (void)live;
   // The last known values stay on the glass when the data goes stale (the
   // status light says so); "--" is reserved for values never received, which
   // is what NaN means.
@@ -1859,31 +1883,6 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
     setText(w.boostPeak, buf);
   }
 
-  // ---- oil pressure: the other half of the ForbesAutomotive ME7 patch, from
-  // Motor_7 bytes 5-6. The row is hidden unless the car was detected with it,
-  // so nothing here is visible on a stock car. Negative is drawn as it is: it
-  // means the input is sitting below the sensor's 0.5 V zero (unwired or
-  // unpowered), and a fake 0.0 bar on an oil gauge would be worse than that.
-  setText(w.oilPressUnit, c.pressureUnits == cfg::PRESSURE_PSI ? "psi" : "bar");
-  if (isnan(v.oilPressure)) {
-    setSuffix(w.oilPressVal, "--", COL_DIM);
-  } else if (c.pressureUnits == cfg::PRESSURE_PSI) {
-    snprintf(buf, sizeof(buf), "%.1f", (double)(v.oilPressure * 14.5038f));
-    setSuffix(w.oilPressVal, buf, COL_FG);
-  } else {
-    snprintf(buf, sizeof(buf), "%.1f", (double)v.oilPressure);
-    setSuffix(w.oilPressVal, buf, COL_FG);
-  }
-  {
-    int pct = 0;
-    if (!isnan(v.oilPressure)) {
-      pct = (int)((v.oilPressure / kOilPressMaxBar) * 100.0f);
-      if (pct < 0) pct = 0;
-      if (pct > 100) pct = 100;
-    }
-    setBar(w.oilPressBar, pct);
-  }
-
   // ---- temperatures
   fmtTempValue(buf, sizeof(buf), v.coolant);
   setSuffix(w.coolVal, buf, colFor(v.coolant, c.coolWarn, c.coolCrit));
@@ -1913,7 +1912,33 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
     setBgColor(w.oilBar, colFor(v.oil, c.oilWarn, c.oilCrit), LV_PART_INDICATOR);
   }
 
-  // ---- fuel, the third row of this panel in both tile bands (#4/#11). The bar
+  // ---- oil pressure: the other half of the ForbesAutomotive ME7 patch, from
+  // Motor_7 bytes 5-6. It is the temperatures card's third row, directly under
+  // the oil-temperature bar, and it is hidden (with FUEL moved up) unless the
+  // car was detected with the patch. Negative is drawn as it is: it means the
+  // input is sitting below the sensor's 0.5 V zero (unwired or unpowered), and
+  // a fake 0.0 bar on an oil gauge would be worse than that.
+  setText(w.oilPressUnit, c.pressureUnits == cfg::PRESSURE_PSI ? "psi" : "bar");
+  if (isnan(v.oilPressure)) {
+    setSuffix(w.oilPressVal, "--", COL_DIM);
+  } else if (c.pressureUnits == cfg::PRESSURE_PSI) {
+    snprintf(buf, sizeof(buf), "%.1f", (double)(v.oilPressure * 14.5038f));
+    setSuffix(w.oilPressVal, buf, COL_FG);
+  } else {
+    snprintf(buf, sizeof(buf), "%.1f", (double)v.oilPressure);
+    setSuffix(w.oilPressVal, buf, COL_FG);
+  }
+  {
+    int pct = 0;
+    if (!isnan(v.oilPressure)) {
+      pct = (int)((v.oilPressure / kOilPressMaxBar) * 100.0f);
+      if (pct < 0) pct = 0;
+      if (pct > 100) pct = 100;
+    }
+    setBar(w.oilPressBar, pct);
+  }
+
+  // ---- fuel, the bottom row of this panel in both tile bands (#4/#11). The bar
   // is a percentage of the configured tank size; the number is the car's own
   // litres. The value and the bar go amber on the car's low-fuel warning, which
   // is read straight off the frame and never smoothed - the warning is the one
@@ -1931,15 +1956,9 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
     setBgColor(w.fuelBar, d.fuelLow ? COL_AMBER : COL_GREEN, LV_PART_INDICATOR);
   }
 
-  // ---- battery voltage, the fourth diagnostic row: the body-CAN box's 0x570
-  // on a PQ car (or the controller's supply field where that generation fills
-  // it). Number only, with the small V label already in place.
-  if (isnan(live.batteryV)) {
-    setSuffix(w.battVal, "--", COL_DIM);
-  } else {
-    snprintf(buf, sizeof(buf), "%.1f", (double)live.batteryV);
-    setSuffix(w.battVal, buf, COL_FG);
-  }
+  // Battery voltage is no longer drawn on the dashboard (0.9.1): BATT's row
+  // became the oil-pressure row, and FUEL took the bottom slot. The reading is
+  // still on the raw page and in the drive log.
 
   // ---- haldex
   if (d.mode >= 0 && d.mode < 6) {
@@ -2611,6 +2630,7 @@ void showSettings(bool visible) {
     setText(lv_obj_get_child(g_btnPressure, 0), pressureUnitName(g_edit.pressureUnits));
     setText(lv_obj_get_child(g_btnDistUnits, 0), g_edit.unitsMetric ? "km" : "mi");
     setText(lv_obj_get_child(g_btnDayNight, 0), kDayNightNames[g_edit.dayNight]);
+    setText(lv_obj_get_child(g_btnBoostTile, 0), g_edit.boostTile ? "ON" : "OFF");
     setText(lv_obj_get_child(g_btnNetRole, 0), netRoleName(g_edit.netRole));
     setNetChLabel();
   } else if (w.kb) {

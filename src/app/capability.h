@@ -1,8 +1,14 @@
 // =====================================================================
 // capability.h - what this car can actually fill
 //
-// The dashboard's shape is chosen, once at boot, from what the controller
-// says it can feed. Two ways of finding out, in this order of preference:
+// The BOOST panel is a setting now (config::Data::boostTile), not something
+// inferred from the car. What capability still decides on the glass is the
+// oil-pressure row in the temperatures card: it is offered only on a car whose
+// Motor_7 carries the ForbesAutomotive ME7 patch. Boost detection is kept
+// because the raw page and the console summary should say whether the car has
+// a boost source at all, but it no longer moves the layout.
+//
+// Two ways of finding out, in this order of preference:
 //
 //   detected   the packet marks a field it has no value for with a sentinel
 //              (OHX_NONE8 / OHX_NONE16 / OHX_NONE_T), which reaches us as NaN.
@@ -39,8 +45,6 @@
 
 #include <stdint.h>
 
-#include "theme.h"
-
 namespace cap {
 
 struct Caps {
@@ -56,8 +60,6 @@ struct Caps {
   bool supplyVoltage;
   bool haldexTemps;
   bool steering;
-
-  layout::Variant variant;  // which tile band the dashboard should use
 
   uint32_t revision;        // bumped if a capability changes after `settled`
 };

@@ -76,7 +76,6 @@ void poll() {
     const bool boost = boostFor(g.genKnown, g.generation, g_sawEngine7);
     if (boost != g.boost) {
       g.boost = boost;
-      g.variant = boost ? layout::Variant::Full : layout::Variant::NoBoost;
       changed = true;
     }
     if (g_sawOilPressure != g.oilPressure) {
@@ -139,7 +138,6 @@ void poll() {
   g.supplyVoltage = g_sawSupply;
   g.haldexTemps = g_sawTemps;
   g.steering = g_sawSteer;
-  g.variant = g.boost ? layout::Variant::Full : layout::Variant::NoBoost;
   g.settled = true;
   g_settledMs = now;
 
@@ -163,13 +161,13 @@ const char *summary() {
                          : (g.genKnown && g.generation == 1) ? "yes (motor_7)"
                                                             : "yes (table)";
   snprintf(g_summary, sizeof(g_summary),
-           "gen %s | boost %s | oil pressure %s | supply %s | haldex temps %s | steering %s | %s"
+           "gen %s | boost %s | oil pressure %s | supply %s | haldex temps %s | steering %s"
            " | %u pkts",
            genTxt, boostHow, g.oilPressure ? "yes (motor_7)" : "no",
            g.supplyVoltage ? "yes (detected)" : "no (detected)",
            g.haldexTemps ? "yes (detected)" : "no (detected)",
            g.steering ? "yes (detected)" : "no (detected)",
-           layout::bandFor(g.variant).name, (unsigned)g.packetsSeen);
+           (unsigned)g.packetsSeen);
   return g_summary;
 }
 

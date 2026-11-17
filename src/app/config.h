@@ -101,6 +101,12 @@ struct Data {
   // oil pressure share it. The legacy boostUnits field above stays for the
   // NVS layout and migration only.
   uint8_t pressureUnits;
+
+  // --- added in version 8. 1 = draw the BOOST panel in the tile band. A
+  // preference rather than a capability: a car with no boost source can keep
+  // the panel and read "--", and a patched car can hand the width back to the
+  // other three panels. Appended for the same prefix-compatible reason.
+  uint8_t boostTile;
 };
 
 /// Load from NVS (or defaults + any build-time secrets on first boot).

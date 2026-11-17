@@ -8,7 +8,24 @@
 // =====================================================================
 #pragma once
 
-#define OHX_DASH_VERSION "0.9.0"  // Fleet role: the dash is an AP in both modes
+#define OHX_DASH_VERSION "0.9.1"  // Boost tile is a setting; OIL PRES joins the temperatures card
+// 0.9.1 - Two layout changes, both about the tile band.
+// First, the BOOST panel is a setting again rather than a capability decision:
+// the tiles were shaped by what the car could feed, which meant a Gen1 without
+// the ME7 patch lost the fourth panel and a patched car could not give the width
+// back. "Boost tile" on the Settings page (DISPLAY, beside Day / Night) turns it
+// on and off; the database field is append-only (config v8) and defaults on, so
+// an upgrading car keeps the panel it had. No boost source simply reads "--".
+// Second, the temperatures card's rows are reordered. BATT (the body-CAN box's
+// 0x570 battery voltage, added in 0.9.0) is no longer drawn on the dashboard;
+// the row it occupied is taken by FUEL, and the ME7 patch's oil pressure moves
+// from the BOOST tile to the row directly under the oil-temperature bar:
+// COOLANT / OIL / OIL PRES / FUEL. It keeps its bar and the shared bar/psi unit.
+// A car without the patch loses the OIL PRES row and the remaining three rows
+// go back to the wide pitch, so nothing is left empty. BATT is still on the raw
+// page and in the drive log; only the tile row is gone.
+// Not verified on hardware: the four-row card on glass, the re-placed band and
+// the new settings button (TODO 2.8).
 // 0.9.0 - The dash is now the pseudo wireless CAN fleet's anchor, in both
 // roles. FOLLOWER keeps today's behaviour (STA joined to the controller) but
 // also runs its own AP, which rides the controller's channel; ANCHOR runs the

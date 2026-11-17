@@ -139,29 +139,37 @@ Measured in 0.8.1; the per-stage deltas are in
 
 ## What the car can fill
 
-The dashboard's shape is decided once at boot from what the controller says it
-can feed, not fixed for every car. Two ways of finding out, and which was used
-is shown on the raw page so it can be argued with:
+One capability still shapes the glass: engine oil pressure, which is offered
+only on a car whose `Motor_7` carries the [ME7 patch](#the-me7-patch-boost-and-oil-pressure).
+The **BOOST panel is not a capability decision any more** (0.9.1): it is the
+Boost tile setting, on by default. A car with no boost source can keep the panel
+and read `--`, and a car whose owner wants the width back can give the panel up
+from the Settings page. Boost detection is kept for the raw page and the `[cap]`
+console line, so a fitter can still tell whether the car has a boost source at
+all.
+
+Two ways of finding out, and which was used is shown on the raw page so it can
+be argued with:
 
 | | How | Why |
 |---|---|---|
 | **detected** | the packet marks a field it has no value for with a sentinel, which arrives as NaN | the car is telling us, rather than us assuming |
 | **table** | the Haldex generation | boost has no sentinel: a car with no boost frame reads a confident `0.00`, so the table is the best guess when the frame is silent |
-| **evidence** | the length and shape of `Motor_7` (0x588) | a stock PQ car sends three bytes; the [ForbesAutomotive ME7 patch](#the-me7-patch-boost-and-oil-pressure) sends eight. Evidence can add a widget the table denies, never remove one it allows |
+| **evidence** | the length and shape of `Motor_7` (0x588) | a stock PQ car sends three bytes; the [ForbesAutomotive ME7 patch](#the-me7-patch-boost-and-oil-pressure) sends eight. Oil pressure is offered only on this evidence |
 
 Measured on the Gen1 car this was built against, with the ME7 patch applied, and
 logged as one line at boot:
 
 ```
 [cap] gen 1 | boost yes (motor_7) | oil pressure yes (motor_7) | supply no
-(detected) | haldex temps no (detected) | steering yes (detected) | Full (B) | 20 pkts
+(detected) | haldex temps no (detected) | steering yes (detected) | 20 pkts
 ```
 
 | Capability | This car | Consequence |
 |---|---|---|
-| boost | **ME7 patch** | the BOOST panel is built into the band; a stock Gen1 keeps NoBoost |
-| engine oil pressure | **ME7 patch** | a quiet OIL PRES row is drawn inside the BOOST panel, hidden without the patch; system pressure units are bar/psi |
-| battery voltage | body-CAN box `0x570` | the `BATT` row in the temperatures column; reads `--` without the box |
+| boost | **ME7 patch** | reported on the raw page and in `[cap]`; the BOOST panel itself follows the Boost tile setting |
+| engine oil pressure | **ME7 patch** | a fourth `OIL PRES` row in the temperatures card, under the oil-temperature bar, hidden without the patch; system pressure units are bar/psi |
+| battery voltage | body-CAN box `0x570` | data only since 0.9.1: the dashboard's `BATT` row is gone, the value stays on the raw page and in the drive log |
 | Haldex oil / clutch / module temps | absent | not shown |
 | steering angle | **packet only** | the packet is authoritative; the JSON path gates it off for Gen1 |
 | handbrake | **chassis CAN only** | the lamp lights from the CAN bit; the wired input never moves on this car |
@@ -170,20 +178,16 @@ logged as one line at boot:
 Two tile bands exist, both approved as mock-ups in `docs/mockups/`:
 
 * **NoBoost (A)** — SPEED | TEMPERATURES | HALDEX, three equal panels (266 / 266
-  / 268), for a car with no boost source. What a stock Gen1 gets.
+  / 268), when the Boost tile setting is off.
 * **Full (B)** — SPEED | BOOST | TEMPERATURES | HALDEX, the widths `dash.html`
-  gives them, for a car that has one. **Verified on this car** with the ME7 patch
-  (0.8.0). Still unverified on a Gen4/5 car, where the same band comes from the
-  table rather than from a patched frame.
+  gives them, when the setting is on (the default). **Verified on this car**
+  with the ME7 patch (0.8.0).
 
-The decision latches. It is not re-evaluated per frame, because a layout that
-changed shape while the car was moving would be worse than a widget that reads
-`--`, and an unsettled dashboard keeps the full band rather than hiding a widget
-on a guess. `v` on the console forces either band, which is how the unverified
-one gets looked at. For 15 s after it settles the decision may still be revised
-once — that window is what lets a relay that starts a second or two behind the
-packets, or a patched `Motor_7` that arrives late, light the boost tile without a
-reboot.
+The band is re-placed, not rebuilt, when the setting changes or when the
+oil-pressure row appears. The oil-pressure decision still latches: it is revised
+once for 15 s after it settles if a patched `Motor_7` arrives late. `v` on the
+console forces either band, which is how the second shape gets looked at on the
+bench.
 
 ### The ME7 patch: boost and oil pressure
 
@@ -413,8 +417,8 @@ Data the controller does not expose, or has no room for here:
   drawn. Where the car's powertrain CAN has these others, the CAN DATA page
   shows them with the relay on.
 * Battery voltage — the controller's `supplyMv` where its generation fills it,
-  and the body-CAN box's `0x570` on a PQ car. It is the `BATT` row in the
-  temperatures column; `--` when neither source is present.
+  and the body-CAN box's `0x570` on a PQ car. Since 0.9.1 it is **data only**:
+  the raw page and the drive log, no dashboard row.
 * Anything at all while the chassis CAN is silent: on the bench with no
   vehicle, the controller reports `rpm`/`speed`/`throttle`/`boost` as JSON
   `null`, and this firmware correctly shows `--`.

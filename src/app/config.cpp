@@ -19,7 +19,9 @@ namespace {
 constexpr const char *kNamespace = "ohxdash";
 constexpr const char *kKey = "cfg";
 constexpr uint32_t kMagic = 0x4F485844;  // 'OHXD'
-constexpr uint16_t kVersion = 7;  // 7: + pressureUnits (system-wide bar/psi,
+constexpr uint16_t kVersion = 8;  // 8: + boostTile (the BOOST panel is a
+                                  //    setting now, default on);
+                                  //    7: + pressureUnits (system-wide bar/psi,
                                   //    folded from the old boost units);
                                   //    6: + netRole, fleetChannel (the dash's own
                                   //    AP and the fleet channel); 5: + tankLitres,
@@ -100,6 +102,7 @@ void validate(Data &d) {
   if (d.netRole > NET_ANCHOR) d.netRole = NET_FOLLOWER;
   d.fleetChannel = (uint8_t)clampv<int>(d.fleetChannel, 1, 13);
   if (d.pressureUnits > PRESSURE_PSI) d.pressureUnits = PRESSURE_BAR;
+  d.boostTile = d.boostTile ? 1 : 0;
 
   // --- polling -------------------------------------------------------
   d.pollLiveMs = (uint16_t)clampv<int>(d.pollLiveMs, 50, 1000);
@@ -172,6 +175,7 @@ Data defaults() {
   d.netRole = NET_FOLLOWER;
   d.fleetChannel = 1;
   d.pressureUnits = PRESSURE_BAR;
+  d.boostTile = 1;  // the panel every build before 0.9.1 had when it had boost at all
 
   // /api/live is no longer the fast path: rpm, speed, throttle, boost, oil
   // and the lock values arrive over ESP-NOW at 10 Hz. It stays at 1 Hz for
@@ -218,6 +222,12 @@ void begin() {
       memcpy(&blob, raw, readLen);
       if (blob.magic == kMagic && blob.version >= kOldestVersion) {
         Data d = blob.data;
+        if (blob.version < 8) {
+          // A new setting must not make a panel disappear on upgrade: every
+          // car that had boost keeps showing it until it is switched off.
+          d.boostTile = 1;
+          saveAgain = true;
+        }
         if (blob.version < 7) {
           // The old boost selector was bar / mbar / psi. mbar has no useful
           // oil-pressure counterpart, so it folds to bar; psi carries over.
