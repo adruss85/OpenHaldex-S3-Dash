@@ -3,36 +3,39 @@ Read this when you need to know what has actually been verified, on which firmwa
 # Status
 
 <!-- status:start -->
-Firmware version: 0.9.1
-Flash: 1 532 138 / 1 966 080 B (77.9%)
+Firmware version: 0.9.2
+Flash: 1 532 518 / 1 966 080 B (77.9%)
 Internal RAM (static): 60 372 / 327 680 B
-Measured: 2026-11-17, build b1bf3c0
+Measured: 2026-11-17, build ca4e645
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
 about the current build. `tools/doc_status.py` regenerates the block above from
 a real `pio run` (or a saved log / a `firmware.elf`).
 
-This is **0.9.1**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
+This is **0.9.2**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
 to a pre-rendered picture (0.6.2), the drive log (0.7.0), a quieter cruise lamp
 (0.7.1), the rev bar with a settable scale (0.7.2), the four faults from the 11
 Nov drive (0.7.3), the CC lamp's three states (0.7.4), the cruise set speed in
 the `k` dump (0.7.5), boost plus oil pressure on the ForbesAutomotive ME7
 patch (0.8.0), the binary-size audit with the night-brightness floor lowered
 (0.8.1), relay reception from any CANN sender (0.8.2), the dash as the
-fleet's AP anchor with the role/channel settings (0.9.0), and the BOOST panel
-as a setting with OIL PRES moved into the temperatures card (0.9.1). The status
+fleet's AP anchor with the role/channel settings (0.9.0), the BOOST panel as a
+setting with OIL PRES moved into the temperatures card (0.9.1), and the two
+faults from that car run fixed (0.9.2). The status
 below separates what was verified in the car, what has
 been exercised on the bench, and what is still unproven; measured figures carry
 the version they came from.
 
-**0.9.1 is a layout change and has not been on hardware.** The temperatures card
-now reads COOLANT / OIL / OIL PRES / FUEL (BATT removed from the glass, oil
-pressure moved out of the BOOST tile), and the BOOST panel is switched on and
-off from the Settings page instead of being inferred from the car. The four-row
-pitch, the unit column, the re-place and the new settings button are all
-unseen on glass - see TODO 2.7. Everything below that names an earlier version
-still describes that version.
+**0.9.1 did go on the car**: the temperatures card lost BATT, FUEL took the
+bottom row, and the BOOST tile switch re-placed the band. Two faults came back
+from that run, and they are what 0.9.2 fixes. The `OIL PRES` row never appeared,
+because the capability check ignored relay evidence that arrived more than 15 s
+after it settled - it now watches for the whole boot (TODO 2.8). And the picture
+tore during an OTA upload, because the flash write disables the cache and the
+panel's DMA underruns - the glass is now blanked for the duration. Neither 0.9.2
+fix has been re-run on hardware yet. Everything below that names an earlier
+version still describes that version.
 
 **0.7.0 has been run on the bench and against a live controller, not driven.**
 The drive log works end to end: the blank partition formats itself, a session
