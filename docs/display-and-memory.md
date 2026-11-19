@@ -98,7 +98,7 @@ draws the layout at panel size before it is coded is `tools/mockup_dash.py`.
 
 `include/theme.h` also holds the palette: a table of `theme::Role` values
 (background, rules, three text greys, the lamp greys, and an accent family) for
-each of six schemes. `src/ui/theme.cpp` turns each role into one **shared**
+each of seven schemes. `src/ui/theme.cpp` turns each role into one **shared**
 `lv_style_t` for text, one for background and one for border, and the UI
 attaches those styles instead of writing colours directly. A scheme change is
 therefore a handful of `lv_style_set_*` writes plus one
@@ -117,6 +117,31 @@ This is why geometry stays in `theme.h` and colour moved into roles: the
 dashboard has ~250 objects whose colours were previously decided at build time,
 and a registry of those objects (with a delete hook each) would have been the
 alternative. Nothing scales, and nothing here adds a per-frame check.
+
+**What a palette change actually costs, and why it was not obvious.** Measured
+on the bench (0.9.4), a theme tap began at **205 ms** in
+`lv_obj_report_style_change(NULL)` and **190–230 ms** in the repaint that
+followed, and the panel could lose sync. Three things were wrong, and none of
+them is visible from the source:
+
+* `lv_obj_report_style_change(NULL)` re-parses every property of every object on
+  every screen. A *colour* is read from the style at draw time, so invalidating
+  the object is enough: a scheme change only has to repaint the objects that
+  carry a colour the palette changes (`theme::varies()`), which is about a dozen
+  bars, not the tree. 205 ms → **1 ms**.
+* The rev bar is 80 cells, so repainting it was 80 invalid areas - and 80 areas
+  cost about what a whole screen does (**174 ms** against 190–230 ms), because
+  what is expensive is the per-area draw pass over the object tree, not the
+  pixels: 80 cells are only 83k of 384k pixels. `repaintBarAll()` therefore
+  writes the 80 colours with the display's invalidation suspended and then
+  invalidates the bar **once** - one 800x104 area, about 15 ms.
+* LVGL answers "no room in the invalid-area buffer" by invalidating the whole
+  screen, and its default buffer is **32** areas - fewer than the bar's 80 cells.
+  `LV_INV_BUF_SIZE` is now 128 in `lv_conf.h`, so a bar-shaped repaint stays a
+  bar-shaped repaint.
+
+A tap now costs about **85 ms** of work in total, and the flash write is not part
+of it.
 
 ---
 

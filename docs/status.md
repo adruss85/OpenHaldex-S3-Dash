@@ -4,9 +4,9 @@ Read this when you need to know what has actually been verified, on which firmwa
 
 <!-- status:start -->
 Firmware version: 0.9.4
-Flash: 1 536 246 / 1 966 080 B (78.1%)
-Internal RAM (static): 61 764 / 327 680 B
-Measured: 2026-11-19, build 8e8d09d
+Flash: 1 537 738 / 1 966 080 B (78.2%)
+Internal RAM (static): 62 060 / 327 680 B
+Measured: 2026-11-19, build a94f82e
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
@@ -23,7 +23,7 @@ patch (0.8.0), the binary-size audit with the night-brightness floor lowered
 fleet's AP anchor with the role/channel settings (0.9.0), the BOOST panel as a
 setting with OIL PRES moved into the temperatures card (0.9.1), the two
 faults from that car run fixed (0.9.2), the rename to **CANvas dash** with a
-new splash and the `CANv-dash` AP (0.9.3), and six live colour schemes with
+new splash and the `CANv-dash` AP (0.9.3), and seven live colour schemes with
 three dashboard views (0.9.4). The status
 below separates what was verified in the car, what has
 been exercised on the bench, and what is still unproven; measured figures carry
@@ -31,21 +31,40 @@ the version they came from.
 
 **0.9.4 is bench-verified, not car-verified.** On the glass on 19 Nov 2026,
 over USB: the build boots on the stored scheme and view, `T` and `g` (and the
-same two Settings buttons) switch them live with no redraw stall, and the
-frame buffer sampled as RGB565 shows the accents actually changing — Midnight's
-red critical digits stay red with no plate, while Orange, Green and Purple draw
-a solid accent plate with contrasting text in the same box, and the neutrals
-(background, rules, tiles) are identical in all six. The view switch was read
-off the hidden flags (`[ui] view TEMPS: top off band off min off temps on`) and
-the frame buffer, and it caught a real bug: the first cut compared a
-"belongs to the Race view" boolean, so Minimal and Temps were both visible with
-Temps drawn over Minimal. Stored theme and view survive a reset (the board came
-up in the view and scheme it had before the flash). Idle render 56-59 fps,
-internal RAM 146.2 KB free / 145.1 KB lowest — level with 0.9.3 on the same
-bench. **Not verified**: any palette or plate with live car data (there was no
+same two Settings buttons) switch them live, and the frame buffer sampled as
+RGB565 shows the accents actually changing — Midnight's red critical digits stay
+red with no plate, while Orange, Green and Purple draw a solid accent plate with
+contrasting text in the same box, and the neutrals (background, rules, tiles) are
+identical in every scheme. The view switch was read off the hidden flags
+(`[ui] view TEMPS: top off band off min off temps on`) and the frame buffer, and
+it caught a real bug: the first cut compared a "belongs to the Race view"
+boolean, so Minimal and Temps were both visible with Temps drawn over Minimal.
+Stored theme and view survive a reset.
+
+**The first cut also lost the picture**, and that is what the second half of
+0.9.4 is about: after a theme tap the panel could come out of step with its DMA
+and stay shifted. Three causes were measured, and all three are fixed — a theme
+change began at 205 ms in `lv_obj_report_style_change(NULL)` and 190–230 ms in
+the repaint that followed, because the sweep re-parses every object and the rev
+bar's 80 cells are 80 invalid areas, which cost about a full-screen repaint
+(174 ms) since the per-area draw pass, not the pixels, is what is expensive. A
+palette change now repaints only the objects in a role the palette changes, the
+bar is repainted as one 800x104 area, and `LV_INV_BUF_SIZE` is 128 (LVGL's 32
+turned any bar-shaped repaint into a full screen). The fourth cause was the NVS
+write: a flash write disables the cache the panel's DMA refills through, so the
+write is deferred 1.5 s past the tap, made with the glass blanked, and followed
+by `esp_lcd_rgb_panel_restart()` — which also runs after any frame that overran
+one panel scan. Measured after the fix: a tap is ~85 ms of work (1 ms to re-point
+the palette, ~85 ms to repaint the bar and the readings), an NVS write is 6 ms
+and 55 ms when NVS erases a page, and the picture held sync across repeated
+theme taps and SAVE on the bench. Idle 57–61 fps, 146.2 KB internal RAM free /
+145.1 KB lowest — level with 0.9.3 on the same bench.
+
+**Not verified**: any palette or plate with live car data (there was no
 controller on the air, so every reading was `--` and the crit plate was proved
-by forcing one), the settings header buttons by touch (the console keys drive
-the same handlers), and anything about how the schemes read in daylight.
+by forcing one), the Settings header buttons by touch (the console keys drive
+the same handlers), how the schemes read in daylight, and the Red scheme's
+appearance on glass — it was added last, and only its accent family was checked.
 
 **0.9.3 is a rename and has not been on hardware.** The banner, update page and
 docs say CANvas dash; the splash is the new `assets/canvas-dash-splash-base.jpg`

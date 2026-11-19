@@ -8,19 +8,21 @@
 // =====================================================================
 #pragma once
 
-#define OHX_DASH_VERSION "0.9.4"  // CANvas dash: six palettes, three views
+#define OHX_DASH_VERSION "0.9.4"  // CANvas dash: 7 palettes, 3 views
 // 0.9.4 - Two things about the glass, neither of which changes what the dash
 // reads from the car.
-// Six colour schemes, switched live: Midnight (the palette every earlier build
-// drew), Orange, Green, Blue, Purple, White. The accent family moves and the
-// neutrals do not - the background, rules, text grey and lamp greys are what
-// this TN panel's contrast is built on. In Midnight a warning is amber and a
-// critical is red; in the other five a warning is a lighter shade of that
-// scheme's accent and a critical is the accent as a solid plate with
-// black or white text, which is what replaces the red. Colours are now
-// attached as shared LVGL styles (include/theme.h, src/ui/theme.cpp), so a
-// change is a few style writes plus one style-report sweep - no rebuild, no
-// reboot - rather than the per-frame cost a recolour loop would have had.
+// Seven colour schemes, switched live: Midnight (the palette every earlier
+// build drew), Orange, Green, Blue, Purple, White, Red. The accent family moves
+// and the neutrals do not - the background, rules, text grey and lamp greys are
+// what this panel's contrast is built on. In Midnight a warning is amber and a
+// critical is red; in the other six a warning is a lighter shade of that
+// scheme's accent and a critical is the accent as a solid plate with black or
+// white text, which is what replaces the red. Red is the one scheme where the
+// plate and the accent are the same hue (as Green already had it), and its
+// shift cue stays violet so a shift never looks like a redline.
+// Colours are attached as shared LVGL styles (include/theme.h,
+// src/ui/theme.cpp), so a change is a few style writes plus a repaint of the
+// objects that carry a changed role.
 // Three dashboard views, switched live: Race (the rev bar and tile band, i.e.
 // the layout above), Minimal (speed and rpm large, three readings under them)
 // and Temps (coolant, oil, oil pressure and fuel full width, with the
@@ -28,14 +30,28 @@
 // status bar, so the tell-tales and LIVE/STALE are the same objects in all
 // three and cannot disagree. Long-press still opens Settings from any view.
 // Both are on the Settings header (THEME / VIEW) and on the console (T / g),
-// are stored the moment they are chosen - not on SAVE - and are reset by
-// DEFAULTS. Config blob version 9 (appended theme, view; an older blob migrates
-// to Midnight/Race, which is what it was drawing).
-// Not verified on hardware: how the six schemes read in daylight, and any
-// palette or crit plate with live car data. Bench-verified on 19 Nov 2026 over
-// USB: the schemes and the three views switch live (frame buffer sampled as
-// RGB565), the crit plate inverts outside Midnight and Midnight keeps its red
-// text, and both preferences survive a reset. See docs/status.md.
+// are live on the tap (not on SAVE) and are reset by DEFAULTS. Config blob
+// version 9 (appended theme, view; an older blob migrates to Midnight/Race,
+// which is what it was drawing).
+// The first cut lost the picture: the LCD would come out of step with its DMA
+// and stay shifted. Three measured causes, all fixed: a theme change repainted
+// the whole screen because lv_obj_report_style_change(NULL) re-parsed every
+// object (205 ms) and because the rev bar's 80 cells are 80 invalid areas,
+// which cost about a full-screen repaint (174 ms) - so a palette now repaints
+// only the objects in a changed role, the bar is painted as one 800x104 area,
+// and LV_INV_BUF_SIZE in lv_conf.h is 128 instead of 32. A tap is now about
+// 85 ms. The fourth cause was the NVS write itself: a flash write disables the
+// cache the panel's DMA refills through, so the write is deferred 1.5 s, made
+// with the glass blanked, and the DMA is re-armed afterwards
+// (esp_lcd_rgb_panel_restart) - as it is after any frame that overran one
+// panel scan.
+// Verified on the bench on 19 Nov 2026: the schemes and the three views switch
+// live, the crit plate inverts outside Midnight while Midnight keeps its red
+// text, both preferences survive a reset, and after the fix the picture held
+// sync across repeated theme taps and SAVE. Idle 57-61 fps, ~146 KB internal
+// RAM free. Not verified: any palette or plate with live car data, the buttons
+// by touch, daylight readability, and how Red reads on the glass (added last,
+// checked only for the accent family it draws).
 // 0.9.3 - The project is renamed CANvas dash. The boot banner, the update page
 // and the docs say so, and the splash is a new pre-rendered base
 // (assets/canvas-dash-splash-base.jpg, 800x480) carrying the CANvas wordmark and

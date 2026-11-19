@@ -106,17 +106,18 @@ a hide/show, never a rebuild, and a value can never disagree between views
 because all of them draw the same eased sample. Long-press still opens Settings
 from anywhere on the glass.
 
-**Six colour schemes**, chosen with the THEME button beside it (or `T`):
+**Seven colour schemes**, chosen with the THEME button beside it (or `T`):
 **Midnight** (the palette every build before 0.9.4 drew), then **Orange**,
-**Green**, **Blue**, **Purple** and **White**. Only the accent family moves —
+**Green**, **Blue**, **Purple**, **White** and **Red**. Only the accent family moves —
 the background, the rules, the text grey and the lamp greys stay put, because
 that is the contrast this 16-bit TN panel is read at. In Midnight a warning is
 amber and a critical is red; in the other five there is no second hue to lean
 on, so a warning becomes a lighter shade of the scheme's accent and a critical
 becomes that accent as a solid plate with contrasting text (black on orange,
-green and white; white on blue and purple). The change is applied on the tap and
-stored immediately, so a scheme can never be left on the glass that NVS does
-not have.
+green and white; white on blue, purple and red). The change is on the glass at once
+(~85 ms) and written to NVS a second later: a flash write in the same frame as a
+repaint is what makes this panel lose sync, so the write is moved to a quiet
+moment and the glass is blanked for it.
 
 **Tell-tales mirror the car, they are not inferred.** BRAKE and HAND light from
 the chassis CAN bit (or the controller's wired input, whichever moves — on this

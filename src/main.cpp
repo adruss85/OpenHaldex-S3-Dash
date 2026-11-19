@@ -43,6 +43,12 @@ uint32_t g_lastStatsMs = 0;
 uint32_t g_frames = 0;
 uint32_t g_renderUs = 0;
 uint32_t g_busyUs = 0;   // the whole loop body, so the sleep cannot hide anything
+uint32_t g_resyncs = 0;  // LCD DMA re-arms because a frame overran the panel
+
+// One panel scan at 32 Hz is 31 ms, and LVGL is called at most every 33 ms: any
+// frame longer than this was competing with the panel for PSRAM long enough that
+// a bounce-buffer refill could have missed. See the resync in loop().
+constexpr uint32_t kResyncAfterUs = 25000;
 
 // esp_reset_reason() in words. The panel and the WiFi share a 5 V rail with
 // very little margin on a USB port, so "brownout" and "panic" have to be told
@@ -200,16 +206,17 @@ void printStats() {
   // outside LVGL is blocking.
   Serial.printf(
       "[stats] render %.1f fps | %.2f ms/loop, %.2f ms/busy of a %.1f ms period | "
-      "%.2f ms/flush (%.2f ms/wait) | vsync %.0f/s | heap %u B, psram %u B\n",
+      "%.2f ms/flush (%.2f ms/wait) | vsync %.0f/s | resync %u | heap %u B, psram %u B\n",
       g_frames * 1000.0f / 5000.0f, (g_renderUs / 1000.0f) / (g_frames ? g_frames : 1),
       (g_busyUs / 1000.0f) / (g_frames ? g_frames : 1), 5000.0f / (g_frames ? g_frames : 1),
       (flushUs / 1000.0f) / (g_frames ? g_frames : 1),
-      (waitUs / 1000.0f) / (g_frames ? g_frames : 1), vsyncs / 5.0f,
+      (waitUs / 1000.0f) / (g_frames ? g_frames : 1), vsyncs / 5.0f, (unsigned)g_resyncs,
       (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram());
   ram::printStats();  // how close internal RAM has come to running out
   g_busyUs = 0;
   g_renderUs = 0;
   g_frames = 0;
+  g_resyncs = 0;
 }
 
 // ---- bring-up console -------------------------------------------------
@@ -554,8 +561,25 @@ void loop() {
   const uint32_t t0 = micros();
   const uint32_t next = updating ? kUiPeriodMs : lv_timer_handler();
   if (!updating) {
-    g_renderUs += micros() - t0;
+    const uint32_t renderUs = micros() - t0;
+    g_renderUs += renderUs;
     g_frames++;
+    // A frame that outlives the panel's own scan period is a frame during which
+    // the RGB DMA competed with us for PSRAM, and if a bounce-buffer refill
+    // missed its deadline the controller can come out of step with the DMA -
+    // the picture shifts and, without help, stays shifted. The IDF API is
+    // exactly for that ("out of sync with the DMA because of insufficient
+    // bandwidth... restart the LCD DMA"), it only sets a flag that the VSYNC
+    // handler acts on, and it is a no-op when nothing is wrong. A palette
+    // change and closing the settings page both land here; an idle frame is
+    // 16 ms and costs nothing.
+    if (renderUs > kResyncAfterUs) {
+      crowpanel::resync();
+      g_resyncs++;
+      if (renderUs > 100000) {
+        Serial.printf("[ui] %lu ms frame: LCD DMA re-armed\n", (unsigned long)(renderUs / 1000));
+      }
+    }
   }
 
   if ((uint32_t)(now - g_lastStatsMs) >= 5000) {

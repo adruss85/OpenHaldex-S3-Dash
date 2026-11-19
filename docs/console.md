@@ -20,7 +20,7 @@ Read this when you need to drive or diagnose the board from the serial port.
 | `c` | open / close the CAN DATA page |
 | `C` | print every CAN id heard, the selected one's signals, and the online relay senders (`C6`, `BCAN`) |
 | `v` | force the other tile band, for bench work (see 'What the car can fill') |
-| `T` | next colour scheme (Midnight → Orange → Green → Blue → Purple → White). The same as the THEME button, and it persists |
+| `T` | next colour scheme (Midnight → Orange → Green → Blue → Purple → White → Red). The same as the THEME button, and it persists |
 | `g` | next dashboard view (Race → Minimal → Temps). The same as the VIEW button, and it persists |
 | `m` | step the Haldex mode — the same as tapping the HALDEX panel |
 | `E` | enable / disable the ESP-NOW listener (A/B its cost on one boot) |

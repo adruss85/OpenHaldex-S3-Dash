@@ -178,4 +178,18 @@ void ohx_lv_assert_handler(const char *file, int line);
    invalidated, so this is a ceiling rather than a guaranteed frame rate. */
 #define LV_DEF_REFR_PERIOD 16
 
+/*====================
+   INVALIDATION
+ *====================*/
+/* LVGL's default is 32 areas per display, and when the buffer is full it throws
+   the list away and invalidates the whole screen instead. The rev bar is 80
+   cells, so anything that repaints all of them - a palette change, or the
+   scale changing on the settings page - used to collapse into a full-screen
+   repaint: measured at 190-230 ms on this board, against about 15 ms for the
+   bar's own 800x104 area. 128 covers the 80 cells plus the handful of bars and
+   readings that a redraw touches in the same frame. It costs 128 x (16 + 1)
+   bytes of internal RAM in the display object, which is the reason it is not
+   simply made huge. */
+#define LV_INV_BUF_SIZE 128
+
 #endif /* LV_CONF_H */

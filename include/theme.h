@@ -40,7 +40,19 @@
 //         the scheme, which cannot be confused with the warn shade.
 namespace theme {
 
-enum class Scheme : uint8_t { Midnight = 0, Orange, Green, Blue, Purple, White, Count };
+// Red is last so that every scheme's number is stable: a stored theme is a
+// byte in NVS (cfg::Data::theme), and reordering would silently change a
+// setting the driver has already chosen.
+enum class Scheme : uint8_t {
+  Midnight = 0,
+  Orange,
+  Green,
+  Blue,
+  Purple,
+  White,
+  Red,
+  Count
+};
 
 constexpr uint8_t kSchemeCount = (uint8_t)Scheme::Count;
 
@@ -125,12 +137,24 @@ struct Col {
   operator lv_color_t() const { return v; }
 };
 
+/// The colour without its role. For an object whose colour is written again by
+/// its own pass every frame anyway: registering it would make a scheme change
+/// repaint it individually, and the rev bar's 80 cells are exactly that case -
+/// they are repainted as one 800x104 area instead (repaintBarAll()).
+constexpr Col untracked(Col c) { return Col(c.v); }
+
 Scheme scheme();
 const char *schemeName(Scheme s);
 Scheme schemeAt(uint8_t i);
 
 /// The current palette's colour for a role.
 Col c(Role role);
+
+/// True for the roles a scheme actually changes (the accent family). The
+/// neutrals are identical in every palette, so an object drawn in one never
+/// needs repainting when the scheme moves - which is most of the glass, and the
+/// difference between a 15 ms palette change and a 200 ms full-screen repaint.
+bool varies(Role role);
 
 /// Add a role colour to an object as a shared style, so setScheme() repaints
 /// it. A colour without a role (a computed one) is written as an ordinary

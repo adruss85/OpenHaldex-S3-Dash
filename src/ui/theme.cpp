@@ -23,6 +23,8 @@
 // =====================================================================
 #include "theme.h"
 
+#include <Arduino.h>  // Serial: one line if the accent-object list ever fills
+
 namespace theme {
 namespace {
 
@@ -99,6 +101,27 @@ constexpr Palette kSchemes[kSchemeCount] = {
      .cyan = 0xe879f9,
      .shift = 0xd8b4fe},
 
+    // Red. The one scheme where the critical plate and the accent are the same
+    // hue, exactly as Green has it: a critical reading is still told apart from
+    // a normal one because it inverts (solid red, white letters) rather than
+    // being red letters. "Warn" is the same red lifted towards pink, which on
+    // this panel measures 0xFB8E against the accent's 0xEA28 - the lighter of
+    // the two, and the only direction left to warn in. The shift cue stays
+    // violet, deliberately outside the family: in a red dash a red shift flash
+    // would be indistinguishable from the redline.
+    {.accent = 0xef4444,
+     .accentDim = 0xb91c1c,
+     .accentDimmer = 0x2a0b0b,
+     .zoneAccent = 0x3a1414,
+     .warn = 0xf87171,
+     .zoneWarn = 0x4a1a1a,
+     .crit = 0xef4444,
+     .critText = 0xffffff,
+     .accentText = 0xffffff,
+     .zoneCrit = 0x3a1414,
+     .cyan = 0xfda4af,
+     .shift = 0xc084fc},
+
     // White - monochrome. "Warn" is a dimmer grey rather than a different hue:
     // there is no second colour to lean on, so the warning is the shade that
     // recedes and the critical is the one that inverts (black on near-white).
@@ -118,8 +141,8 @@ constexpr Palette kSchemes[kSchemeCount] = {
 static_assert(sizeof(kSchemes) / sizeof(kSchemes[0]) == kSchemeCount,
               "palette table and Scheme::Count disagree");
 
-const char *const kNames[kSchemeCount] = {"Midnight", "Orange", "Green",
-                                          "Blue",     "Purple", "White"};
+const char *const kNames[kSchemeCount] = {"Midnight", "Orange", "Green", "Blue",
+                                          "Purple",   "White",  "Red"};
 
 Scheme g_scheme = Scheme::Midnight;
 
@@ -168,6 +191,40 @@ struct RoleStyles {
 RoleStyles g_styles[(int)Role::Count];
 uint32_t g_inited = 0;  // one bit per role, set when its styles exist
 
+// The objects styled with a colour a scheme actually changes. setScheme() needs
+// to repaint exactly these: everything else on the glass is drawn in a neutral
+// role, and repainting it would cost a full-screen redraw (190-230 ms measured
+// on this board) to produce an identical picture.
+//
+// A registry rather than lv_obj_report_style_change(NULL), which refreshes every
+// property of every object on every screen: measured at 205 ms for a palette
+// change. The objects here are the handful of bars and readings that carry an
+// accent at build time; the rev bar's cells and the values are recoloured by
+// their own passes (syncGauge() and the 100 ms readout), which is where their
+// colours already lived. The list is fixed and small because every object in
+// it is built once and never deleted - the pages that are deleted (the splash)
+// carry no accent style. lv_obj_is_valid() is still checked, so a stale entry
+// costs a scan rather than a crash.
+constexpr int kMaxTracked = 64;
+lv_obj_t *g_tracked[kMaxTracked];
+int g_trackedCount = 0;
+bool g_trackOverflow = false;
+
+void track(lv_obj_t *obj, Role role) {
+  if (!varies(role)) return;
+  for (int i = 0; i < g_trackedCount; i++) {
+    if (g_tracked[i] == obj) return;
+  }
+  if (g_trackedCount < kMaxTracked) {
+    g_tracked[g_trackedCount++] = obj;
+  } else if (!g_trackOverflow) {
+    // Not fatal, but it means a scheme change has to fall back to repainting the
+    // screen, so say so on the console rather than quietly costing frames.
+    g_trackOverflow = true;
+    Serial.println("[theme] accent-object list full: palette changes repaint the screen");
+  }
+}
+
 void initRole(Role r) {
   const uint32_t bit = 1u << (int)r;
   if (g_inited & bit) return;
@@ -202,6 +259,7 @@ void styleText(lv_obj_t *obj, Col col) {
     return;
   }
   initRole(col.role);
+  track(obj, col.role);
   lv_obj_add_style(obj, &g_styles[(int)col.role].text, 0);
 }
 
@@ -211,6 +269,7 @@ void styleBg(lv_obj_t *obj, Col col, lv_style_selector_t sel) {
     return;
   }
   initRole(col.role);
+  track(obj, col.role);
   lv_obj_add_style(obj, &g_styles[(int)col.role].bg, sel);
 }
 
@@ -220,7 +279,30 @@ void styleBorder(lv_obj_t *obj, Col col, lv_style_selector_t sel) {
     return;
   }
   initRole(col.role);
+  track(obj, col.role);
   lv_obj_add_style(obj, &g_styles[(int)col.role].border, sel);
+}
+
+bool varies(Role role) {
+  switch (role) {
+    case Role::Bg:
+    case Role::Panel:
+    case Role::Line:
+    case Role::Fg:
+    case Role::Dim:
+    case Role::Track:
+    case Role::LampOff:
+    case Role::LampEdge:
+    case Role::LampTxtOff:
+    case Role::White:
+    case Role::ButtonFill:
+    case Role::FieldFill:
+    case Role::PageBg:
+    case Role::SoftLabel:
+      return false;
+    default:
+      return role != Role::Count;
+  }
 }
 
 bool setScheme(Scheme s) {
@@ -234,10 +316,19 @@ bool setScheme(Scheme s) {
     lv_style_set_bg_color(&st.bg, v);
     lv_style_set_border_color(&st.border, v);
   }
-  // One sweep, one repaint. Everything drawn from a shared style follows; the
-  // dynamic colours re-apply themselves on the next tick through the guarded
-  // setters, and syncGauge() (the caller's job) repaints the rev cells.
-  lv_obj_report_style_change(nullptr);
+  // Repaint what actually moved: the objects styled in an accent role. There is
+  // no lv_obj_report_style_change() here - a colour is read from the style at
+  // draw time, so invalidating the object is enough, and the sweep costs 205 ms
+  // on this board to re-parse properties that no scheme changes. The dynamic
+  // colours re-apply themselves on the next tick through the guarded setters,
+  // and syncGauge() (the caller's job) repaints the rev cells.
+  if (g_trackOverflow) {
+    if (lv_obj_t *scr = lv_screen_active()) lv_obj_invalidate(scr);
+  } else {
+    for (int i = 0; i < g_trackedCount; i++) {
+      if (lv_obj_is_valid(g_tracked[i])) lv_obj_invalidate(g_tracked[i]);
+    }
+  }
   return true;
 }
 

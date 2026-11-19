@@ -109,7 +109,7 @@ void validate(Data &d) {
   // theme::Scheme::Count and ui::View::Count are the ceilings; config.cpp does
   // not include the UI headers, so the numbers are the contract (theme.h and
   // dash_ui.h assert their own side).
-  if (d.theme > 5) d.theme = 0;
+  if (d.theme > 6) d.theme = 0;
   if (d.view > 2) d.view = 0;
 
   // --- polling -------------------------------------------------------
@@ -132,6 +132,9 @@ bool storeInRam(const Data &d) {
   taskEXIT_CRITICAL(&g_mux);
   return changed;
 }
+
+// A display preference was applied but not yet written (applyDeferred).
+bool g_savePending = false;
 
 void saveToNvs(const Data &d) {
   Blob blob{};
@@ -316,8 +319,21 @@ void begin() {
 void apply(const Data &in) {
   Data d = in;
   validate(d);
+  g_savePending = false;  // this write supersedes any deferred one
   // An unchanged value is not written: flash pages are not free.
   if (storeInRam(d)) saveToNvs(d);
+}
+
+void applyDeferred(const Data &in) {
+  Data d = in;
+  validate(d);
+  if (storeInRam(d)) g_savePending = true;
+}
+
+void flushPending() {
+  if (!g_savePending) return;
+  g_savePending = false;
+  saveToNvs(get());
 }
 
 void requestReconnect() {

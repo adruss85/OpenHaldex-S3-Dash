@@ -69,6 +69,13 @@
 
 namespace ui {
 
+namespace {
+// The two halves of "write NVS without losing the picture" (defined with the
+// backlight below, used by SAVE and DEFAULTS first).
+void nvsGuardBegin();
+void nvsGuardEnd();
+}  // namespace
+
 // Forward declarations at UI scope, not inside the anonymous namespace below:
 // these two are public entry points defined further down, and a second
 // declaration in the anonymous namespace would make every call ambiguous.
@@ -333,6 +340,12 @@ bool g_stale = true;
 // rather than wait for the next 100 ms tick - which the flag does by making the
 // tick's "100 ms since the last pass" test true on the next frame.
 bool g_forceReadout = false;
+// When the deferred theme/view write is due. Zero = nothing pending. A tap must
+// not touch flash: the write is what starves the panel's DMA, so it is moved to
+// a moment when the glass has been quiet for a second and a half - which also
+// means cycling through all six schemes writes once, not six times.
+constexpr uint32_t kDisplaySaveMs = 1500;
+uint32_t g_displaySaveAt = 0;
 
 // Defined below with the views; the band placement needs both, and it is
 // declared up here so a capability change can re-place a live view.
@@ -609,11 +622,62 @@ void lampStateCruise(lv_obj_t *l, const int state) {  // 0 off, 1 armed, 2 regul
 }
 
 // ---------------------------------------------------------------- gauge
+// How many cells the bar is filled to, for a given rpm. Shared by the two
+// places that need it: the normal per-frame step, and the whole-bar repaint.
+int revLitCount(const cfg::Data &c, float rpm) {
+  const float frac = isnan(rpm) ? 0.0f : (rpm / c.rpmMax);
+  int lit = (int)lroundf(frac * L::BAR_SEG);
+  if (lit < 0) lit = 0;
+  if (lit > L::BAR_SEG) lit = L::BAR_SEG;
+  return lit;
+}
+
+// Recolour every cell in one pass, and repaint the bar as ONE invalid area
+// instead of eighty.
+//
+// Measured on this board: eighty separate invalid areas cost about as much as
+// a full-screen repaint (174 ms against 190-230 ms), because what is expensive
+// is the per-area draw pass over the object tree, not the pixels - 80 cells are
+// only 83k pixels. One invalidation for the whole 800x104 bar costs about 15 ms.
+// So the colours are written with the display's invalidation suspended (a
+// counter in LVGL, documented as "temporarily"), and the bar is then
+// invalidated once. Everything written here is read back at draw time, so
+// nothing is lost by not invalidating per object.
+//
+// This is the palette-change and scale-change path. A normal rpm step still
+// goes through updateRevBar()'s per-cell compare, which repaints one cell.
+void repaintBarAll(const cfg::Data &c, float rpm) {
+  if (!w.revGrp) return;
+  const int lit = revLitCount(c, rpm);
+  lv_display_t *disp = lv_display_get_default();
+  if (disp) lv_display_enable_invalidation(disp, false);
+  for (int i = 0; i < L::BAR_SEG; i++) {
+    const int8_t want = (i >= lit) ? 0 : 1;
+    g_revLit[i] = want;
+    setBgColor(w.revCell[i], want ? g_revCol[i].lit : g_revCol[i].unlit, 0);
+  }
+  if (disp) lv_display_enable_invalidation(disp, true);
+  // An invalidation of a hidden object is dropped by LVGL, so this costs
+  // nothing while another view or page owns the glass; the cells keep the new
+  // colours and are painted when the bar is shown again.
+  // An invalidation of a hidden object is dropped by LVGL (it walks the parent
+  // chain), so this costs nothing while another view or page owns the glass:
+  // the cells keep their new colours and are painted when the bar is shown.
+  lv_obj_invalidate(w.revGrp);
+}
+
 // Everything that depends on the rpm/boost scale: which zone each rev cell
 // belongs to, and the numbers along the bar. Called once at build time and
-// again whenever the settings change the scale.
+// again whenever the settings change the scale - or the palette.
 void syncGauge() {
   const cfg::Data &c = cfg::get();
+  // The tick numbers only move when the scale does. A palette change comes
+  // through here too, and rewriting twelve label positions that have not moved
+  // would add twelve invalid areas - text areas, the expensive kind - to a
+  // repaint that is trying to stay small.
+  static uint16_t lastMax = 0, lastAmber = 0, lastRed = 0;
+  const bool scaleMoved =
+      lastMax != c.rpmMax || lastAmber != c.rpmAmber || lastRed != c.rpmRedline;
   const float fAmber = c.rpmAmber / c.rpmMax;
   const float fRed = c.rpmRedline / c.rpmMax;
 
@@ -628,13 +692,20 @@ void syncGauge() {
       col = {COL_AMBER, COL_ZONE_AMBER};
     }
     g_revCol[i] = col;
-    g_revLit[i] = -1;  // force the next update to paint this cell
   }
 
   // One number per 1000 rpm, placed in proportion to the scale, so a 7000 scale
   // spreads them wider than an 8000 one. The left end (0) has no number, and a
   // label that would run under the "x1000" tag at the right-hand end is dropped:
   // with a free scale the top label can land there (12000 hides the "11").
+  if (!scaleMoved) {
+    repaintBarAll(c, g_shown.rpm);
+    return;
+  }
+  lastMax = c.rpmMax;
+  lastAmber = c.rpmAmber;
+  lastRed = c.rpmRedline;
+
   const int perK = (int)lroundf(c.rpmMax / 1000.0f);
   int n = perK - 1;
   if (n < 1) n = 1;
@@ -666,6 +737,11 @@ void syncGauge() {
   // The unit tag is always shown now: the scale is free, so the labels are
   // rarely whole thousands and bare "1..7" would mean nothing without it.
   lv_obj_remove_flag(w.tickUnit, LV_OBJ_FLAG_HIDDEN);
+
+  // The zones or the palette have moved: repaint the bar itself. g_shown.rpm is
+  // the value the glass is showing, so the fill edge is right for the new scale
+  // rather than for the last frame's.
+  repaintBarAll(c, g_shown.rpm);
 }
 
 // Indicator repeaters. LVGL's built-in LV_SYMBOL_LEFT/RIGHT are chevrons (0xF053
@@ -718,7 +794,12 @@ void buildGauge(lv_obj_t *parent) {
   for (int i = 0; i < L::BAR_SEG; i++) {
     const int x0 = (i * L::BAR_W) / L::BAR_SEG;
     const int x1 = ((i + 1) * L::BAR_W) / L::BAR_SEG;
-    w.revCell[i] = opaque(w.revGrp, x0, 0, x1 - x0, L::REV_BAR_H, COL_ZONE_GREEN);
+    // untracked: the palette change repaints the whole bar as one area
+    // (repaintBarAll), so these 80 cells must not join the per-object palette
+    // list - filling it would push a scheme change back to a full-screen
+    // repaint, which is what that helper exists to avoid.
+    w.revCell[i] = opaque(w.revGrp, x0, 0, x1 - x0, L::REV_BAR_H,
+                          theme::untracked(COL_ZONE_GREEN));
   }
   // Created after the cells so it is on top of them, hidden until a shift.
   w.revFlash = opaque(w.revGrp, 0, 0, L::BAR_W, L::REV_BAR_H, COL_SHIFT);
@@ -1657,7 +1738,9 @@ void onCfgSave(lv_event_t *) {
     g_edit.theme = live.theme;
     g_edit.view = live.view;
   }
+  nvsGuardBegin();
   cfg::apply(g_edit);
+  nvsGuardEnd();
   if (ssidChanged) ohxnow::forgetController();
   // The WiFi mode (AP+STA vs AP-only) cannot be switched safely with ESP-NOW
   // live, so a role or fleet-channel change is applied by rebooting. The
@@ -1689,7 +1772,9 @@ void onCfgDefaults(lv_event_t *) {
   // itself: DEFAULTS restores the dashboard thresholds, not the car's network.
   fresh.netRole = keep.netRole;
   fresh.fleetChannel = keep.fleetChannel;
+  nvsGuardBegin();
   cfg::apply(fresh);
+  nvsGuardEnd();
   ohxnow::forgetController();  // also how a replaced controller gets picked up
   g_edit = cfg::get();
   lv_textarea_set_text(g_taSsid, g_edit.ssid);
@@ -2104,20 +2189,18 @@ const char *boostUnitText() {
 // to read; a bar pulsing is not.
 //
 // The flash is ONE full-width plate, not a recolour of every lit cell. LVGL's
-// invalid-area buffer is 32 slots (LV_INV_BUF_SIZE in lv_display_private.h) and
-// it answers an overflow by invalidating the whole screen, so forty cell writes
-// per phase became an 800x480 repaint: on the car that measured as ~20 ms of
-// flush and under 20 fps exactly while shifting. One 800x104 fill is one area,
-// and it is also the cue the eye expects - the full width, not just the part
-// below the shift point.
+// cost of the flash is what forced it: forty cell writes per phase were forty
+// invalid areas, and forty areas cost about what a whole screen does, because
+// the per-area draw pass - not the pixels - is what is expensive here. One
+// 800x104 fill is one area, and it is also the cue the eye expects: the full
+// width, not just the part below the shift point. (Same measurement as
+// repaintBarAll(), and the reason LV_INV_BUF_SIZE in lv_conf.h is 128 rather
+// than LVGL's 32: eighty cells plus a handful of readings must not silently
+// turn into a full-screen repaint.)
 void updateRevBar(const cfg::Data &c, float rpm) {
   if (!dbg(1)) return;
 
-  const float frac = isnan(rpm) ? 0.0f : (rpm / c.rpmMax);
-  int lit = (int)lroundf(frac * L::BAR_SEG);
-  if (lit < 0) lit = 0;
-  if (lit > L::BAR_SEG) lit = L::BAR_SEG;
-
+  const int lit = revLitCount(c, rpm);
   const bool have = !isnan(rpm);
   // The forced state is the bench stand-in for rpm: the cue is the one thing
   // that cannot happen here, because rpm comes from the car.
@@ -2137,8 +2220,9 @@ void updateRevBar(const cfg::Data &c, float rpm) {
     if (wantFlash == 0) {
       lv_obj_add_flag(w.revFlash, LV_OBJ_FLAG_HIDDEN);
       // The cells under the plate were not kept up to date while it covered
-      // them; make the next pass repaint every one.
-      for (int i = 0; i < L::BAR_SEG; i++) g_revLit[i] = -1;
+      // them, and every one of them has to be repainted - as one area, not
+      // eighty (see repaintBarAll() for the measurement).
+      repaintBarAll(c, rpm);
     } else {
       setBgColor(w.revFlash, wantFlash == 2 ? flashCol : (lv_color_t)COL_TRACK, 0);
       if (g_revFlash == 0) lv_obj_remove_flag(w.revFlash, LV_OBJ_FLAG_HIDDEN);
@@ -2637,6 +2721,30 @@ bool g_backlightValid = false;
 // does nothing. See tick() for why.
 bool g_uploadBlank = false;
 
+// ---- NVS writes and the glass -------------------------------------------
+// Measured on this board, and the reason 0.9.2 blanks the glass for an OTA
+// upload: a flash write disables the cache, the RGB panel refills its bounce
+// buffer from PSRAM through that cache, and a missed refill underruns the FIFO.
+// The panel can come back with its scan-out shifted - the picture "loses sync".
+// An NVS write is short (1.5-2 ms usually, ~60 ms when NVS erases a page), so
+// every write the UI makes goes through here: the backlight is blanked for the
+// duration, and the panel's DMA is re-armed afterwards whether or not the write
+// was long enough to matter. The blank is at most a frame or two and hides the
+// re-arm; the alternative is a screen that stays broken.
+uint32_t g_nvsGuardUs = 0;
+
+void nvsGuardBegin() {
+  crowpanel::setBacklight(0);
+  g_nvsGuardUs = micros();
+}
+
+void nvsGuardEnd() {
+  crowpanel::resync();
+  g_backlightValid = false;  // applyBacklight() re-asserts the real value
+  Serial.printf("[ui] NVS write %lu us (glass blanked)\n",
+                (unsigned long)(micros() - g_nvsGuardUs));
+}
+
 // Write the backlight, but only when the number changes: it is a PWM write and
 // the result is compared every tick.
 void applyBacklight() {
@@ -2978,6 +3086,16 @@ void tick() {
   const float dt = (float)(now - g_lastTickMs) / 1000.0f;
   g_lastTickMs = now;
 
+  // The deferred display preference - last in the frame's work, and only after
+  // the quiet period, so the flash write cannot land on top of the repaint a
+  // tap caused.
+  if (g_displaySaveAt != 0 && (int32_t)(now - g_displaySaveAt) >= 0) {
+    g_displaySaveAt = 0;
+    nvsGuardBegin();
+    cfg::flushPending();
+    nvsGuardEnd();
+  }
+
   // Shift-light flash, independent of the data rate.
   if ((uint32_t)(now - g_lastFlashMs) >= kFlashMs) {
     g_lastFlashMs = now;
@@ -3265,7 +3383,10 @@ void setView(View v) {
   applyView(v, false);
   cfg::Data d = cfg::get();
   d.view = (uint8_t)v;
-  cfg::apply(d);  // writes only when the value changed
+  // Live now, NVS once the glass has been quiet: a flash write in the same
+  // frame as the repaint is what makes the panel's DMA underrun.
+  cfg::applyDeferred(d);
+  g_displaySaveAt = millis() + kDisplaySaveMs;
 }
 
 void nextView() { setView((View)(((uint8_t)g_view + 1) % (uint8_t)View::Count)); }
@@ -3283,7 +3404,11 @@ void applyTheme(theme::Scheme s) {
   syncGauge();
   clearPlates();
   g_forceReadout = true;
-  if (w.root) lv_obj_invalidate(w.root);
+  // No full-screen invalidation: everything that carries an accent colour
+  // repaints itself - the rev cells through syncGauge(), the values, plates and
+  // lamps through the readout pass forced above, the bars through the styles
+  // theme::setScheme() invalidated. Invalidating w.root here was what made a
+  // palette change a 190-230 ms full-screen render (see lv_conf.h).
   Serial.printf("[ui] theme %s\n", theme::schemeName(s));
 }
 
@@ -3292,7 +3417,8 @@ void nextTheme() {
   applyTheme(s);
   cfg::Data d = cfg::get();
   d.theme = (uint8_t)s;
-  cfg::apply(d);
+  cfg::applyDeferred(d);
+  g_displaySaveAt = millis() + kDisplaySaveMs;
 }
 
 // Which tile band the glass is showing, and a way to change it. The capability

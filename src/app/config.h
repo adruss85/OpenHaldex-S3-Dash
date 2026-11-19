@@ -122,6 +122,19 @@ void begin();
 /// Validated, clamped, saved to NVS.
 void apply(const Data &d);
 
+/// Validated, clamped, live in RAM now, NVS at the next flush().
+///
+/// For a preference that changes on a tap. A flash write disables the cache,
+/// and the panel's DMA reads PSRAM through it, so a write at the moment of a
+/// repaint is what makes the glass tear (the reason the OTA upload blanks it).
+/// The repaint still happens at once - only the few milliseconds of flash are
+/// moved to a quiet moment, and cycling six schemes writes once, not six times.
+void applyDeferred(const Data &d);
+
+/// Write a deferred apply() now, if one is pending. Idempotent and cheap;
+/// called from the main loop once the glass has been quiet for a moment.
+void flushPending();
+
 /// The shipped defaults, validated. Nothing is applied or saved: the caller
 /// decides what to keep (the DEFAULTS button keeps the connection) and hands
 /// the result to apply().
