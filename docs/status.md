@@ -6,7 +6,7 @@ Read this when you need to know what has actually been verified, on which firmwa
 Firmware version: 0.9.4
 Flash: 1 536 246 / 1 966 080 B (78.1%)
 Internal RAM (static): 61 764 / 327 680 B
-Measured: 2026-11-19, build 1bdf969
+Measured: 2026-11-19, build 8e8d09d
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
