@@ -50,9 +50,10 @@ struct Definition {
 // (lighter) -> crit (brightest). That ordering is what the rev bar draws left
 // to right, so the redline is always the most vivid third of the bar rather
 // than a repeat of the left end, which is all a single accent could give. Their
-// text is the same hue lifted almost to white (fg) and held at a readable mid
-// tone (dim), so the numbers carry the scheme too instead of staying the shared
-// neutral grey. "shift" stays a different hue on purpose: it is the full-width
+// text is the hue itself - saturated, not lifted towards white (fg) - with a
+// darkened version for captions and units (dim), so the whole face carries the
+// scheme instead of the shared neutral grey. White keeps near-white text,
+// because that is what the scheme is called. "shift" stays a different hue on purpose: it is the full-width
 // shift flash, and a flash in the family's own colour cannot be told from the
 // redline flash at a glance.
 constexpr Definition kSchemes[kSchemeCount] = {
@@ -72,8 +73,8 @@ constexpr Definition kSchemes[kSchemeCount] = {
     // Orange - amber base, brightest crit is yellow. Black on the plate: white
     // on amber is the one pairing this panel cannot hold at a glance.
     {Scheme::Orange, "Orange",
-     {.fg = 0xffe9c7,
-      .dim = 0x94815f,
+     {.fg = 0xffc247,
+      .dim = 0xb97400,
       .accent = 0xf59e0b,
       .accentDim = 0xb45309,
       .accentDimmer = 0x2a1a05,
@@ -89,8 +90,8 @@ constexpr Definition kSchemes[kSchemeCount] = {
 
     // Green - Midnight's own hue, but stepped instead of going to amber/red.
     {Scheme::Green, "Green",
-     {.fg = 0xd9f7e4,
-      .dim = 0x6f8f7e,
+     {.fg = 0x3ee87b,
+      .dim = 0x1f9e57,
       .accent = 0x22c55e,
       .accentDim = 0x15803d,
       .accentDimmer = 0x072a14,
@@ -105,8 +106,8 @@ constexpr Definition kSchemes[kSchemeCount] = {
       .shift = 0xa78bfa}},
 
     {Scheme::Blue, "Blue",
-     {.fg = 0xdbe8ff,
-      .dim = 0x6d8099,
+     {.fg = 0x5fa8ff,
+      .dim = 0x2f6fbf,
       .accent = 0x3b82f6,
       .accentDim = 0x1d4ed8,
       .accentDimmer = 0x0b1a33,
@@ -121,8 +122,8 @@ constexpr Definition kSchemes[kSchemeCount] = {
       .shift = 0xf472b6}},
 
     {Scheme::Purple, "Purple",
-     {.fg = 0xecdcff,
-      .dim = 0x8a7aa0,
+     {.fg = 0xc98dff,
+      .dim = 0x8b46d6,
       .accent = 0xa855f7,
       .accentDim = 0x7e22ce,
       .accentDimmer = 0x1f0a33,
@@ -141,7 +142,7 @@ constexpr Definition kSchemes[kSchemeCount] = {
     // because in a grey dash it is the one cue that must not read as "the bar
     // is full".
     {Scheme::White, "White",
-     {.fg = 0xf4f7fa,
+     {.fg = 0xeef2f6,
       .dim = 0x9aa3ad,
       .accent = 0x7c8894,
       .accentDim = 0x4b555f,
@@ -159,8 +160,8 @@ constexpr Definition kSchemes[kSchemeCount] = {
     // Red - listed last because a stored theme is a byte in NVS: the numbers
     // 0..6 are a wire format and may not move.
     {Scheme::Red, "Red",
-     {.fg = 0xffdede,
-      .dim = 0x9c7f7f,
+     {.fg = 0xff5f5f,
+      .dim = 0xb03333,
       .accent = 0xef4444,
       .accentDim = 0xb91c1c,
       .accentDimmer = 0x2a0b0b,

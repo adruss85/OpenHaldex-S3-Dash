@@ -1346,10 +1346,15 @@ void clearPlates() {
 // are any of the readings heading somewhere bad. The numbers that repeat what
 // the bar already says are gone, and every secondary reading is a bar with no
 // value - the bar's length and colour (accent -> warn -> crit) are the message.
-constexpr int kMinBarX = 150;
-constexpr int kMinBarW = L::W - kMinBarX - 24;
-constexpr int kMinRowY0 = 272;
-constexpr int kMinRowPitch = 42;
+// Two columns, two rows: coolant | oil over fuel | boost. A full-width bar for a
+// reading whose scale is 40..130 C is mostly empty, and four of them stacked read
+// as one block; half-width bars keep the pair-per-row comparison the eye wants.
+constexpr int kMinColW = L::W / 2;
+constexpr int kMinBarDx = 24;                 // left inset inside a column
+constexpr int kMinBarW = kMinColW - kMinBarDx - 20;
+constexpr int kMinRowY0 = 268;
+constexpr int kMinRowPitch = 80;
+constexpr int kMinBarDy = 20;                 // bar top, from its caption
 
 /// The four rows, in order. BOOST is hidden on a car that cannot fill it, the
 /// same capability the tile band uses.
@@ -1371,11 +1376,13 @@ void buildMinimal(lv_obj_t *parent) {
 
   static const char *const caps[MIN_ROWS] = {"COOLANT", "OIL", "FUEL", "BOOST"};
   for (int i = 0; i < MIN_ROWS; i++) {
-    const int y = kMinRowY0 + i * kMinRowPitch;
+    const int x = (i % 2) * kMinColW + kMinBarDx;
+    const int y = kMinRowY0 + (i / 2) * kMinRowPitch;
     w.mn.cap[i] = label(w.minGrp, FONT_CAP, COL_DIM, caps[i]);
-    lv_obj_set_pos(w.mn.cap[i], 24, y + 3);
-    w.mn.bar[i] = (i == MIN_FUEL) ? fuelBar(w.minGrp, kMinBarX, y, kMinBarW, 16)
-                                  : bar(w.minGrp, kMinBarX, y, kMinBarW, 16, COL_GREEN, 0, 100);
+    lv_obj_set_pos(w.mn.cap[i], x, y);
+    w.mn.bar[i] = (i == MIN_FUEL)
+                      ? fuelBar(w.minGrp, x, y + kMinBarDy, kMinBarW, 18)
+                      : bar(w.minGrp, x, y + kMinBarDy, kMinBarW, 18, COL_GREEN, 0, 100);
   }
   placeMinimalRows();
 }
@@ -3044,13 +3051,14 @@ void begin() {
   // as a target in a moving car. The rev bar is inside it.
   lv_obj_add_flag(w.top, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(w.top, onLongPress, LV_EVENT_LONG_PRESSED, nullptr);
-  // A swipe anywhere on the dashboard changes view. The flag is what lets the
-  // gesture climb from the tile it started on to the root's handler.
-  for (lv_obj_t *o : {w.root, w.top, w.bandGrp, w.minGrp, w.tempsGrp}) {
-    if (!o) continue;
-    lv_obj_add_flag(o, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  }
-  lv_obj_add_event_cb(w.root, onSwipe, LV_EVENT_GESTURE, nullptr);
+  // A swipe anywhere on the dashboard changes view. LVGL gives every object
+  // created with a parent LV_OBJ_FLAG_GESTURE_BUBBLE, and delivers the gesture to
+  // the first ancestor *without* it - which is the screen, not this root. So the
+  // handler goes on the screen. (Attaching it to w.root meant the gesture climbed
+  // straight past it and nothing happened, which is what the glass showed.)
+  // The settings and raw pages live on lv_layer_top(), so a swipe there is
+  // delivered to that layer and is deliberately ignored.
+  lv_obj_add_event_cb(lv_screen_active(), onSwipe, LV_EVENT_GESTURE, nullptr);
   // The other two views have no top band, so the same long-press target is the
   // whole content area. Without it, Settings would only be one 24 px button on
   // a moving car - the reason the long-press exists at all.
