@@ -4,9 +4,9 @@ Read this when you need to know what has actually been verified, on which firmwa
 
 <!-- status:start -->
 Firmware version: 0.9.4
-Flash: 1 537 654 / 1 966 080 B (78.2%)
+Flash: 1 537 670 / 1 966 080 B (78.2%)
 Internal RAM (static): 62 036 / 327 680 B
-Measured: 2026-11-19, build 234c9c5
+Measured: 2026-11-19, build cdc3540
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
