@@ -45,13 +45,27 @@
 // with the glass blanked, and the DMA is re-armed afterwards
 // (esp_lcd_rgb_panel_restart) - as it is after any frame that overran one
 // panel scan.
-// Verified on the bench on 19 Nov 2026: the schemes and the three views switch
-// live, the crit plate inverts outside Midnight while Midnight keeps its red
-// text, both preferences survive a reset, and after the fix the picture held
-// sync across repeated theme taps and SAVE. Idle 57-61 fps, ~146 KB internal
-// RAM free. Not verified: any palette or plate with live car data, the buttons
-// by touch, daylight readability, and how Red reads on the glass (added last,
-// checked only for the accent family it draws).
+// The scheme is one hue in three steps outside Midnight - base, lighter,
+// brightest - which is what the rev bar draws left to right, so the redline end
+// is the most vivid third of the bar instead of repeating the left end (White:
+// dark grey, light grey, white). Text is tinted with the same hue. The fuel bar
+// now carries graduations at every eighth of a tank, drawn over the level.
+// Minimal keeps the rev bar and shows the speed in the rpm number's row, with
+// coolant/oil/fuel/boost below as bars only - no numbers. A horizontal swipe
+// anywhere on the dashboard changes view as well as the VIEW button and 'g'.
+// A fourth cause of the lost picture: esp_lcd_rgb_panel_restart(), added as the
+// recovery for a shifted scan-out, wraps the whole picture vertically when it
+// runs while the driver is switching between the two frame buffers - the page
+// header reappears along the bottom of the glass. It is gone; a rare glitch a
+// repaint clears is the lesser evil. The NVS write is still blanked, and still
+// out of the tap's frame.
+// Verified on the bench on 19 Nov 2026: the seven schemes and the three views
+// switch live, the crit plate inverts outside Midnight while Midnight keeps its
+// red text, both preferences survive a reset, and after removing the DMA re-arm
+// the picture held through repeated theme taps, swipes and SAVE. Idle 57-60 fps,
+// ~146 KB internal RAM free. Not verified: any palette or plate with live car
+// data, the buttons by touch, daylight readability, and the swipe in a moving
+// car.
 // 0.9.3 - The project is renamed CANvas dash. The boot banner, the update page
 // and the docs say so, and the splash is a new pre-rendered base
 // (assets/canvas-dash-splash-base.jpg, 800x480) carrying the CANvas wordmark and

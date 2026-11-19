@@ -31,123 +31,165 @@ namespace {
 // Midnight is dash.html's :root, plus the four greys the LVGL port added
 // (button fill, field fill, page background, the soft settings labels) which
 // are part of the neutral set now.
-constexpr Palette kSchemes[kSchemeCount] = {
-    // Midnight - the ported palette. The only scheme with a red critical.
-    {.accent = 0x22c55e,
-     .accentDim = 0x15803d,
-     .accentDimmer = 0x072a14,
-     .zoneAccent = 0x123a22,
-     .warn = 0xf59e0b,
-     .zoneWarn = 0x3a2a10,
-     .crit = 0xef4444,
-     .critText = 0xffffff,
-     .zoneCrit = 0x3a1414,
-     .cyan = 0x22d3ee,
-     .shift = 0x8b5cf6},
-
-    // Orange - amber base. BLACK text on the critical plate: white on amber
-    // is the one pairing this panel cannot hold at a glance.
-    {.accent = 0xf59e0b,
-     .accentDim = 0xb45309,
-     .accentDimmer = 0x2a1a05,
-     .zoneAccent = 0x3a2a10,
-     .warn = 0xfbbf24,
-     .zoneWarn = 0x4a3410,
-     .crit = 0xf59e0b,
-     .critText = 0x000000,
-     .zoneCrit = 0x3a2a10,
-     .cyan = 0xfcd34d,
-     .shift = 0xfcd34d},
-
-    // Green - the same accent as Midnight, so warn and crit have to move
-    // instead: a lighter green, then the accent plate with black letters.
-    {.accent = 0x22c55e,
-     .accentDim = 0x15803d,
-     .accentDimmer = 0x072a14,
-     .zoneAccent = 0x123a22,
-     .warn = 0x4ade80,
-     .zoneWarn = 0x14361f,
-     .crit = 0x22c55e,
-     .critText = 0x000000,
-     .zoneCrit = 0x123a22,
-     .cyan = 0x2dd4bf,
-     .shift = 0x86efac},
-
-    // Blue
-    {.accent = 0x3b82f6,
-     .accentDim = 0x1d4ed8,
-     .accentDimmer = 0x0b1a33,
-     .zoneAccent = 0x122a45,
-     .warn = 0x60a5fa,
-     .zoneWarn = 0x1a3358,
-     .crit = 0x3b82f6,
-     .critText = 0xffffff,
-     .accentText = 0xffffff,
-     .zoneCrit = 0x1a2f4d,
-     .cyan = 0x22d3ee,
-     .shift = 0x93c5fd},
-
-    // Purple
-    {.accent = 0xa855f7,
-     .accentDim = 0x7e22ce,
-     .accentDimmer = 0x1f0a33,
-     .zoneAccent = 0x2a1240,
-     .warn = 0xc084fc,
-     .zoneWarn = 0x331a4d,
-     .crit = 0xa855f7,
-     .critText = 0xffffff,
-     .accentText = 0xffffff,
-     .zoneCrit = 0x2a1240,
-     .cyan = 0xe879f9,
-     .shift = 0xd8b4fe},
-
-    // Red. The one scheme where the critical plate and the accent are the same
-    // hue, exactly as Green has it: a critical reading is still told apart from
-    // a normal one because it inverts (solid red, white letters) rather than
-    // being red letters. "Warn" is the same red lifted towards pink, which on
-    // this panel measures 0xFB8E against the accent's 0xEA28 - the lighter of
-    // the two, and the only direction left to warn in. The shift cue stays
-    // violet, deliberately outside the family: in a red dash a red shift flash
-    // would be indistinguishable from the redline.
-    {.accent = 0xef4444,
-     .accentDim = 0xb91c1c,
-     .accentDimmer = 0x2a0b0b,
-     .zoneAccent = 0x3a1414,
-     .warn = 0xf87171,
-     .zoneWarn = 0x4a1a1a,
-     .crit = 0xef4444,
-     .critText = 0xffffff,
-     .accentText = 0xffffff,
-     .zoneCrit = 0x3a1414,
-     .cyan = 0xfda4af,
-     .shift = 0xc084fc},
-
-    // White - monochrome. "Warn" is a dimmer grey rather than a different hue:
-    // there is no second colour to lean on, so the warning is the shade that
-    // recedes and the critical is the one that inverts (black on near-white).
-    {.accent = 0xf2f5f8,
-     .accentDim = 0x9aa4ae,
-     .accentDimmer = 0x1a1d21,
-     .zoneAccent = 0x24282d,
-     .warn = 0x8f9aa6,
-     .zoneWarn = 0x2a2e33,
-     .crit = 0xf2f5f8,
-     .critText = 0x000000,
-     .zoneCrit = 0x24282d,
-     .cyan = 0xc6ced6,
-     .shift = 0xffffff},
+// Each entry names the scheme it *is*, not just its position. That is not
+// decoration: the 0.9.4 Red scheme was first added in the wrong slot, so the
+// table silently disagreed with the enum - the THEME button said "White" while
+// the glass was red, and the other way round. The static_assert below turns
+// that into a build error.
+struct Definition {
+  Scheme id;
+  const char *name;
+  Palette palette;
 };
 
+// Midnight is dash.html's :root, plus the four greys the LVGL port added
+// (button fill, field fill, page background, the soft settings labels) which
+// are part of the neutral set now. It is the one scheme left exactly as it was.
+//
+// The single-colour schemes are one hue in three steps: accent (base) -> warn
+// (lighter) -> crit (brightest). That ordering is what the rev bar draws left
+// to right, so the redline is always the most vivid third of the bar rather
+// than a repeat of the left end, which is all a single accent could give. Their
+// text is the same hue lifted almost to white (fg) and held at a readable mid
+// tone (dim), so the numbers carry the scheme too instead of staying the shared
+// neutral grey. "shift" stays a different hue on purpose: it is the full-width
+// shift flash, and a flash in the family's own colour cannot be told from the
+// redline flash at a glance.
+constexpr Definition kSchemes[kSchemeCount] = {
+    {Scheme::Midnight, "Midnight",
+     {.accent = 0x22c55e,
+      .accentDim = 0x15803d,
+      .accentDimmer = 0x072a14,
+      .zoneAccent = 0x123a22,
+      .warn = 0xf59e0b,
+      .zoneWarn = 0x3a2a10,
+      .crit = 0xef4444,
+      .critText = 0xffffff,
+      .zoneCrit = 0x3a1414,
+      .cyan = 0x22d3ee,
+      .shift = 0x8b5cf6}},
+
+    // Orange - amber base, brightest crit is yellow. Black on the plate: white
+    // on amber is the one pairing this panel cannot hold at a glance.
+    {Scheme::Orange, "Orange",
+     {.fg = 0xffe9c7,
+      .dim = 0x94815f,
+      .accent = 0xf59e0b,
+      .accentDim = 0xb45309,
+      .accentDimmer = 0x2a1a05,
+      .zoneAccent = 0x2e1f08,
+      .warn = 0xfbbf24,
+      .zoneWarn = 0x4a3410,
+      .crit = 0xfde047,
+      .critText = 0x000000,
+      .accentText = 0x000000,
+      .zoneCrit = 0x5c4a14,
+      .cyan = 0x22d3ee,
+      .shift = 0xa78bfa}},
+
+    // Green - Midnight's own hue, but stepped instead of going to amber/red.
+    {Scheme::Green, "Green",
+     {.fg = 0xd9f7e4,
+      .dim = 0x6f8f7e,
+      .accent = 0x22c55e,
+      .accentDim = 0x15803d,
+      .accentDimmer = 0x072a14,
+      .zoneAccent = 0x0d2f1b,
+      .warn = 0x4ade80,
+      .zoneWarn = 0x174a2c,
+      .crit = 0x86efac,
+      .critText = 0x000000,
+      .accentText = 0x000000,
+      .zoneCrit = 0x22603a,
+      .cyan = 0x22d3ee,
+      .shift = 0xa78bfa}},
+
+    {Scheme::Blue, "Blue",
+     {.fg = 0xdbe8ff,
+      .dim = 0x6d8099,
+      .accent = 0x3b82f6,
+      .accentDim = 0x1d4ed8,
+      .accentDimmer = 0x0b1a33,
+      .zoneAccent = 0x122a45,
+      .warn = 0x60a5fa,
+      .zoneWarn = 0x1d3a63,
+      .crit = 0x93c5fd,
+      .critText = 0x000000,
+      .accentText = 0xffffff,
+      .zoneCrit = 0x2b4d7d,
+      .cyan = 0x22d3ee,
+      .shift = 0xf472b6}},
+
+    {Scheme::Purple, "Purple",
+     {.fg = 0xecdcff,
+      .dim = 0x8a7aa0,
+      .accent = 0xa855f7,
+      .accentDim = 0x7e22ce,
+      .accentDimmer = 0x1f0a33,
+      .zoneAccent = 0x2a1240,
+      .warn = 0xc084fc,
+      .zoneWarn = 0x3a1f5c,
+      .crit = 0xd8b4fe,
+      .critText = 0x000000,
+      .accentText = 0xffffff,
+      .zoneCrit = 0x4a2a73,
+      .cyan = 0xe879f9,
+      .shift = 0xf472b6}},
+
+    // White - dark grey, light grey, white: the ramp this scheme was missing
+    // (both its ends used to be the same near-white). The shift flash is amber,
+    // because in a grey dash it is the one cue that must not read as "the bar
+    // is full".
+    {Scheme::White, "White",
+     {.fg = 0xf4f7fa,
+      .dim = 0x9aa3ad,
+      .accent = 0x7c8894,
+      .accentDim = 0x4b555f,
+      .accentDimmer = 0x1a1e22,
+      .zoneAccent = 0x1a1d21,
+      .warn = 0xc6ced6,
+      .zoneWarn = 0x2f353c,
+      .crit = 0xffffff,
+      .critText = 0x000000,
+      .accentText = 0x000000,
+      .zoneCrit = 0x4a525a,
+      .cyan = 0x8ab4d8,
+      .shift = 0xf59e0b}},
+
+    // Red - listed last because a stored theme is a byte in NVS: the numbers
+    // 0..6 are a wire format and may not move.
+    {Scheme::Red, "Red",
+     {.fg = 0xffdede,
+      .dim = 0x9c7f7f,
+      .accent = 0xef4444,
+      .accentDim = 0xb91c1c,
+      .accentDimmer = 0x2a0b0b,
+      .zoneAccent = 0x33100f,
+      .warn = 0xf87171,
+      .zoneWarn = 0x4a1a1a,
+      .crit = 0xfea3a3,
+      .critText = 0x000000,
+      .accentText = 0xffffff,
+      .zoneCrit = 0x5c2626,
+      .cyan = 0xfda4af,
+      .shift = 0xc084fc}},
+};
+
+constexpr bool tableOrderOk() {
+  for (int i = 0; i < kSchemeCount; i++) {
+    if ((uint8_t)kSchemes[i].id != (uint8_t)i) return false;
+  }
+  return true;
+}
+static_assert(tableOrderOk(), "kSchemes order must match theme::Scheme");
 static_assert(sizeof(kSchemes) / sizeof(kSchemes[0]) == kSchemeCount,
               "palette table and Scheme::Count disagree");
 
-const char *const kNames[kSchemeCount] = {"Midnight", "Orange", "Green", "Blue",
-                                          "Purple",   "White",  "Red"};
 
 Scheme g_scheme = Scheme::Midnight;
 
 uint32_t rgb(Scheme s, Role r) {
-  const Palette &p = kSchemes[(uint8_t)s];
+  const Palette &p = kSchemes[(uint8_t)s].palette;
   switch (r) {
     case Role::Bg: return p.bg;
     case Role::Panel: return p.panel;
@@ -244,7 +286,7 @@ void initRole(Role r) {
 Scheme scheme() { return g_scheme; }
 
 const char *schemeName(Scheme s) {
-  return kNames[(uint8_t)s < kSchemeCount ? (uint8_t)s : 0];
+  return kSchemes[(uint8_t)s < kSchemeCount ? (uint8_t)s : 0].name;
 }
 
 Scheme schemeAt(uint8_t i) {

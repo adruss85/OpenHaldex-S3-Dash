@@ -4,9 +4,9 @@ Read this when you need to know what has actually been verified, on which firmwa
 
 <!-- status:start -->
 Firmware version: 0.9.4
-Flash: 1 537 738 / 1 966 080 B (78.2%)
-Internal RAM (static): 62 060 / 327 680 B
-Measured: 2026-11-19, build 7e2238b
+Flash: 1 537 710 / 1 966 080 B (78.2%)
+Internal RAM (static): 62 036 / 327 680 B
+Measured: 2026-11-19, build 611789a
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
@@ -41,30 +41,44 @@ it caught a real bug: the first cut compared a "belongs to the Race view"
 boolean, so Minimal and Temps were both visible with Temps drawn over Minimal.
 Stored theme and view survive a reset.
 
-**The first cut also lost the picture**, and that is what the second half of
-0.9.4 is about: after a theme tap the panel could come out of step with its DMA
-and stay shifted. Three causes were measured, and all three are fixed — a theme
-change began at 205 ms in `lv_obj_report_style_change(NULL)` and 190–230 ms in
-the repaint that followed, because the sweep re-parses every object and the rev
-bar's 80 cells are 80 invalid areas, which cost about a full-screen repaint
-(174 ms) since the per-area draw pass, not the pixels, is what is expensive. A
-palette change now repaints only the objects in a role the palette changes, the
-bar is repainted as one 800x104 area, and `LV_INV_BUF_SIZE` is 128 (LVGL's 32
-turned any bar-shaped repaint into a full screen). The fourth cause was the NVS
-write: a flash write disables the cache the panel's DMA refills through, so the
-write is deferred 1.5 s past the tap, made with the glass blanked, and followed
-by `esp_lcd_rgb_panel_restart()` — which also runs after any frame that overran
-one panel scan. Measured after the fix: a tap is ~85 ms of work (1 ms to re-point
-the palette, ~85 ms to repaint the bar and the readings), an NVS write is 6 ms
-and 55 ms when NVS erases a page, and the picture held sync across repeated
-theme taps and SAVE on the bench. Idle 57–61 fps, 146.2 KB internal RAM free /
-145.1 KB lowest — level with 0.9.3 on the same bench.
+**Three of the bugs in this batch were found on glass, not on the bench log:**
+
+* The palette table and the `theme::Scheme` enum drifted apart when Red was
+  added, so the THEME button said "White" while the glass was red and the other
+  way round. The table now carries each scheme's own id and name, with a
+  `static_assert` that the order matches the enum.
+* A theme change began at 205 ms in `lv_obj_report_style_change(NULL)` and
+  190–230 ms in the repaint that followed; the rev bar's 80 cells are 80 invalid
+  areas, and 80 areas cost about a full-screen repaint (174 ms) because the
+  per-area draw pass, not the pixels, is what is expensive. A palette now
+  repaints only the objects in a role the palette changes, the bar is repainted
+  as one 800x104 area, and `LV_INV_BUF_SIZE` is 128 (LVGL's 32 turned a
+  bar-shaped repaint into a full-screen one). A tap is ~85 ms of work.
+* `esp_lcd_rgb_panel_restart()` — added as the recovery for a shifted scan-out,
+  after the first wrap — made it *worse*: re-arming the DMA while the driver owns
+  the switch between the two frame buffers leaves the scan starting at the wrong
+  line, and the whole picture wraps vertically (the page header repeating along
+  the bottom edge). Photographed on the glass in both the race and the minimal
+  view, at different offsets. It is gone. Removing it, with the repaint costs
+  above and the NVS write moved out of the tap's frame, is what finally held.
+
+The scheme itself also changed shape: outside Midnight it is one hue in three
+steps (base, lighter, brightest), which is the order the rev bar draws left to
+right, so the redline end is the most vivid third of the bar rather than a
+repeat of the left end — White runs dark grey, light grey, white — and the text
+is tinted with the same hue. The fuel bar carries graduations every eighth of a
+tank, drawn over the level. Minimal keeps the rev bar, puts the speed in the rpm
+number's row, and shows coolant/oil/fuel/boost as bars with no numbers. A
+horizontal swipe changes view as well as the buttons.
+
+Measured after that: idle 57–60 fps, 146 KB internal RAM free / 145 KB lowest,
+an NVS write of 6 ms (55 ms when NVS erases a page) made with the glass blanked.
 
 **Not verified**: any palette or plate with live car data (there was no
 controller on the air, so every reading was `--` and the crit plate was proved
-by forcing one), the Settings header buttons by touch (the console keys drive
-the same handlers), how the schemes read in daylight, and the Red scheme's
-appearance on glass — it was added last, and only its accent family was checked.
+by forcing one), the Settings header buttons by touch (the console keys drive the
+same handlers), how the schemes read in daylight, and the swipe as a gesture in a
+moving car.
 
 **0.9.3 is a rename and has not been on hardware.** The banner, update page and
 docs say CANvas dash; the splash is the new `assets/canvas-dash-splash-base.jpg`

@@ -96,10 +96,13 @@ REVS is the only full-width item; everything else is a tile, so no value
 appears twice.
 
 **Two more ways to read the same numbers.** The dashboard has three **views**,
-chosen with the VIEW button on the Settings header (or `g` on the console):
-**Race** is the layout above; **Minimal** is the speed and rpm large with the
-three readings that matter underneath; **Temps** is coolant, oil, oil pressure
-and fuel full width, each with a bar and the thresholds it is coloured by.
+chosen with the VIEW button on the Settings header, by swiping left or right
+anywhere on the dashboard, or with `g` on the console: **Race** is the layout
+above; **Minimal** keeps the rev bar and puts the speed in large digits where
+the rpm number sits, with coolant, oil, fuel and boost below as **bars only** —
+length and colour, no numbers, because on that view the bar *is* the reading;
+**Temps** is coolant, oil, oil pressure and fuel full width, each with a bar and
+the thresholds it is coloured by.
 A view only replaces the band above the status bar, so the tell-tales, the
 odometer and LIVE/STALE are the same objects in all three — switching one costs
 a hide/show, never a rebuild, and a value can never disagree between views
@@ -108,16 +111,26 @@ from anywhere on the glass.
 
 **Seven colour schemes**, chosen with the THEME button beside it (or `T`):
 **Midnight** (the palette every build before 0.9.4 drew), then **Orange**,
-**Green**, **Blue**, **Purple**, **White** and **Red**. Only the accent family moves —
-the background, the rules, the text grey and the lamp greys stay put, because
-that is the contrast this 16-bit TN panel is read at. In Midnight a warning is
-amber and a critical is red; in the other five there is no second hue to lean
-on, so a warning becomes a lighter shade of the scheme's accent and a critical
-becomes that accent as a solid plate with contrasting text (black on orange,
-green and white; white on blue, purple and red). The change is on the glass at once
-(~85 ms) and written to NVS a second later: a flash write in the same frame as a
-repaint is what makes this panel lose sync, so the write is moved to a quiet
-moment and the glass is blanked for it.
+**Green**, **Blue**, **Purple**, **White** and **Red**. Only the accent family
+moves — the background, the rules and the lamp greys stay put, because that is
+the contrast this 16-bit TN panel is read at.
+
+Each single-colour scheme is **one hue in three steps**: base, lighter,
+brightest. That is the order the rev bar draws left to right, so the redline end
+is always the most vivid third of the bar instead of repeating the left end —
+White runs dark grey, light grey, white. A reading above its warning threshold
+takes the middle step and one above its critical threshold the brightest, and a
+critical reading *inverts* (the colour as a solid plate with black or white
+digits) so it cannot be mistaken for a hotter version of the same number. The
+numbers and captions are tinted with the same hue rather than the shared grey,
+so the whole face carries the scheme. Midnight keeps its three hues — green,
+amber, red — and is otherwise untouched.
+
+The fuel bar carries graduations at every eighth of a tank, drawn *over* the
+level rather than instead of it. A scheme is on the glass at once (~85 ms) and
+written to NVS a second later: a flash write in the same frame as a repaint
+makes this panel glitch, so the write is moved to a quiet moment and the glass is
+blanked for it.
 
 **Tell-tales mirror the car, they are not inferred.** BRAKE and HAND light from
 the chassis CAN bit (or the controller's wired input, whichever moves — on this

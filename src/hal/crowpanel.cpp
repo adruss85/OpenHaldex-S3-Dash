@@ -485,19 +485,6 @@ void dumpFrame(int cols, int rows) {
 
 uint32_t pclkHz() { return g_pclkHz; }
 
-// Re-arm the panel's DMA. A flash write disables the cache, and the bounce
-// buffer is refilled from PSRAM through that cache: if a refill misses its
-// deadline the RGB FIFO underruns and the scan-out can come back shifted, which
-// on the glass looks like the picture having lost sync. This is the recovery the
-// IDF driver exposes for exactly that case; it is a no-op when the panel is
-// already in step, and it is cheap (re-points the DMA at the current frame
-// buffer on the next frame boundary).
-void resync() {
-  if (g_panel == nullptr) return;
-  const esp_err_t err = esp_lcd_rgb_panel_restart(g_panel);
-  if (err != ESP_OK) Serial.printf("[board] panel resync failed: %d\n", (int)err);
-}
-
 /// Rebuild the RGB panel with a different bounce-buffer depth, reusing the
 /// same LVGL display. Used to A/B the two DMA paths on a real screen: the
 /// bounce buffer decouples the DMA from PSRAM latency but makes the flush

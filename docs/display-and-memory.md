@@ -118,6 +118,29 @@ dashboard has ~250 objects whose colours were previously decided at build time,
 and a registry of those objects (with a delete hook each) would have been the
 alternative. Nothing scales, and nothing here adds a per-frame check.
 
+### One hue, three steps
+
+Outside Midnight a scheme is a single hue used in three intensities: `accent`
+(base), `warn` (lighter), `crit` (brightest). The rev bar's zones are those
+three in order, left to right, so the redline is always the most vivid third of
+the bar - White runs dark grey, light grey, white. A critical *reading* inverts
+rather than merely brightening: `crit` as a solid plate with `critText` on it,
+which is what replaces Midnight's red and cannot be confused with the middle
+step. `shift` is deliberately outside the family: it is the full-width shift
+flash, and a flash in the scheme's own colour cannot be told from the redline
+flash.
+
+The text is tinted too (`fg`, `dim` per scheme) so the numbers carry the scheme;
+Midnight keeps the neutral greys and its three hues.
+
+### The fuel bar's graduations
+
+Drawn in an `LV_EVENT_DRAW_POST` callback on the bar itself, not as seven extra
+objects: the fuel bar is resized whenever the tile band changes shape, and a
+custom draw follows that for free. The marks are the dim colour, the one shade
+visible against both the dark track and a lit fill, and they sit over the level
+rather than replacing it.
+
 **What a palette change actually costs, and why it was not obvious.** Measured
 on the bench (0.9.4), a theme tap began at **205 ms** in
 `lv_obj_report_style_change(NULL)` and **190–230 ms** in the repaint that

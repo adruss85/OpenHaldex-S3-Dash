@@ -77,10 +77,11 @@ void nvsGuardEnd();
 }  // namespace
 
 // Forward declarations at UI scope, not inside the anonymous namespace below:
-// these two are public entry points defined further down, and a second
-// declaration in the anonymous namespace would make every call ambiguous.
+// these are defined further down at this scope, and a second declaration inside
+// the anonymous namespace would make every call ambiguous.
 void applyTheme(theme::Scheme s);
 void applyDebugMask();
+void applyVisibility();
 
 namespace {
 
@@ -206,6 +207,28 @@ void cycleMode() {
 
 void onHaldexTap(lv_event_t *) { cycleMode(); }
 
+// A horizontal swipe steps the dashboard view, either way, wrapping. This is the
+// touch-only way to change view without opening Settings; the buttons stay
+// because a swipe in a moving car is not a reliable gesture and the settings
+// page can say which view you are on.
+//
+// LVGL's own gesture path does the recognising (a press that moves further than
+// the gesture limit), and it refuses to do so while a container is scrolling -
+// nothing here scrolls, so a swipe cannot steal a tap. The callback is on the
+// dashboard root and the containers set LV_OBJ_FLAG_GESTURE_BUBBLE, so a swipe
+// that starts on a tile arrives here.
+void onSwipe(lv_event_t *e) {
+  const lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_active());
+  if (dir == LV_DIR_LEFT) {
+    nextView();
+  } else if (dir == LV_DIR_RIGHT) {
+    // "previous", computed directly: two nextView() calls would show the middle
+    // view for a frame on the way round.
+    setView((View)(((uint8_t)view() + (uint8_t)View::Count - 1) % (uint8_t)View::Count));
+  }
+  (void)e;
+}
+
 // ------------------------------------------------------------- handles
 struct Widgets {
   // The dashboard's own root: bar, number, tiles and status bar live in it so
@@ -286,9 +309,8 @@ struct Widgets {
   // is why switching a view never rebuilds a lamp or re-decides LIVE/STALE.
   lv_obj_t *minGrp = nullptr, *tempsGrp = nullptr;
   struct {
-    lv_obj_t *speed = nullptr, *speedUnit = nullptr, *rpm = nullptr;
-    lv_obj_t *rpmBar = nullptr;
-    lv_obj_t *cap[4] = {}, *val[4] = {}, *unit[4] = {};
+    lv_obj_t *speed = nullptr, *speedUnit = nullptr;
+    lv_obj_t *cap[4] = {}, *bar[4] = {};
   } mn;
   // Rows 0..3 are coolant, oil, oil pressure, fuel. Row 2 is hidden on a car
   // without the ME7 oil-pressure patch, exactly as it is in the tile.
@@ -351,6 +373,7 @@ uint32_t g_displaySaveAt = 0;
 // declared up here so a capability change can re-place a live view.
 void clearPlates();
 void placeTempsView();
+void placeMinimalRows();
 
 
 // The boot splash owns the glass until the first real data arrives, then it is
@@ -501,6 +524,29 @@ lv_obj_t *rule(lv_obj_t *parent, int x, int y, int w) {
   return r;
 }
 
+/// Every eighth of a tank, drawn over the bar itself (LV_EVENT_DRAW_POST) rather
+/// than as seven extra objects: the fuel bar is resized when the tile band
+/// changes shape, and a custom draw follows that for free. The marks are the
+/// dim text colour, which is the one shade visible against both the dark track
+/// and a lit fill.
+void onFuelBarDraw(lv_event_t *e) {
+  lv_obj_t *b = (lv_obj_t *)lv_event_get_target(e);
+  lv_layer_t *layer = lv_event_get_layer(e);
+  lv_area_t a;
+  lv_obj_get_coords(b, &a);
+  lv_draw_rect_dsc_t dsc;
+  lv_draw_rect_dsc_init(&dsc);
+  dsc.bg_color = theme::c(theme::Role::Dim);
+  dsc.bg_opa = LV_OPA_COVER;
+  dsc.radius = 0;
+  const int w = lv_area_get_width(&a);
+  for (int i = 1; i < 8; i++) {
+    const int x = a.x1 + (w * i) / 8;
+    lv_area_t mark{x, a.y1 + 3, x + 1, a.y2 - 3};
+    lv_draw_rect(layer, &dsc, &mark);
+  }
+}
+
 lv_obj_t *bar(lv_obj_t *parent, int x, int y, int width, int height, theme::Col fill,
               int32_t min, int32_t max) {
   lv_obj_t *b = lv_bar_create(parent);
@@ -517,6 +563,14 @@ lv_obj_t *bar(lv_obj_t *parent, int x, int y, int width, int height, theme::Col 
   lv_bar_set_value(b, min, LV_ANIM_OFF);
   return b;
 }
+
+/// A bar of fuel, with its graduations. Everything else is bar().
+lv_obj_t *fuelBar(lv_obj_t *parent, int x, int y, int width, int height) {
+  lv_obj_t *b = bar(parent, x, y, width, height, COL_GREEN, 0, 100);
+  lv_obj_add_event_cb(b, onFuelBarDraw, LV_EVENT_DRAW_POST, nullptr);
+  return b;
+}
+
 
 lv_obj_t *button(lv_obj_t *parent, int x, int y, int width, int height, const char *text,
                  lv_event_cb_t cb) {
@@ -989,7 +1043,7 @@ void buildTiles(lv_obj_t *parent) {
   lv_obj_set_style_text_align(w.fuelVal, LV_TEXT_ALIGN_RIGHT, 0);
   w.fuelUnit = fixedLabel(t2, unitX, rowFuel, kTempUnitW, 18, FONT_SMALL, COL_DIM, "L");
   lv_obj_set_style_text_align(w.fuelUnit, LV_TEXT_ALIGN_RIGHT, 0);
-  w.fuelBar = bar(t2, L::TILE_PAD_H, rowFuel + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
+  w.fuelBar = fuelBar(t2, L::TILE_PAD_H, rowFuel + kTempBarDY, tw, 10);
 
   // ---- HALDEX -----------------------------------------------------
   lv_obj_t *t3 = opaque(parent, L::COL3_X, y, L::COL3_W, h, COL_BG);
@@ -1116,8 +1170,10 @@ void placeBand(layout::Variant v) {
   // A plate has grown the box it belongs to; put it back before the placement
   // pass writes the same coordinates again.
   clearPlates();
-  // The Temps view has its own row geometry and the same capability input.
+  // The Temps view has its own row geometry and the same capability input, and
+  // so does the Minimal view's BOOST row.
   placeTempsView();
+  placeMinimalRows();
 
   for (int i = 0; i < band.count; i++) {
     const layout::TileCol &c = band.cols[i];
@@ -1285,39 +1341,58 @@ void clearPlates() {
   }
 }
 
-// ---- minimal: speed and rpm, large, and the three readings that matter.
-constexpr int kMinRowY = 330;
+// ---- minimal: the rev bar, the speed in its place, and the rest as bars.
+// The point of this view is one glance: how fast, how hard is it revving, and
+// are any of the readings heading somewhere bad. The numbers that repeat what
+// the bar already says are gone, and every secondary reading is a bar with no
+// value - the bar's length and colour (accent -> warn -> crit) are the message.
+constexpr int kMinBarX = 150;
+constexpr int kMinBarW = L::W - kMinBarX - 24;
+constexpr int kMinRowY0 = 272;
+constexpr int kMinRowPitch = 42;
+
+/// The four rows, in order. BOOST is hidden on a car that cannot fill it, the
+/// same capability the tile band uses.
+enum MinRow : uint8_t { MIN_COOLANT, MIN_OIL, MIN_FUEL, MIN_BOOST, MIN_ROWS };
 
 void buildMinimal(lv_obj_t *parent) {
   w.minGrp = plain(parent, 0, 0, L::W, L::CONTENT_H);
   lv_obj_add_flag(w.minGrp, LV_OBJ_FLAG_HIDDEN);
 
-  // The speed, in the 96 px face the rev number already pays for. Centred on a
-  // fixed box: a self-sizing label would dirty the layout on every change.
-  w.mn.speed = fixedLabel(w.minGrp, 0, 40, L::W, 100, FONT_RPM, COL_FG, "--");
+  // The speed sits in the number row the rev bar already reserves (theme.h,
+  // RPM_NUM_Y/RPM_NUM_H), in the 96 px face that row is built around, with the
+  // indicator repeaters still flanking it at the ends and the rpm number hidden.
+  // Same box as the number it replaces, so nothing moves when the view changes.
+  w.mn.speed = fixedLabel(w.minGrp, 0, L::RPM_NUM_Y, L::W, L::RPM_NUM_H, FONT_RPM, COL_FG, "--");
   lv_obj_set_style_text_align(w.mn.speed, LV_TEXT_ALIGN_CENTER, 0);
-  w.mn.speedUnit = fixedLabel(w.minGrp, 0, 142, L::W, 20, FONT_BODY, COL_DIM, "km/h");
+  w.mn.speedUnit = fixedLabel(w.minGrp, 0, L::RPM_NUM_Y + L::RPM_NUM_H - 6, L::W, 18, FONT_BODY,
+                              COL_DIM, "km/h");
   lv_obj_set_style_text_align(w.mn.speedUnit, LV_TEXT_ALIGN_CENTER, 0);
 
-  // rpm: the number, then one plain bar. One lv_bar is one invalid area; the
-  // 80-cell bar in the Race view is cheap because a *step* only repaints the
-  // cell it crossed, which is a different problem from redrawing a whole bar.
-  w.mn.rpm = fixedLabel(w.minGrp, 0, 184, L::W, 60, FONT_NUM, COL_FG, "--");
-  lv_obj_set_style_text_align(w.mn.rpm, LV_TEXT_ALIGN_CENTER, 0);
-  w.mn.rpmBar = bar(w.minGrp, 0, 252, L::W, 18, COL_GREEN, 0, 1000);
-
-  // Three readings and the mode, in four 200 px columns.
-  static const char *const caps[4] = {"COOLANT", "OIL", "FUEL", "HALDEX"};
-  for (int i = 0; i < 4; i++) {
-    const int x = i * (L::W / 4);
+  static const char *const caps[MIN_ROWS] = {"COOLANT", "OIL", "FUEL", "BOOST"};
+  for (int i = 0; i < MIN_ROWS; i++) {
+    const int y = kMinRowY0 + i * kMinRowPitch;
     w.mn.cap[i] = label(w.minGrp, FONT_CAP, COL_DIM, caps[i]);
-    lv_obj_set_pos(w.mn.cap[i], x + 16, kMinRowY);
-    if (i == 3) continue;  // the mode is text, not a reading with a unit
-    w.mn.val[i] = fixedLabel(w.minGrp, x + 16, kMinRowY + 18, 140, 30, FONT_TEMP, COL_FG, "--");
-    w.mn.unit[i] = fixedLabel(w.minGrp, x + 160, kMinRowY + 24, 32, 18, FONT_SMALL, COL_DIM, "");
+    lv_obj_set_pos(w.mn.cap[i], 24, y + 3);
+    w.mn.bar[i] = (i == MIN_FUEL) ? fuelBar(w.minGrp, kMinBarX, y, kMinBarW, 16)
+                                  : bar(w.minGrp, kMinBarX, y, kMinBarW, 16, COL_GREEN, 0, 100);
   }
-  w.mn.val[3] = fixedLabel(w.minGrp, 3 * (L::W / 4) + 16, kMinRowY + 16, 180, 36, FONT_MODE,
-                           COL_FG, "--");
+  placeMinimalRows();
+}
+
+/// BOOST is a capability, exactly as it is in the tile band: a car that cannot
+/// fill it does not get a row that would sit at zero.
+void placeMinimalRows() {
+  const bool boost = cap::get().boost;
+  for (int i = 0; i < 2; i++) {
+    lv_obj_t *o = i == 0 ? w.mn.cap[MIN_BOOST] : w.mn.bar[MIN_BOOST];
+    if (!o) continue;
+    if (boost) {
+      lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
 }
 
 // ---- temps: the four engine readings, full width, each with a bar and the
@@ -1338,7 +1413,8 @@ void buildTemps(lv_obj_t *parent) {
     w.tv.note[i] = fixedLabel(w.tempsGrp, 200, y + 2, 400, 16, FONT_CAP, COL_DIM, "");
     w.tv.val[i] = fixedLabel(w.tempsGrp, 24, y + 18, 260, 60, FONT_NUM, COL_FG, "--");
     w.tv.unit[i] = fixedLabel(w.tempsGrp, 292, y + 42, 48, 22, FONT_BODY, COL_DIM, "");
-    w.tv.bar[i] = bar(w.tempsGrp, 24, y + 82, kTempsBarW, 14, COL_GREEN, 0, 100);
+    w.tv.bar[i] = (i == 3) ? fuelBar(w.tempsGrp, 24, y + 82, kTempsBarW, 14)
+                           : bar(w.tempsGrp, 24, y + 82, kTempsBarW, 14, COL_GREEN, 0, 100);
   }
   // The oil-pressure row is a capability, exactly as it is in the tile: a car
   // without the ME7 patch has no sensor, so its row goes and the three that
@@ -1390,40 +1466,13 @@ void applyView(View v, bool force) {
   g_view = v;
   if (!w.root) return;
 
-  const bool race = (v == View::Race);
-  // Each group names the view it belongs to. (An earlier version compared a
-  // "belongs to Race" boolean, which made Minimal and Temps both visible at
-  // once: they share the answer "not Race", and Temps is built later, so it
-  // drew over Minimal.)
-  struct Group {
-    lv_obj_t *obj;
-    View view;
-  };
-  const Group groups[4] = {{w.top, View::Race},
-                           {w.bandGrp, View::Race},
-                           {w.minGrp, View::Minimal},
-                           {w.tempsGrp, View::Temps}};
-  for (const Group &g : groups) {
-    if (!g.obj) continue;
-    if (g.view == v) {
-      lv_obj_remove_flag(g.obj, LV_OBJ_FLAG_HIDDEN);
-    } else {
-      lv_obj_add_flag(g.obj, LV_OBJ_FLAG_HIDDEN);
-    }
-  }
-  // The debug mask has the last word over w.top (and its three groups), so a
-  // view switch back to Race re-applies it instead of undoing a bench mask.
-  if (race) applyDebugMask();
+  applyVisibility();
   if (v == View::Temps) placeTempsView();
-  // The rev cells are only painted while this view is up, and the first pass
-  // after a switch must repaint all of them (they kept the colours of a view
-  // that is no longer being updated).
-  if (race && changed) syncGauge();
+  // The bar is on the glass in two of the three views, and the first pass after
+  // a switch must repaint it: it kept the colours of a view that was not being
+  // updated. syncGauge() repaints it as one area.
+  if (changed && (v == View::Race || v == View::Minimal)) syncGauge();
   if (changed) {
-    if (w.root) lv_obj_invalidate(w.root);
-    // Names the groups as well as the view: on the bench the question after a
-    // switch is always "what is actually on the glass", and a hidden flag is
-    // the honest answer (the dump only shows luminance).
     auto vis = [](lv_obj_t *o) { return o && !lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN) ? "on" : "off"; };
     Serial.printf("[ui] view %s: top %s band %s min %s temps %s\n", viewName(v), vis(w.top),
                   vis(w.bandGrp), vis(w.minGrp), vis(w.tempsGrp));
@@ -2508,43 +2557,42 @@ void updateMinimal(const cfg::Data &c, const telemetry::Dash &d) {
   const Values v = g_shown;
 
   fmtSpeed(buf, sizeof buf, v.speed);
-  setSuffix(w.mn.speed, buf, isnan(v.speed) ? COL_DIM : COL_FG);
+  setSuffix(w.mn.speed, buf, isnan(v.speed) ? (lv_color_t)COL_DIM : (lv_color_t)COL_FG);
   setText(w.mn.speedUnit, speedUnitText());
 
-  if (isnan(v.rpm)) {
-    setSuffix(w.mn.rpm, "--", COL_DIM);
-  } else {
-    snprintf(buf, sizeof buf, "%d", (int)lroundf(v.rpm));
-    setSuffix(w.mn.rpm, buf, COL_FG);
+  // The bars are the reading: no number, a length and a colour. Same sources,
+  // same thresholds and same smoothing as the tiles, so the two views can only
+  // ever disagree about how much text they show.
+  auto pctOf = [](float val, float lo, float hi) {
+    if (isnan(val) || hi <= lo) return 0;
+    int p = (int)lroundf(((val - lo) / (hi - lo)) * 100.0f);
+    if (p < 0) p = 0;
+    if (p > 100) p = 100;
+    return p;
+  };
+
+  // COOLANT and OIL use the tiles' 40..130 C scale, so the two views agree.
+  for (int i = 0; i < 2; i++) {
+    const float val = i == 0 ? v.coolant : v.oil;
+    const float warn = i == 0 ? c.coolWarn : c.oilWarn;
+    const float crit = i == 0 ? c.coolCrit : c.oilCrit;
+    setBar(w.mn.bar[i], pctOf(val, 40.0f, 130.0f));
+    setBgColor(w.mn.bar[i], colFor(val, warn, crit), LV_PART_INDICATOR);
   }
+  // FUEL: the car's own warning wins over the bar's colour, as in the tile.
   {
     int pct = 0;
-    if (!isnan(v.rpm)) {
-      pct = (int)lroundf(1000.0f * v.rpm / c.rpmMax);
+    if (!isnan(v.fuel)) {
+      pct = (int)lroundf(100.0f * v.fuel / c.tankLitres);
       if (pct < 0) pct = 0;
-      if (pct > 1000) pct = 1000;
+      if (pct > 100) pct = 100;
     }
-    setBar(w.mn.rpmBar, pct);
-    setBgColor(w.mn.rpmBar, colFor(v.rpm, c.rpmAmber, c.rpmRedline), LV_PART_INDICATOR);
+    setBar(w.mn.bar[MIN_FUEL], pct);
+    setBgColor(w.mn.bar[MIN_FUEL], d.fuelLow ? (lv_color_t)COL_AMBER : (lv_color_t)COL_GREEN,
+               LV_PART_INDICATOR);
   }
-
-  // coolant (column 0)
-  fmtTempValue(buf, sizeof buf, v.coolant);
-  setReading(w.mn.val[0], buf, v.coolant, c.coolWarn, c.coolCrit);
-  setText(w.mn.unit[0], tempUnitText());
-  // oil (column 1)
-  fmtTempValue(buf, sizeof buf, v.oil);
-  setReading(w.mn.val[1], buf, v.oil, c.oilWarn, c.oilCrit);
-  setText(w.mn.unit[1], tempUnitText());
-  // fuel (column 2): litres, and the car's own low-fuel warning, exactly as in
-  // the tile (never smoothed, never inferred).
-  fmtFuelValue(buf, sizeof buf, v.fuel);
-  setSuffix(w.mn.val[2], buf,
-            isnan(v.fuel) ? (lv_color_t)COL_DIM
-                          : (d.fuelLow ? (lv_color_t)COL_AMBER : (lv_color_t)COL_FG));
-  setText(w.mn.unit[2], "L");
-  // mode (column 3)
-  setText(w.mn.val[3], (d.mode >= 0 && d.mode < 6) ? kModeNames[d.mode] : "--");
+  setBar(w.mn.bar[MIN_BOOST], pctOf(v.boost, 0.0f, c.boostMax));
+  setBgColor(w.mn.bar[MIN_BOOST], colFor(v.boost, c.boostWarn, c.boostCrit), LV_PART_INDICATOR);
 }
 
 void updateTemps(const cfg::Data &c, const telemetry::Dash &d) {
@@ -2725,12 +2773,18 @@ bool g_uploadBlank = false;
 // Measured on this board, and the reason 0.9.2 blanks the glass for an OTA
 // upload: a flash write disables the cache, the RGB panel refills its bounce
 // buffer from PSRAM through that cache, and a missed refill underruns the FIFO.
-// The panel can come back with its scan-out shifted - the picture "loses sync".
 // An NVS write is short (1.5-2 ms usually, ~60 ms when NVS erases a page), so
-// every write the UI makes goes through here: the backlight is blanked for the
-// duration, and the panel's DMA is re-armed afterwards whether or not the write
-// was long enough to matter. The blank is at most a frame or two and hides the
-// re-arm; the alternative is a screen that stays broken.
+// every write the UI makes goes through here and the backlight is blanked for
+// its duration - one or two frames, which is invisible, and far better than
+// watching the panel glitch through a flash erase.
+//
+// What is deliberately NOT done here is esp_lcd_rgb_panel_restart(): it is the
+// documented recovery for a shifted scan-out, and it was tried, but re-arming
+// the DMA while the driver owns the switch between the two frame buffers leaves
+// the scan starting at the wrong line - the whole picture wraps vertically, with
+// the page header repeating along the bottom of the glass. Measured on the bench
+// on 19 Nov 2026 in both the race and the minimal view. A glitch that a repaint
+// clears is the lesser evil.
 uint32_t g_nvsGuardUs = 0;
 
 void nvsGuardBegin() {
@@ -2739,7 +2793,8 @@ void nvsGuardBegin() {
 }
 
 void nvsGuardEnd() {
-  crowpanel::resync();
+  // No panel resync here: see the note in main.cpp's loop() - re-arming the DMA
+  // while the driver owns the frame-buffer switch is what wraps the picture.
   g_backlightValid = false;  // applyBacklight() re-asserts the real value
   Serial.printf("[ui] NVS write %lu us (glass blanked)\n",
                 (unsigned long)(micros() - g_nvsGuardUs));
@@ -2989,6 +3044,13 @@ void begin() {
   // as a target in a moving car. The rev bar is inside it.
   lv_obj_add_flag(w.top, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(w.top, onLongPress, LV_EVENT_LONG_PRESSED, nullptr);
+  // A swipe anywhere on the dashboard changes view. The flag is what lets the
+  // gesture climb from the tile it started on to the root's handler.
+  for (lv_obj_t *o : {w.root, w.top, w.bandGrp, w.minGrp, w.tempsGrp}) {
+    if (!o) continue;
+    lv_obj_add_flag(o, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  }
+  lv_obj_add_event_cb(w.root, onSwipe, LV_EVENT_GESTURE, nullptr);
   // The other two views have no top band, so the same long-press target is the
   // whole content area. Without it, Settings would only be one 24 px button on
   // a moving car - the reason the long-press exists at all.
@@ -3032,29 +3094,43 @@ void begin() {
   Serial.printf("[ui] splash up (v%s), %lu ms\n", OHX_DASH_VERSION, (unsigned long)kSplashMs);
 }
 
-void applyDebugMask() {
-  // The gauge parts are groups, so a group is one hide/show rather than 40
-  // of them.
-  struct Group {
-    lv_obj_t *obj;
-    uint16_t bit;
-  };
-  const Group groups[3] = {{w.revGrp, 1}, {w.ticksGrp, 2}, {w.numGrp, 4}};
-  for (const Group &g : groups) {
-    if (!g.obj) continue;
-    if (dbg(g.bit)) {
-      lv_obj_remove_flag(g.obj, LV_OBJ_FLAG_HIDDEN);
+// Which groups each view wants. A view is a choice of what to draw above the
+// status bar; the debug mask can still take any group away (console 1..5, 0, 9),
+// so the two are combined here rather than each writing flags behind the
+// other's back.
+void applyVisibility() {
+  if (!w.root) return;
+  const bool race = g_view == View::Race;
+  const bool minimal = g_view == View::Minimal;
+  const bool temps = g_view == View::Temps;
+  // Minimal keeps the rev bar and the indicator repeaters: the bar is what the
+  // speed is read against, and dropping the repeaters would leave that view as
+  // the only one without them.
+  const bool barUp = race || minimal;
+
+  auto show = [](lv_obj_t *o, bool v) {
+    if (!o) return;
+    if (v) {
+      lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
     } else {
-      lv_obj_add_flag(g.obj, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
     }
-  }
-  if (!w.top) return;
-  if (g_dbgHideAll || g_view != View::Race) {
-    lv_obj_add_flag(w.top, LV_OBJ_FLAG_HIDDEN);
-  } else {
-    lv_obj_remove_flag(w.top, LV_OBJ_FLAG_HIDDEN);
-  }
+  };
+
+  show(w.revGrp, barUp && dbg(1));
+  show(w.ticksGrp, race && dbg(2));
+  show(w.numGrp, barUp && dbg(4));
+  show(w.rpmVal, race && dbg(4));  // Minimal puts the speed in this row instead
+  show(w.bandGrp, race);
+  show(w.minGrp, minimal);
+  show(w.tempsGrp, temps);
+  // w.top is a container: visible only if one of its groups is, and never while
+  // the debug mask says "none".
+  show(w.top, !g_dbgHideAll && barUp && (dbg(1) || (race && (dbg(2) || dbg(4)))));
 }
+
+// The debug mask's entry point; the name is what the console has always called.
+void applyDebugMask() { applyVisibility(); }
 
 void tick() {
   // An OTA upload writes flash with the cache disabled. The RGB panel's DMA
@@ -3219,9 +3295,11 @@ void tick() {
   // The rev bar and the big number run at the full rate: the bar's edge is
   // what the eye tracks now that the needle is gone. The other two views have
   // nothing that moves per frame, so they cost nothing outside the 100 ms pass.
-  if (g_view == View::Race) {
+  // The bar runs in Race and in Minimal (which keeps it above the speed); the
+  // big rpm number is Race's only, because Minimal puts the speed in that row.
+  if (g_view == View::Race || g_view == View::Minimal) {
     updateRevBar(c, g_shown.rpm);
-    updateGaugeText(c, g_shown.rpm);
+    if (g_view == View::Race) updateGaugeText(c, g_shown.rpm);
   }
   uint32_t t1 = micros();
   // The tiles carry values that only arrive at 10 Hz and are already eased,

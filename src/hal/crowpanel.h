@@ -65,11 +65,6 @@ uint32_t bounceLines();
 /// really contains, without a camera.
 void dumpFrame(int cols, int rows);
 
-/// Re-arm the RGB panel's DMA after something (a flash write) starved it.
-/// See the comment in crowpanel.cpp: this is the recovery for a shifted
-/// scan-out, not a reset of the picture.
-void resync();
-
 /// Static description of what came up, for logging.
 struct Status {
   bool expanderOk;
