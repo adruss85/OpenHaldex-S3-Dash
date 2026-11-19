@@ -101,9 +101,9 @@ draws the layout at panel size before it is coded is `tools/mockup_dash.py`.
 each of seven schemes. `src/ui/theme.cpp` turns each role into one **shared**
 `lv_style_t` for text, one for background and one for border, and the UI
 attaches those styles instead of writing colours directly. A scheme change is
-therefore a handful of `lv_style_set_*` writes plus one
-`lv_obj_report_style_change(nullptr)` sweep, which is what makes the THEME
-button — and console `T` — instant, with no rebuild and no reboot.
+therefore a handful of `lv_style_set_*` writes plus an invalidate of the objects
+that carry a varying role, which is what makes the THEME button — and console
+`T` — instant, with no rebuild and no reboot.
 
 Two kinds of colour are deliberately *not* in a shared style: anything computed
 per pass (a value's warn/crit colour, the LIVE dot, the lamps' lit state). Those
@@ -124,14 +124,16 @@ Outside Midnight a scheme is a single hue used in three intensities: `accent`
 (base), `warn` (lighter), `crit` (brightest). The rev bar's zones are those
 three in order, left to right, so the redline is always the most vivid third of
 the bar - White runs dark grey, light grey, white. A critical *reading* inverts
-rather than merely brightening: `crit` as a solid plate with `critText` on it,
-which is what replaces Midnight's red and cannot be confused with the middle
-step. `shift` is deliberately outside the family: it is the full-width shift
+rather than merely brightening: the whole row takes `crit` as a solid plate with
+`critText` on it - the item name, the value and the bar - which is what replaces
+Midnight's red and cannot be confused with the middle step. `shift` is deliberately outside the family: it is the full-width shift
 flash, and a flash in the scheme's own colour cannot be told from the redline
 flash.
 
-The text is tinted too (`fg`, `dim` per scheme) so the numbers carry the scheme;
-Midnight keeps the neutral greys and its three hues.
+The text is tinted too (`fg`, `dim` per scheme) so the numbers carry the scheme.
+Midnight is the exception: its readings are drawn in the neutral white (`fg`) and
+only leave it for the warn amber or crit red, while the green stays on the bars.
+See `docs/Colour instructions.txt`.
 
 ### The fuel bar's graduations
 

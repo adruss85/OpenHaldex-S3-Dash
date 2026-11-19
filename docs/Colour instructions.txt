@@ -1,0 +1,20 @@
+
+In the midnight theme:
+1. coolant, oil and boost numbers become white like the other text.
+2. fuel. oil temp, pressure, and coolant numbers go amber/red on warn/crit
+3. fuel, oil temp, pressure, coolant, boost, throttle are all green bars by default, but for the items in 2, they follow the warn/crit colours
+
+In single colour schemes:
+
+
+RPM bar stays the same 3 colours as now
+On shift, flashes with the "RPM amber colour"
+On redline, flashes RED
+
+Shades are from darkest to brightest
+
+Text = Shade 1
+Number = Shade 2, Shade 3 on warn
+Bar = Shade 2 by default, Shade 3 on warn
+Crit = item name, value, bar black on shade 3 background
+Haldex Lock Act = shade 4

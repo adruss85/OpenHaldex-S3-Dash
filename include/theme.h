@@ -38,6 +38,11 @@
 //   crit  is the accent as a solid plate with contrasting text (critText).
 //         Outside Midnight there is no red: "maximum" is shown by inverting
 //         the scheme, which cannot be confused with the warn shade.
+//
+// Midnight keeps red as its critical colour and draws a normal reading in the
+// same white as the rest of the text, not in the accent green. The green is the
+// bar's resting colour; the number only leaves white for warn (amber) or crit
+// (red). See docs/Colour instructions.txt.
 namespace theme {
 
 // Red is last so that every scheme's number is stable: a stored theme is a

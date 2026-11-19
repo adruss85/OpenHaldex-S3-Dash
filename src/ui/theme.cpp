@@ -8,8 +8,10 @@
 //
 // The colours are the S3-gauge accents (green / orange / red / blue / white /
 // purple), with red kept as Midnight's critical colour and replaced by the
-// scheme's own accent-as-a-plate in the other five. Midnight is therefore the
-// palette every build before this one drew, and it is untouched.
+// scheme's own accent-as-a-plate in the other five. Midnight is the palette
+// every build before this one drew. Its readings are now drawn in the same
+// white as the rest of the text (the green stays on the bars), which is the one
+// deliberate change to it; see docs/Colour instructions.txt.
 //
 // A scheme change must be cheap and complete. Complete is the hard part: the
 // dashboard has ~250 objects whose colour was chosen once at build time.

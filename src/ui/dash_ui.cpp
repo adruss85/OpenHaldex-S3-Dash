@@ -271,6 +271,7 @@ struct Widgets {
 
   lv_obj_t *speedVal = nullptr, *speedPeak = nullptr, *speedUnit = nullptr;
   lv_obj_t *boostVal = nullptr, *boostUnit = nullptr, *boostBar = nullptr, *boostPeak = nullptr;
+  lv_obj_t *boostCap = nullptr;
   // The ForbesAutomotive patch's second reading, in the temperatures card under
   // the oil-temperature bar. It belongs with the engine readings and stays on
   // the glass when the BOOST panel is switched off.
@@ -282,6 +283,9 @@ struct Widgets {
   lv_obj_t *coolVal = nullptr, *coolBar = nullptr, *coolUnit = nullptr;
   lv_obj_t *oilVal = nullptr, *oilBar = nullptr, *oilUnit = nullptr;
   lv_obj_t *fuelVal = nullptr, *fuelBar = nullptr, *fuelUnit = nullptr;
+  // Row plates behind the temperatures rows, shown only when a reading is crit.
+  lv_obj_t *coolPlate = nullptr, *oilPlate = nullptr, *fuelPlate = nullptr;
+  lv_obj_t *oilPressPlate = nullptr, *boostPlate = nullptr;
   lv_obj_t *modeVal = nullptr, *haldexSub = nullptr;
   lv_obj_t *lockReqVal = nullptr, *lockActVal = nullptr, *thrBar = nullptr;
 
@@ -316,6 +320,7 @@ struct Widgets {
   // without the ME7 oil-pressure patch, exactly as it is in the tile.
   struct {
     lv_obj_t *cap[4] = {}, *val[4] = {}, *unit[4] = {}, *bar[4] = {}, *note[4] = {};
+    lv_obj_t *plate[4] = {};
   } tv;
 } w;
 
@@ -459,6 +464,28 @@ lv_color_t colFor(float v, float warn, float crit) {
   if (v >= crit) return COL_RED;
   if (v >= warn) return COL_AMBER;
   return COL_GREEN;
+}
+
+// The bar's colour is its own rule, separate from the number's. Midnight keeps
+// the accent ramp on the bar (green -> amber -> red) while its numbers are
+// white. The single-colour schemes use the four-shade model in the colour
+// instructions: shade 2 (fg) at rest, shade 3 (crit) on warn. The RPM bar keeps
+// its own three colours and is not drawn through this helper.
+lv_color_t barColFor(float v, float warn, float crit) {
+  if (theme::scheme() == theme::Scheme::Midnight) return colFor(v, warn, crit);
+  if (isnan(v)) return COL_DIM;
+  if (v >= warn) return COL_RED;  // shade 3, used for both warn and crit
+  return COL_FG;                  // shade 2
+}
+
+// Fuel has no crit threshold, only the car's low-fuel warning. Midnight keeps
+// the green/amber pair; the single-colour schemes use shade 2 at rest and shade
+// 3 on the warning.
+lv_color_t fuelBarCol(bool low) {
+  if (theme::scheme() == theme::Scheme::Midnight) {
+    return low ? COL_AMBER : COL_GREEN;
+  }
+  return low ? COL_RED : COL_FG;
 }
 
 lv_obj_t *plain(lv_obj_t *parent, int x, int y, int width, int height) {
@@ -939,6 +966,17 @@ constexpr const char *kDegF = "F";
 constexpr int kTileUnitY = 96;
 constexpr int kTilePeakY = 116;
 
+/// A hidden opaque rectangle behind a reading row. It is created before the row's
+/// text and bar so it stays behind them; setCritRow() shows it and recolours the
+/// row when the value is critical.
+lv_obj_t *rowPlate(lv_obj_t *parent, int x, int y, int width, int height) {
+  lv_obj_t *p = plain(parent, x, y, width, height);
+  setBgColor(p, COL_RED, 0);
+  lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
+  lv_obj_add_flag(p, LV_OBJ_FLAG_HIDDEN);
+  return p;
+}
+
 void buildTiles(lv_obj_t *parent) {
   // Band-relative: the tiles live in w.bandGrp, which sits at L::TILE_Y.
   const int y = 0;
@@ -970,7 +1008,9 @@ void buildTiles(lv_obj_t *parent) {
   lv_obj_set_style_border_width(t1, 1, 0);
   theme::styleBorder(t1, COL_LINE, 0);
 
+  w.boostPlate = rowPlate(t1, 0, 0, L::COL1_W, 160);
   cap = label(t1, FONT_CAP, COL_DIM, "BOOST");
+  w.boostCap = cap;
   lv_obj_set_pos(cap, L::TILE_PAD_H, L::TILE_PAD_V);
 
   const int bw = L::COL1_W - 2 * L::TILE_PAD_H;
@@ -980,7 +1020,7 @@ void buildTiles(lv_obj_t *parent) {
   // this tile now lives in the temperatures card, with the other engine
   // readings, so this panel is boost alone again.
   w.boostPeak = fixedLabel(t1, L::TILE_PAD_H, kTilePeakY, bw, 18, FONT_SMALL, COL_DIM, "peak --");
-  w.boostBar = bar(t1, L::TILE_PAD_H, 140, bw, 10, COL_WHITE, 0, 100);
+  w.boostBar = bar(t1, L::TILE_PAD_H, 140, bw, 10, COL_GREEN, 0, 100);
 
   // ---- TEMPERATURES -----------------------------------------------
   lv_obj_t *t2 = opaque(parent, L::COL2_X, y, L::COL2_W, h, COL_BG);
@@ -1002,6 +1042,7 @@ void buildTiles(lv_obj_t *parent) {
   const int rowPress = kTempY0 + 2 * kTempPitchTight;
   const int rowFuel = kTempY0 + 3 * kTempPitchTight;
 
+  w.coolPlate = rowPlate(t2, 0, rowCool, L::COL2_W, kTempPitchTight);
   w.tempCapCool = label(t2, FONT_CAP, COL_DIM, "COOLANT");
   lv_obj_set_pos(w.tempCapCool, L::TILE_PAD_H, rowCool);
   w.coolVal = fixedLabel(t2, valX, rowCool + kTempValDY, 80, kTempValH, FONT_TEMP, COL_FG, "--");
@@ -1010,6 +1051,7 @@ void buildTiles(lv_obj_t *parent) {
   lv_obj_set_style_text_align(w.coolUnit, LV_TEXT_ALIGN_RIGHT, 0);
   w.coolBar = bar(t2, L::TILE_PAD_H, rowCool + kTempBarDY, tw, 10, COL_GREEN, 0, 100);
 
+  w.oilPlate = rowPlate(t2, 0, rowOil, L::COL2_W, kTempPitchTight);
   w.tempCapOil = label(t2, FONT_CAP, COL_DIM, "OIL");
   lv_obj_set_pos(w.tempCapOil, L::TILE_PAD_H, rowOil);
   w.oilVal = fixedLabel(t2, valX, rowOil + kTempValDY, 80, kTempValH, FONT_TEMP, COL_FG, "--");
@@ -1022,6 +1064,7 @@ void buildTiles(lv_obj_t *parent) {
   // has a bar of its own (a fraction of kOilPressMaxBar) and the shared
   // pressure unit. Hidden until capability detection proves the patch, and
   // placeTempsTile() then either keeps the four-row pitch or closes the gap.
+  w.oilPressPlate = rowPlate(t2, 0, rowPress, L::COL2_W, kTempPitchTight);
   w.oilPressCap = label(t2, FONT_CAP, COL_DIM, "OIL PRES");
   lv_obj_set_pos(w.oilPressCap, L::TILE_PAD_H, rowPress);
   lv_obj_add_flag(w.oilPressCap, LV_OBJ_FLAG_HIDDEN);
@@ -1037,6 +1080,7 @@ void buildTiles(lv_obj_t *parent) {
 
   // FUEL is the bottom row, where the diagnostic battery voltage used to be.
   // BATT is no longer drawn: it stays on the raw page as a diagnostic.
+  w.fuelPlate = rowPlate(t2, 0, rowFuel, L::COL2_W, kTempPitchTight);
   w.tempCapFuel = label(t2, FONT_CAP, COL_DIM, "FUEL");
   lv_obj_set_pos(w.tempCapFuel, L::TILE_PAD_H, rowFuel);
   w.fuelVal = fixedLabel(t2, valX, rowFuel + kTempValDY, 80, kTempValH, FONT_TEMP, COL_FG, "--");
@@ -1067,7 +1111,7 @@ void buildTiles(lv_obj_t *parent) {
   w.lockActVal = fixedLabel(t3, L::COL3_W - 110, 128, 100, 30, FONT_TEMP, COL_FG, "--");
   lv_obj_set_style_text_align(w.lockActVal, LV_TEXT_ALIGN_RIGHT, 0);
 
-  lv_obj_t *thr = label(t3, FONT_CAP, COL_FG, "THR");
+  lv_obj_t *thr = label(t3, FONT_CAP, COL_DIM, "THR");
   lv_obj_set_pos(thr, L::TILE_PAD_H + 4, 170);
   w.thrBar = bar(t3, L::TILE_PAD_H, 186, hw, 12, COL_GREEN, 0, 100);
 }
@@ -1316,18 +1360,44 @@ void setPlate(lv_obj_t *l, bool on) {
   plateApply(*st, on);
 }
 
-/// One numeric reading, with the palette's rules in one place: NaN is "--" in
-/// dim, at or above crit inverts (non-Midnight) or takes the crit colour, at or
-/// above warn takes the warn shade, and everything else the accent. The text
-/// colour is written here, not by the caller, so a plate and the colour on it
-/// cannot disagree.
-void setReading(lv_obj_t *l, const char *text, float v, float warn, float crit) {
+/// One numeric reading, with the palette's rules in one place. Midnight draws a
+/// normal value in the same white as the rest of the text and only leaves it for
+/// the warn/crit colours; the single-colour schemes keep the accent ramp. NaN is
+/// "--" in dim in both. At or above crit the non-Midnight schemes invert (a solid
+/// plate with the palette's contrasting text); Midnight has no plate and goes
+/// red. `plain` is for a reading that must never warn - Midnight's boost number,
+/// which the colour instructions keep white at every level. The text colour is
+/// written here, not by the caller, so a plate and the colour on it cannot
+/// disagree.
+void setReading(lv_obj_t *l, const char *text, float v, float warn, float crit,
+                bool plain = false) {
   const bool hit = !isnan(v) && v >= crit;
   setPlate(l, hit);
   setText(l, text);
-  setTextColor(l, (hit && theme::scheme() != theme::Scheme::Midnight)
-                      ? (lv_color_t)COL_CRIT_TEXT
-                      : colFor(v, warn, crit));
+  const bool midnight = theme::scheme() == theme::Scheme::Midnight;
+  lv_color_t col;
+  if (isnan(v)) {
+    col = COL_DIM;
+  } else if (midnight) {
+    if (plain) {
+      col = COL_FG;
+    } else if (v >= crit) {
+      col = COL_RED;
+    } else if (v >= warn) {
+      col = COL_AMBER;
+    } else {
+      col = COL_FG;
+    }
+  } else {
+    if (hit) {
+      col = COL_CRIT_TEXT;
+    } else if (v >= warn) {
+      col = COL_RED;
+    } else {
+      col = COL_FG;
+    }
+  }
+  setTextColor(l, col);
 }
 
 /// Undo every plate and forget its state. Called before a tile is re-placed,
@@ -1338,6 +1408,43 @@ void clearPlates() {
     if (c.on) plateApply(c, false);
     c.valid = false;
     c.on = false;
+  }
+}
+
+// A whole reading row inverted for a critical value: the item name, the value
+// and the bar go black on the crit plate. The value's own plate (setReading)
+// already covers the number; this adds the row background behind the caption and
+// bar and recolours them. Midnight keeps its red-on-dark reading, so the row
+// plate is hidden there.
+struct CritRow {
+  lv_obj_t *plate = nullptr;
+  lv_obj_t *cap = nullptr;
+  lv_obj_t *unit = nullptr;
+  lv_obj_t *bar = nullptr;
+  lv_obj_t *peak = nullptr;  // optional secondary text in the same row
+};
+
+void setCritRow(const CritRow &r, bool hit) {
+  if (!r.plate) return;
+  if (theme::scheme() == theme::Scheme::Midnight) hit = false;
+  if (r.cap && lv_obj_has_flag(r.cap, LV_OBJ_FLAG_HIDDEN)) hit = false;
+  const bool shown = !lv_obj_has_flag(r.plate, LV_OBJ_FLAG_HIDDEN);
+  if (hit) {
+    if (!shown) lv_obj_remove_flag(r.plate, LV_OBJ_FLAG_HIDDEN);
+    // The guarded setters only write when the colour actually moved, so this
+    // stays cheap on a steady row and still follows a palette change.
+    setBgColor(r.plate, COL_RED, 0);
+    setTextColor(r.cap, COL_CRIT_TEXT);
+    if (r.unit) setTextColor(r.unit, COL_CRIT_TEXT);
+    if (r.peak) setTextColor(r.peak, COL_CRIT_TEXT);
+    setBgColor(r.bar, COL_RED, LV_PART_MAIN);
+    setBgColor(r.bar, COL_CRIT_TEXT, LV_PART_INDICATOR);
+  } else {
+    if (shown) lv_obj_add_flag(r.plate, LV_OBJ_FLAG_HIDDEN);
+    setTextColor(r.cap, COL_DIM);
+    if (r.unit) setTextColor(r.unit, COL_DIM);
+    if (r.peak) setTextColor(r.peak, COL_DIM);
+    setBgColor(r.bar, COL_TRACK, LV_PART_MAIN);
   }
 }
 
@@ -1415,6 +1522,7 @@ void buildTemps(lv_obj_t *parent) {
   static const char *const caps[4] = {"COOLANT", "OIL TEMPERATURE", "OIL PRESSURE", "FUEL"};
   for (int i = 0; i < 4; i++) {
     const int y = kTempsRowY0 + i * kTempsRowH;
+    w.tv.plate[i] = rowPlate(w.tempsGrp, 0, y, L::W, kTempsRowH);
     w.tv.cap[i] = label(w.tempsGrp, FONT_CAP, COL_DIM, caps[i]);
     lv_obj_set_pos(w.tv.cap[i], 24, y + 2);
     w.tv.note[i] = fixedLabel(w.tempsGrp, 200, y + 2, 400, 16, FONT_CAP, COL_DIM, "");
@@ -1447,12 +1555,15 @@ void placeTempsView() {
     }
     if (hide) {
       lv_obj_add_flag(w.tv.note[i], LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(w.tv.plate[i], LV_OBJ_FLAG_HIDDEN);
       continue;
     }
     lv_obj_remove_flag(w.tv.note[i], LV_OBJ_FLAG_HIDDEN);
     // Rows 0,1,3 keep their order; without the pressure row, fuel takes slot 2.
     const int slot = (i == 3 && !press) ? 2 : i;
     const int y = kTempsRowY0 + slot * pitch;
+    lv_obj_set_pos(w.tv.plate[i], 0, y);
+    lv_obj_set_size(w.tv.plate[i], L::W, pitch);
     lv_obj_set_pos(w.tv.cap[i], 24, y + 2);
     lv_obj_set_pos(w.tv.note[i], 200, y + 2);
     lv_obj_set_pos(w.tv.val[i], 24, y + 18);
@@ -2262,7 +2373,9 @@ void updateRevBar(const cfg::Data &c, float rpm) {
   // that cannot happen here, because rpm comes from the car.
   const bool shifting = g_forceShift != 0 || (have && rpm >= c.rpmShift);
   const bool limiter = g_forceShift == 0 && have && rpm >= c.rpmRedline;
-  const lv_color_t flashCol = limiter ? COL_RED : COL_SHIFT;
+  const lv_color_t flashCol =
+      limiter ? COL_RED
+              : (theme::scheme() == theme::Scheme::Midnight ? COL_SHIFT : COL_AMBER);
 
   // 2 = flash colour, 3 = the dark half, 0 = hidden. Only a phase change
   // writes a style, so a steady bar costs what it did before.
@@ -2324,6 +2437,7 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
   // other value is the interpolated g_shown. Kept in the signature because the
   // caller has both and a future slow-moving row will want the same source.
   (void)live;
+  const bool midnight = theme::scheme() == theme::Scheme::Midnight;
   // The last known values stay on the glass when the data goes stale (the
   // status light says so); "--" is reserved for values never received, which
   // is what NaN means.
@@ -2379,7 +2493,9 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
 
   // ---- boost
   fmtBoost(buf, sizeof(buf), v.boost);
-  setReading(w.boostVal, buf, v.boost, c.boostWarn, c.boostCrit);
+  // Midnight keeps the boost number white at every level (colour instructions);
+  // the other schemes still let it take the warn/crit shade.
+  setReading(w.boostVal, buf, v.boost, c.boostWarn, c.boostCrit, true);
   setText(w.boostUnit, boostUnitText());
   {
     int pct = 0;
@@ -2389,6 +2505,12 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
       if (pct > 100) pct = 100;
     }
     setBar(w.boostBar, pct);
+    setBgColor(w.boostBar,
+               midnight ? (lv_color_t)COL_GREEN
+                        : barColFor(v.boost, c.boostWarn, c.boostCrit),
+               LV_PART_INDICATOR);
+    setCritRow({w.boostPlate, w.boostCap, w.boostUnit, w.boostBar, w.boostPeak},
+               v.boost >= c.boostCrit);
   }
   if (isnan(g_peaks.boost)) {
     setText(w.boostPeak, "peak --");
@@ -2411,7 +2533,9 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
       if (pct > 100) pct = 100;
     }
     setBar(w.coolBar, pct);
-    setBgColor(w.coolBar, colFor(v.coolant, c.coolWarn, c.coolCrit), LV_PART_INDICATOR);
+    setBgColor(w.coolBar, barColFor(v.coolant, c.coolWarn, c.coolCrit), LV_PART_INDICATOR);
+    setCritRow({w.coolPlate, w.tempCapCool, w.coolUnit, w.coolBar},
+               v.coolant >= c.coolCrit);
   }
 
   fmtTempValue(buf, sizeof(buf), v.oil);
@@ -2425,7 +2549,9 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
       if (pct > 100) pct = 100;
     }
     setBar(w.oilBar, pct);
-    setBgColor(w.oilBar, colFor(v.oil, c.oilWarn, c.oilCrit), LV_PART_INDICATOR);
+    setBgColor(w.oilBar, barColFor(v.oil, c.oilWarn, c.oilCrit), LV_PART_INDICATOR);
+    setCritRow({w.oilPlate, w.tempCapOil, w.oilUnit, w.oilBar},
+               v.oil >= c.oilCrit);
   }
 
   // ---- oil pressure: the other half of the ForbesAutomotive ME7 patch, from
@@ -2452,6 +2578,9 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
       if (pct > 100) pct = 100;
     }
     setBar(w.oilPressBar, pct);
+    setBgColor(w.oilPressBar,
+               midnight ? (lv_color_t)COL_GREEN : (lv_color_t)COL_FG,
+               LV_PART_INDICATOR);
   }
 
   // ---- fuel, the bottom row of this panel in both tile bands (#4/#11). The bar
@@ -2460,7 +2589,11 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
   // is read straight off the frame and never smoothed - the warning is the one
   // thing on this row that must not lag.
   fmtFuelValue(buf, sizeof(buf), v.fuel);
-  setSuffix(w.fuelVal, buf, isnan(v.fuel) ? COL_DIM : (d.fuelLow ? COL_AMBER : COL_FG));
+  setSuffix(w.fuelVal, buf,
+            isnan(v.fuel) ? (lv_color_t)COL_DIM
+                          : (d.fuelLow ? (midnight ? (lv_color_t)COL_AMBER
+                                                   : (lv_color_t)COL_RED)
+                                       : (lv_color_t)COL_FG));
   {
     int pct = 0;
     if (!isnan(v.fuel)) {
@@ -2469,7 +2602,7 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
       if (pct > 100) pct = 100;
     }
     setBar(w.fuelBar, pct);
-    setBgColor(w.fuelBar, d.fuelLow ? COL_AMBER : COL_GREEN, LV_PART_INDICATOR);
+    setBgColor(w.fuelBar, fuelBarCol(d.fuelLow), LV_PART_INDICATOR);
   }
 
   // Battery voltage is no longer drawn on the dashboard (0.9.1): BATT's row
@@ -2515,6 +2648,8 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
       if (pct > 100) pct = 100;
     }
     setBar(w.thrBar, pct);
+    setBgColor(w.thrBar, midnight ? (lv_color_t)COL_GREEN : (lv_color_t)COL_FG,
+               LV_PART_INDICATOR);
   }
 
   // ---- lamps. Last known state is held, like the readouts above: the amber
@@ -2562,6 +2697,7 @@ void updateMinimal(const cfg::Data &c, const telemetry::Dash &d) {
   if (!w.minGrp) return;
   char buf[32];
   const Values v = g_shown;
+  const bool midnight = theme::scheme() == theme::Scheme::Midnight;
 
   fmtSpeed(buf, sizeof buf, v.speed);
   setSuffix(w.mn.speed, buf, isnan(v.speed) ? (lv_color_t)COL_DIM : (lv_color_t)COL_FG);
@@ -2584,7 +2720,7 @@ void updateMinimal(const cfg::Data &c, const telemetry::Dash &d) {
     const float warn = i == 0 ? c.coolWarn : c.oilWarn;
     const float crit = i == 0 ? c.coolCrit : c.oilCrit;
     setBar(w.mn.bar[i], pctOf(val, 40.0f, 130.0f));
-    setBgColor(w.mn.bar[i], colFor(val, warn, crit), LV_PART_INDICATOR);
+    setBgColor(w.mn.bar[i], barColFor(val, warn, crit), LV_PART_INDICATOR);
   }
   // FUEL: the car's own warning wins over the bar's colour, as in the tile.
   {
@@ -2595,11 +2731,15 @@ void updateMinimal(const cfg::Data &c, const telemetry::Dash &d) {
       if (pct > 100) pct = 100;
     }
     setBar(w.mn.bar[MIN_FUEL], pct);
-    setBgColor(w.mn.bar[MIN_FUEL], d.fuelLow ? (lv_color_t)COL_AMBER : (lv_color_t)COL_GREEN,
-               LV_PART_INDICATOR);
+    setBgColor(w.mn.bar[MIN_FUEL], fuelBarCol(d.fuelLow), LV_PART_INDICATOR);
   }
   setBar(w.mn.bar[MIN_BOOST], pctOf(v.boost, 0.0f, c.boostMax));
-  setBgColor(w.mn.bar[MIN_BOOST], colFor(v.boost, c.boostWarn, c.boostCrit), LV_PART_INDICATOR);
+  // Midnight keeps the boost bar green at every level; the single-colour schemes
+  // still let it take the warn shade.
+  setBgColor(w.mn.bar[MIN_BOOST],
+             midnight ? (lv_color_t)COL_GREEN
+                      : barColFor(v.boost, c.boostWarn, c.boostCrit),
+             LV_PART_INDICATOR);
 }
 
 void updateTemps(const cfg::Data &c, const telemetry::Dash &d) {
@@ -2653,7 +2793,6 @@ void updateTemps(const cfg::Data &c, const telemetry::Dash &d) {
     if (i < 2) {
       fmtTempValue(buf, sizeof buf, r[i].v);
       setReading(w.tv.val[i], buf, r[i].v, r[i].warn, r[i].crit);
-      col = colFor(r[i].v, r[i].warn, r[i].crit);
     } else if (i == 2) {
       if (isnan(r[i].v)) {
         snprintf(buf, sizeof buf, "--");
@@ -2667,15 +2806,31 @@ void updateTemps(const cfg::Data &c, const telemetry::Dash &d) {
       }
     } else {
       fmtFuelValue(buf, sizeof buf, r[i].v);
-      col = isnan(r[i].v) ? (lv_color_t)COL_DIM : (d.fuelLow ? (lv_color_t)COL_AMBER : (lv_color_t)COL_FG);
+      col = isnan(r[i].v)
+                ? (lv_color_t)COL_DIM
+                : (d.fuelLow ? (theme::scheme() == theme::Scheme::Midnight
+                                    ? (lv_color_t)COL_AMBER
+                                    : (lv_color_t)COL_RED)
+                             : (lv_color_t)COL_FG);
     }
     // setReading() owns the two temperature rows' colour and plate; the
     // pressure and fuel rows have no warn/crit, so they use the plain setter.
     if (i >= 2) setSuffix(w.tv.val[i], buf, col);
     setText(w.tv.unit[i], r[i].unit);
     setBar(w.tv.bar[i], r[i].pct);
-    setBgColor(w.tv.bar[i], (i == 3 && d.fuelLow) ? (lv_color_t)COL_AMBER : col,
-               LV_PART_INDICATOR);
+    // The bar's colour is its own rule, not the number's: Midnight's coolant and
+    // oil numbers are white, but their bars still run green -> amber -> red.
+    // Fuel follows its low warning; pressure has no thresholds and stays green.
+    lv_color_t barCol;
+    if (i == 3) {
+      barCol = fuelBarCol(d.fuelLow);
+    } else if (i == 2) {
+      barCol = theme::scheme() == theme::Scheme::Midnight ? (lv_color_t)COL_GREEN
+                                                          : (lv_color_t)COL_FG;
+    } else {
+      barCol = barColFor(r[i].v, r[i].warn, r[i].crit);
+    }
+    setBgColor(w.tv.bar[i], barCol, LV_PART_INDICATOR);
 
     // The thresholds this row is coloured by - the settings are a page away, so
     // the view that depends on them carries them.
@@ -2690,6 +2845,8 @@ void updateTemps(const cfg::Data &c, const telemetry::Dash &d) {
       snprintf(note, sizeof note, "tank %d L", (int)lroundf(c.tankLitres));
     }
     setText(w.tv.note[i], note);
+    setCritRow({w.tv.plate[i], w.tv.cap[i], w.tv.unit[i], w.tv.bar[i], w.tv.note[i]},
+               i < 2 && r[i].v >= r[i].crit);
   }
 }
 
