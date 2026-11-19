@@ -68,6 +68,13 @@
 #include "ui/splash_img.h"
 
 namespace ui {
+
+// Forward declarations at UI scope, not inside the anonymous namespace below:
+// these two are public entry points defined further down, and a second
+// declaration in the anonymous namespace would make every call ambiguous.
+void applyTheme(theme::Scheme s);
+void applyDebugMask();
+
 namespace {
 
 namespace L = layout;
@@ -200,6 +207,9 @@ struct Widgets {
   // settings card would be redrawn with it on every scroll step.
   lv_obj_t *root = nullptr;
   lv_obj_t *top = nullptr;  // the whole top band; long-press opens settings
+  // The tile band, as one container above the status bar. It is its own object
+  // so a view can take it off the glass with one flag instead of four.
+  lv_obj_t *bandGrp = nullptr;
   // The boot splash, a sibling of root and on top of it. It is built once and
   // deleted when the hold elapses, so it costs nothing for the rest of the
   // drive. Its picture is a child of it; the rule, tagline and version are
@@ -259,6 +269,25 @@ struct Widgets {
   // The drive log: a session is started by hand, so it is a button and a state
   // line rather than a setting (no NVS field, nothing to leave on by accident).
   lv_obj_t *btnLog = nullptr, *logLine = nullptr;
+  // The palette and view buttons live in the settings header, the only strip of
+  // that page with room left (the columns below it are full).
+  lv_obj_t *btnTheme = nullptr, *btnView = nullptr;
+
+  // ---- the other two views (View in dash_ui.h) ----------------------
+  // Built once and hidden. They take the glass where the rev bar and tile band
+  // would be; the status bar below them is the same object in every view, which
+  // is why switching a view never rebuilds a lamp or re-decides LIVE/STALE.
+  lv_obj_t *minGrp = nullptr, *tempsGrp = nullptr;
+  struct {
+    lv_obj_t *speed = nullptr, *speedUnit = nullptr, *rpm = nullptr;
+    lv_obj_t *rpmBar = nullptr;
+    lv_obj_t *cap[4] = {}, *val[4] = {}, *unit[4] = {};
+  } mn;
+  // Rows 0..3 are coolant, oil, oil pressure, fuel. Row 2 is hidden on a car
+  // without the ME7 oil-pressure patch, exactly as it is in the tile.
+  struct {
+    lv_obj_t *cap[4] = {}, *val[4] = {}, *unit[4] = {}, *bar[4] = {}, *note[4] = {};
+  } tv;
 } w;
 
 struct Values {
@@ -293,7 +322,23 @@ uint32_t g_lastFlashMs = 0;
 uint32_t g_lastTickMs = 0;
 // Which page is on the glass; Page::Dashboard means the dashboard is.
 Page g_page = Page::Dashboard;
+// Which dashboard view the dashboard is showing. It shares the status bar with
+// the other views, so it is not a Page: only the band above the status bar
+// changes.
+View g_view = View::Race;
 bool g_stale = true;
+// Set when a palette change has invalidated the *computed* colours (a value's
+// warn/crit shade, a crit plate). Those are written locally every readout, so
+// the way to bring them onto the new palette is to run that pass again now
+// rather than wait for the next 100 ms tick - which the flag does by making the
+// tick's "100 ms since the last pass" test true on the next frame.
+bool g_forceReadout = false;
+
+// Defined below with the views; the band placement needs both, and it is
+// declared up here so a capability change can re-place a live view.
+void clearPlates();
+void placeTempsView();
+
 
 // The boot splash owns the glass until the first real data arrives, then it is
 // removed for good. While it is up the dashboard is hidden underneath it, so the
@@ -392,18 +437,18 @@ lv_obj_t *plain(lv_obj_t *parent, int x, int y, int width, int height) {
 
 // Like plain() but paints its own background, so a repaint stays inside the
 // container instead of reaching back to whatever is underneath.
-lv_obj_t *opaque(lv_obj_t *parent, int x, int y, int width, int height, lv_color_t bg) {
+lv_obj_t *opaque(lv_obj_t *parent, int x, int y, int width, int height, theme::Col bg) {
   lv_obj_t *o = plain(parent, x, y, width, height);
-  lv_obj_set_style_bg_color(o, bg, 0);
+  theme::styleBg(o, bg, 0);
   lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
   return o;
 }
 
-lv_obj_t *label(lv_obj_t *parent, const lv_font_t *font, lv_color_t color, const char *text) {
+lv_obj_t *label(lv_obj_t *parent, const lv_font_t *font, theme::Col color, const char *text) {
   lv_obj_t *l = lv_label_create(parent);
   lv_obj_remove_flag(l, (lv_obj_flag_t)(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
   lv_obj_set_style_text_font(l, font, 0);
-  lv_obj_set_style_text_color(l, color, 0);
+  theme::styleText(l, color);
   lv_label_set_text(l, text);
   return l;
 }
@@ -411,7 +456,7 @@ lv_obj_t *label(lv_obj_t *parent, const lv_font_t *font, lv_color_t color, const
 // A fixed-size box with centred text: avoids depending on measured label
 // width when placing text at an exact point.
 lv_obj_t *boxedLabel(lv_obj_t *parent, int cx, int cy, int boxW, int boxH,
-                     const lv_font_t *font, lv_color_t color, const char *text) {
+                     const lv_font_t *font, theme::Col color, const char *text) {
   lv_obj_t *l = label(parent, font, color, text);
   lv_obj_set_size(l, boxW, boxH);
   lv_obj_set_pos(l, cx - boxW / 2, cy - boxH / 2);
@@ -424,7 +469,7 @@ lv_obj_t *boxedLabel(lv_obj_t *parent, int cx, int cy, int boxW, int boxH,
 // the layout dirty, and LVGL then repaints the whole parent tile. Every
 // label whose text changes gets a fixed box instead.
 lv_obj_t *fixedLabel(lv_obj_t *parent, int x, int y, int w, int h, const lv_font_t *font,
-                     lv_color_t color, const char *text) {
+                     theme::Col color, const char *text) {
   lv_obj_t *l = label(parent, font, color, text);
   lv_obj_set_size(l, w, h);
   lv_obj_set_pos(l, x, y);
@@ -438,22 +483,22 @@ lv_obj_t *fixedLabel(lv_obj_t *parent, int x, int y, int w, int h, const lv_font
 // 12 px of padding on every side of the page.
 lv_obj_t *rule(lv_obj_t *parent, int x, int y, int w) {
   lv_obj_t *r = plain(parent, x, y, w, 1);
-  lv_obj_set_style_bg_color(r, COL_LINE, 0);
+  theme::styleBg(r, COL_LINE, 0);
   lv_obj_set_style_bg_opa(r, LV_OPA_COVER, 0);
   return r;
 }
 
-lv_obj_t *bar(lv_obj_t *parent, int x, int y, int width, int height, lv_color_t fill,
+lv_obj_t *bar(lv_obj_t *parent, int x, int y, int width, int height, theme::Col fill,
               int32_t min, int32_t max) {
   lv_obj_t *b = lv_bar_create(parent);
   lv_obj_remove_style_all(b);
   lv_obj_set_pos(b, x, y);
   lv_obj_set_size(b, width, height);
   lv_obj_set_style_radius(b, height / 2, 0);
-  lv_obj_set_style_bg_color(b, COL_TRACK, 0);
+  theme::styleBg(b, COL_TRACK, 0);
   lv_obj_set_style_bg_opa(b, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_radius(b, height / 2, LV_PART_INDICATOR);
-  lv_obj_set_style_bg_color(b, fill, LV_PART_INDICATOR);
+  theme::styleBg(b, fill, LV_PART_INDICATOR);
   lv_obj_set_style_bg_opa(b, LV_OPA_COVER, LV_PART_INDICATOR);
   lv_bar_set_range(b, min, max);
   lv_bar_set_value(b, min, LV_ANIM_OFF);
@@ -467,10 +512,10 @@ lv_obj_t *button(lv_obj_t *parent, int x, int y, int width, int height, const ch
   lv_obj_set_pos(b, x, y);
   lv_obj_set_size(b, width, height);
   lv_obj_set_style_radius(b, 4, 0);
-  lv_obj_set_style_bg_color(b, lv_color_hex(0x12161b), 0);
+  theme::styleBg(b, COL_BUTTON_FILL, 0);
   lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(b, 1, 0);
-  lv_obj_set_style_border_color(b, COL_LAMP_EDGE, 0);
+  theme::styleBorder(b, COL_LAMP_EDGE, 0);
   if (cb) lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, nullptr);
 
   lv_obj_t *l = label(b, FONT_CAP, COL_FG, text);
@@ -485,10 +530,10 @@ lv_obj_t *lamp(lv_obj_t *parent, int x, int y, int width, const char *text) {
   lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_pad_all(l, 2, 0);
   lv_obj_set_style_radius(l, 3, 0);
-  lv_obj_set_style_bg_color(l, COL_LAMP_OFF, 0);
+  theme::styleBg(l, COL_LAMP_OFF, 0);
   lv_obj_set_style_bg_opa(l, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(l, 1, 0);
-  lv_obj_set_style_border_color(l, COL_LAMP_EDGE, 0);
+  theme::styleBorder(l, COL_LAMP_EDGE, 0);
   return l;
 }
 
@@ -526,14 +571,18 @@ void lampPaint(lv_obj_t *l, bool on, lv_color_t bg, lv_color_t fg) {
   st->bg = bg;
   st->fg = fg;
 
-  setBgColor(l, on ? bg : COL_LAMP_OFF, 0);
-  setBorderColor(l, on ? bg : COL_LAMP_EDGE);
-  setTextColor(l, on ? fg : COL_LAMP_TXT_OFF);
+  setBgColor(l, on ? bg : (lv_color_t)COL_LAMP_OFF, 0);
+  setBorderColor(l, on ? bg : (lv_color_t)COL_LAMP_EDGE);
+  setTextColor(l, on ? fg : (lv_color_t)COL_LAMP_TXT_OFF);
 }
 
-// The tell-tale lamps: amber, or red for the ones that mean something is wrong.
+// The tell-tale lamps: warn, or crit for the ones that mean something is wrong.
+// A crit plate is the scheme's own accent with the palette's contrasting text
+// on it (theme.h), so a lamp in the orange scheme is black-on-amber where
+// Midnight is white-on-red.
 void lampState(lv_obj_t *l, bool on, bool red) {
-  lampPaint(l, on, red ? COL_RED : COL_AMBER, red ? lv_color_white() : lv_color_black());
+  lampPaint(l, on, red ? COL_RED : COL_AMBER,
+            red ? (lv_color_t)COL_CRIT_TEXT : lv_color_black());
 }
 
 // The cruise lamp: three states rather than two, because "armed" (the column
@@ -553,7 +602,9 @@ void lampStateCruise(lv_obj_t *l, const int state) {  // 0 off, 1 armed, 2 regul
   } else if (state == 1) {
     lampPaint(l, true, COL_GREEN_DIMMER, COL_GREEN_DIM);
   } else {
-    lampPaint(l, true, COL_GREEN, lv_color_black());
+    // Text on the accent plate is the scheme's own: black on green/amber/
+    // white, white on blue/purple (theme.h, Role::AccentText).
+    lampPaint(l, true, COL_GREEN, COL_ACCENT_TEXT);
   }
 }
 
@@ -637,17 +688,18 @@ lv_obj_t *buildIndicatorArrow(lv_obj_t *parent, int x, int y, const char *glyph)
   return a;
 }
 
-// Lit -> the arrow is on the glass in green. Dark -> it is gone entirely. The
-// flag is checked first because LVGL invalidates on the way in either way, and
-// this runs every frame.
+// Lit -> the arrow is on the glass in the accent colour. Dark -> it is gone
+// entirely. The colour is re-asserted while lit (the setter is a no-op when it
+// already matches), because that is what re-colours a lit arrow after a theme
+// change; the flag is still only touched on a real transition, since every flag
+// write invalidates.
 void setIndicator(lv_obj_t *arrow, bool lit) {
   if (!arrow) return;
   const bool hidden = lv_obj_has_flag(arrow, LV_OBJ_FLAG_HIDDEN);
-  if (lit == !hidden) return;
   if (lit) {
     setTextColor(arrow, COL_GREEN);
-    lv_obj_remove_flag(arrow, LV_OBJ_FLAG_HIDDEN);
-  } else {
+    if (hidden) lv_obj_remove_flag(arrow, LV_OBJ_FLAG_HIDDEN);
+  } else if (!hidden) {
     lv_obj_add_flag(arrow, LV_OBJ_FLAG_HIDDEN);
   }
 }
@@ -753,7 +805,8 @@ constexpr int kTileUnitY = 96;
 constexpr int kTilePeakY = 116;
 
 void buildTiles(lv_obj_t *parent) {
-  const int y = L::TILE_Y;
+  // Band-relative: the tiles live in w.bandGrp, which sits at L::TILE_Y.
+  const int y = 0;
   const int h = L::TILE_H;
 
   // ---- SPEED ------------------------------------------------------
@@ -761,7 +814,7 @@ void buildTiles(lv_obj_t *parent) {
   g_tileSpeed = t0;
   lv_obj_set_style_border_side(t0, LV_BORDER_SIDE_RIGHT, 0);
   lv_obj_set_style_border_width(t0, 1, 0);
-  lv_obj_set_style_border_color(t0, COL_LINE, 0);
+  theme::styleBorder(t0, COL_LINE, 0);
 
   lv_obj_t *cap = label(t0, FONT_CAP, COL_DIM, "SPEED");
   lv_obj_set_pos(cap, L::TILE_PAD_H, L::TILE_PAD_V);
@@ -780,7 +833,7 @@ void buildTiles(lv_obj_t *parent) {
   g_tileBoost = t1;
   lv_obj_set_style_border_side(t1, LV_BORDER_SIDE_RIGHT, 0);
   lv_obj_set_style_border_width(t1, 1, 0);
-  lv_obj_set_style_border_color(t1, COL_LINE, 0);
+  theme::styleBorder(t1, COL_LINE, 0);
 
   cap = label(t1, FONT_CAP, COL_DIM, "BOOST");
   lv_obj_set_pos(cap, L::TILE_PAD_H, L::TILE_PAD_V);
@@ -799,7 +852,7 @@ void buildTiles(lv_obj_t *parent) {
   g_tileTemps = t2;
   lv_obj_set_style_border_side(t2, LV_BORDER_SIDE_RIGHT, 0);
   lv_obj_set_style_border_width(t2, 1, 0);
-  lv_obj_set_style_border_color(t2, COL_LINE, 0);
+  theme::styleBorder(t2, COL_LINE, 0);
 
   // Four rows: coolant, oil, oil pressure, fuel. The card is named by its
   // contents, so the first row starts where the cards beside it put their
@@ -894,7 +947,7 @@ void buildTiles(lv_obj_t *parent) {
 // Only width-dependent items are touched. A caption sits at the padding edge
 // and a bar starts at it, whatever the panel's width, so those do not move.
 void placeSpeedTile(lv_obj_t *t, int x, int width, int height) {
-  lv_obj_set_pos(t, x, L::TILE_Y);
+  lv_obj_set_pos(t, x, 0);
   lv_obj_set_size(t, width, height);
   lv_obj_set_pos(w.speedVal, L::TILE_PAD_H - 2, 44);
   lv_obj_set_pos(w.speedUnit, L::TILE_PAD_H, kTileUnitY);
@@ -903,7 +956,7 @@ void placeSpeedTile(lv_obj_t *t, int x, int width, int height) {
 }
 
 void placeBoostTile(lv_obj_t *t, int x, int width, int height) {
-  lv_obj_set_pos(t, x, L::TILE_Y);
+  lv_obj_set_pos(t, x, 0);
   lv_obj_set_size(t, width, height);
   const int bw = width - 2 * L::TILE_PAD_H;
   lv_obj_set_width(w.boostVal, bw);
@@ -914,7 +967,7 @@ void placeBoostTile(lv_obj_t *t, int x, int width, int height) {
 }
 
 void placeTempsTile(lv_obj_t *t, int x, int width, int height) {
-  lv_obj_set_pos(t, x, L::TILE_Y);
+  lv_obj_set_pos(t, x, 0);
   lv_obj_set_size(t, width, height);
   const int tw = width - 2 * L::TILE_PAD_H;
   const int valX = L::TILE_PAD_H + tw - 104;
@@ -962,7 +1015,7 @@ void placeTempsTile(lv_obj_t *t, int x, int width, int height) {
 }
 
 void placeHaldexTile(lv_obj_t *t, int x, int width, int height) {
-  lv_obj_set_pos(t, x, L::TILE_Y);
+  lv_obj_set_pos(t, x, 0);
   lv_obj_set_size(t, width, height);
   const int hw = width - 2 * L::TILE_PAD_H;
   lv_obj_set_width(w.modeVal, hw);
@@ -978,6 +1031,12 @@ void placeHaldexTile(lv_obj_t *t, int x, int width, int height) {
 void placeBand(layout::Variant v) {
   const layout::TileBand &band = layout::bandFor(v);
   bool boostShown = false;
+
+  // A plate has grown the box it belongs to; put it back before the placement
+  // pass writes the same coordinates again.
+  clearPlates();
+  // The Temps view has its own row geometry and the same capability input.
+  placeTempsView();
 
   for (int i = 0; i < band.count; i++) {
     const layout::TileCol &c = band.cols[i];
@@ -1021,6 +1080,275 @@ void placeBand(layout::Variant v) {
   }
 }
 
+// ------------------------------------------------------------- views
+// Two more ways to read the same numbers. Both are groups inside root, above
+// the status bar, and both are built once: see View in dash_ui.h for why they
+// are not pages. They draw the values the Race view already eases (g_shown), so
+// switching costs a hide/show and never a re-read of a transport.
+//
+// The geometry is fixed pixels like everything else here (theme.h), and the
+// reading rows are at whole-pixel positions because the fonts' line heights
+// are pinned (52 for FONT_NUM, 30 for FONT_TEMP).
+
+/// The crit plate (theme.h): outside Midnight "critical" has no red, so the
+/// reading inverts instead - a solid accent plate with the palette's
+/// contrasting text. The box grows by kPlatePad on every side so the digits do
+/// not move; the state is remembered per object, so a steady reading writes no
+/// styles at all, and clearPlates() restores the geometry when a tile is
+/// re-placed.
+constexpr int kPlatePad = 4;
+
+struct PlateState {
+  lv_obj_t *obj = nullptr;
+  bool valid = false;
+  bool on = false;
+  int x = 0, y = 0, w = 0, h = 0;
+};
+PlateState g_plates[10];
+
+void plateApply(const PlateState &st, bool on) {
+  lv_obj_t *l = st.obj;
+  if (on) {
+    // The plate is the label's own background, grown by kPlatePad on every
+    // side with matching padding, so the digits do not move. Where the label
+    // sits at the very top of its parent (the temperatures card's values are
+    // at y -1) growing upwards would be clipped by the parent, and a plate
+    // with two cut corners reads as a broken edge: the whole pad goes below
+    // instead. The text cannot move either way, because the pads move with the
+    // box and the content area stays exactly the old rect.
+    int padTop = kPlatePad, padBottom = kPlatePad;
+    int y = st.y - kPlatePad;
+    const lv_obj_t *par = lv_obj_get_parent(l);
+    const int maxH = par ? lv_obj_get_content_height(par) : 0;
+    if (y < 0) {
+      padTop = 0;
+      padBottom = 2 * kPlatePad;
+      y = st.y;
+    } else if (maxH > 0 && y + st.h + 2 * kPlatePad > maxH) {
+      padTop = 2 * kPlatePad;
+      padBottom = 0;
+      y = st.y - 2 * kPlatePad;
+    }
+    lv_obj_set_style_pad_top(l, padTop, 0);
+    lv_obj_set_style_pad_bottom(l, padBottom, 0);
+    lv_obj_set_style_pad_left(l, kPlatePad, 0);
+    lv_obj_set_style_pad_right(l, kPlatePad, 0);
+    lv_obj_set_pos(l, st.x - kPlatePad, y);
+    lv_obj_set_size(l, st.w + 2 * kPlatePad, st.h + 2 * kPlatePad);
+    setBgColor(l, COL_RED, 0);
+    lv_obj_set_style_bg_opa(l, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(l, 3, 0);
+  } else {
+    lv_obj_set_style_pad_all(l, 0, 0);
+    lv_obj_set_pos(l, st.x, st.y);
+    lv_obj_set_size(l, st.w, st.h);
+    lv_obj_set_style_bg_opa(l, LV_OPA_TRANSP, 0);
+  }
+}
+
+/// Figure out the box a label had before it was plated. A plated label has
+/// grown by kPlatePad on every side, so the stored rect is the truth; an
+/// unplated one is still at its base rect and can be read straight off it.
+void setPlate(lv_obj_t *l, bool on) {
+  if (!l) return;
+  // Midnight keeps the ported look: red text, no plate. The other schemes
+  // invert, which is what replaces the red.
+  if (theme::scheme() == theme::Scheme::Midnight) on = false;
+  PlateState *st = nullptr;
+  for (PlateState &c : g_plates) {
+    if (c.obj == l) {
+      st = &c;
+      break;
+    }
+    if (c.obj == nullptr) {
+      c.obj = l;
+      st = &c;
+      break;
+    }
+  }
+  if (!st) return;
+  if (st->valid && st->on == on) return;
+  if (!st->on) {  // not plated: the object's box is still the base rect
+    st->x = lv_obj_get_x(l);
+    st->y = lv_obj_get_y(l);
+    st->w = lv_obj_get_width(l);
+    st->h = lv_obj_get_height(l);
+  }
+  st->valid = true;
+  st->on = on;
+  plateApply(*st, on);
+}
+
+/// One numeric reading, with the palette's rules in one place: NaN is "--" in
+/// dim, at or above crit inverts (non-Midnight) or takes the crit colour, at or
+/// above warn takes the warn shade, and everything else the accent. The text
+/// colour is written here, not by the caller, so a plate and the colour on it
+/// cannot disagree.
+void setReading(lv_obj_t *l, const char *text, float v, float warn, float crit) {
+  const bool hit = !isnan(v) && v >= crit;
+  setPlate(l, hit);
+  setText(l, text);
+  setTextColor(l, (hit && theme::scheme() != theme::Scheme::Midnight)
+                      ? (lv_color_t)COL_CRIT_TEXT
+                      : colFor(v, warn, crit));
+}
+
+/// Undo every plate and forget its state. Called before a tile is re-placed,
+/// because place*() sets the same geometry the plate had grown from.
+void clearPlates() {
+  for (PlateState &c : g_plates) {
+    if (!c.obj) continue;
+    if (c.on) plateApply(c, false);
+    c.valid = false;
+    c.on = false;
+  }
+}
+
+// ---- minimal: speed and rpm, large, and the three readings that matter.
+constexpr int kMinRowY = 330;
+
+void buildMinimal(lv_obj_t *parent) {
+  w.minGrp = plain(parent, 0, 0, L::W, L::CONTENT_H);
+  lv_obj_add_flag(w.minGrp, LV_OBJ_FLAG_HIDDEN);
+
+  // The speed, in the 96 px face the rev number already pays for. Centred on a
+  // fixed box: a self-sizing label would dirty the layout on every change.
+  w.mn.speed = fixedLabel(w.minGrp, 0, 40, L::W, 100, FONT_RPM, COL_FG, "--");
+  lv_obj_set_style_text_align(w.mn.speed, LV_TEXT_ALIGN_CENTER, 0);
+  w.mn.speedUnit = fixedLabel(w.minGrp, 0, 142, L::W, 20, FONT_BODY, COL_DIM, "km/h");
+  lv_obj_set_style_text_align(w.mn.speedUnit, LV_TEXT_ALIGN_CENTER, 0);
+
+  // rpm: the number, then one plain bar. One lv_bar is one invalid area; the
+  // 80-cell bar in the Race view is cheap because a *step* only repaints the
+  // cell it crossed, which is a different problem from redrawing a whole bar.
+  w.mn.rpm = fixedLabel(w.minGrp, 0, 184, L::W, 60, FONT_NUM, COL_FG, "--");
+  lv_obj_set_style_text_align(w.mn.rpm, LV_TEXT_ALIGN_CENTER, 0);
+  w.mn.rpmBar = bar(w.minGrp, 0, 252, L::W, 18, COL_GREEN, 0, 1000);
+
+  // Three readings and the mode, in four 200 px columns.
+  static const char *const caps[4] = {"COOLANT", "OIL", "FUEL", "HALDEX"};
+  for (int i = 0; i < 4; i++) {
+    const int x = i * (L::W / 4);
+    w.mn.cap[i] = label(w.minGrp, FONT_CAP, COL_DIM, caps[i]);
+    lv_obj_set_pos(w.mn.cap[i], x + 16, kMinRowY);
+    if (i == 3) continue;  // the mode is text, not a reading with a unit
+    w.mn.val[i] = fixedLabel(w.minGrp, x + 16, kMinRowY + 18, 140, 30, FONT_TEMP, COL_FG, "--");
+    w.mn.unit[i] = fixedLabel(w.minGrp, x + 160, kMinRowY + 24, 32, 18, FONT_SMALL, COL_DIM, "");
+  }
+  w.mn.val[3] = fixedLabel(w.minGrp, 3 * (L::W / 4) + 16, kMinRowY + 16, 180, 36, FONT_MODE,
+                           COL_FG, "--");
+}
+
+// ---- temps: the four engine readings, full width, each with a bar and the
+// thresholds that colour it. This is the view to read while changing them.
+constexpr int kTempsRowY0 = 10;
+constexpr int kTempsRowH = 108;
+constexpr int kTempsBarW = L::W - 48;
+
+void buildTemps(lv_obj_t *parent) {
+  w.tempsGrp = plain(parent, 0, 0, L::W, L::CONTENT_H);
+  lv_obj_add_flag(w.tempsGrp, LV_OBJ_FLAG_HIDDEN);
+
+  static const char *const caps[4] = {"COOLANT", "OIL TEMPERATURE", "OIL PRESSURE", "FUEL"};
+  for (int i = 0; i < 4; i++) {
+    const int y = kTempsRowY0 + i * kTempsRowH;
+    w.tv.cap[i] = label(w.tempsGrp, FONT_CAP, COL_DIM, caps[i]);
+    lv_obj_set_pos(w.tv.cap[i], 24, y + 2);
+    w.tv.note[i] = fixedLabel(w.tempsGrp, 200, y + 2, 400, 16, FONT_CAP, COL_DIM, "");
+    w.tv.val[i] = fixedLabel(w.tempsGrp, 24, y + 18, 260, 60, FONT_NUM, COL_FG, "--");
+    w.tv.unit[i] = fixedLabel(w.tempsGrp, 292, y + 42, 48, 22, FONT_BODY, COL_DIM, "");
+    w.tv.bar[i] = bar(w.tempsGrp, 24, y + 82, kTempsBarW, 14, COL_GREEN, 0, 100);
+  }
+  // The oil-pressure row is a capability, exactly as it is in the tile: a car
+  // without the ME7 patch has no sensor, so its row goes and the three that
+  // remain spread over the space (see placeTempsView).
+}
+
+/// Spread the temps rows: four on a patched car, three otherwise. Idempotent,
+/// like placeBand.
+void placeTempsView() {
+  const bool press = cap::get().oilPressure;
+  const int shown = press ? 4 : 3;
+  const int pitch = L::CONTENT_H / shown;
+  for (int i = 0; i < 4; i++) {
+    lv_obj_t *objs[4] = {w.tv.cap[i], w.tv.val[i], w.tv.unit[i], w.tv.bar[i]};
+    if (!objs[0]) continue;
+    const bool hide = (i == 2) && !press;
+    for (lv_obj_t *o : objs) {
+      if (hide) {
+        lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+      } else {
+        lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+      }
+    }
+    if (hide) {
+      lv_obj_add_flag(w.tv.note[i], LV_OBJ_FLAG_HIDDEN);
+      continue;
+    }
+    lv_obj_remove_flag(w.tv.note[i], LV_OBJ_FLAG_HIDDEN);
+    // Rows 0,1,3 keep their order; without the pressure row, fuel takes slot 2.
+    const int slot = (i == 3 && !press) ? 2 : i;
+    const int y = kTempsRowY0 + slot * pitch;
+    lv_obj_set_pos(w.tv.cap[i], 24, y + 2);
+    lv_obj_set_pos(w.tv.note[i], 200, y + 2);
+    lv_obj_set_pos(w.tv.val[i], 24, y + 18);
+    lv_obj_set_pos(w.tv.unit[i], 292, y + 42);
+    lv_obj_set_pos(w.tv.bar[i], 24, y + 82);
+  }
+}
+
+// Put one view's content on the glass and take the others off. Hidden, not
+// deleted: every widget in the other views is still updated by the readout
+// pass, which is cheaper than making each update ask whether its view is up.
+//
+// force is for start-up, where g_view already holds the stored value and the
+// object flags still have to be set from it.
+void applyView(View v, bool force) {
+  if ((uint8_t)v >= (uint8_t)View::Count) v = View::Race;
+  const bool changed = (v != g_view) || force;
+  g_view = v;
+  if (!w.root) return;
+
+  const bool race = (v == View::Race);
+  // Each group names the view it belongs to. (An earlier version compared a
+  // "belongs to Race" boolean, which made Minimal and Temps both visible at
+  // once: they share the answer "not Race", and Temps is built later, so it
+  // drew over Minimal.)
+  struct Group {
+    lv_obj_t *obj;
+    View view;
+  };
+  const Group groups[4] = {{w.top, View::Race},
+                           {w.bandGrp, View::Race},
+                           {w.minGrp, View::Minimal},
+                           {w.tempsGrp, View::Temps}};
+  for (const Group &g : groups) {
+    if (!g.obj) continue;
+    if (g.view == v) {
+      lv_obj_remove_flag(g.obj, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(g.obj, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+  // The debug mask has the last word over w.top (and its three groups), so a
+  // view switch back to Race re-applies it instead of undoing a bench mask.
+  if (race) applyDebugMask();
+  if (v == View::Temps) placeTempsView();
+  // The rev cells are only painted while this view is up, and the first pass
+  // after a switch must repaint all of them (they kept the colours of a view
+  // that is no longer being updated).
+  if (race && changed) syncGauge();
+  if (changed) {
+    if (w.root) lv_obj_invalidate(w.root);
+    // Names the groups as well as the view: on the bench the question after a
+    // switch is always "what is actually on the glass", and a hidden flag is
+    // the honest answer (the dump only shows luminance).
+    auto vis = [](lv_obj_t *o) { return o && !lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN) ? "on" : "off"; };
+    Serial.printf("[ui] view %s: top %s band %s min %s temps %s\n", viewName(v), vis(w.top),
+                  vis(w.bandGrp), vis(w.minGrp), vis(w.tempsGrp));
+  }
+}
+
 // ---------------------------------------------------------- status bar
 void onResetPeaks(lv_event_t *) {
   // The rpm peak is gone (the odometer took its slot, #6), so this is now just
@@ -1033,15 +1361,15 @@ void onOpenSettings(lv_event_t *);
 void buildStatusBar(lv_obj_t *parent) {
   const int y = L::H - L::STATUS_H;
   lv_obj_t *s = plain(parent, 0, y, L::W, L::STATUS_H);
-  lv_obj_set_style_bg_color(s, COL_PANEL, 0);
+  theme::styleBg(s, COL_PANEL, 0);
   lv_obj_set_style_bg_opa(s, LV_OPA_COVER, 0);
   lv_obj_set_style_border_side(s, LV_BORDER_SIDE_TOP, 0);
   lv_obj_set_style_border_width(s, 1, 0);
-  lv_obj_set_style_border_color(s, COL_LINE, 0);
+  theme::styleBorder(s, COL_LINE, 0);
 
   w.dot = plain(s, 9, (L::STATUS_H - 11) / 2, 11, 11);
   lv_obj_set_style_radius(w.dot, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_bg_color(w.dot, COL_DIM, 0);
+  theme::styleBg(w.dot, COL_DIM, 0);
   lv_obj_set_style_bg_opa(w.dot, LV_OPA_COVER, 0);
 
   // 92 px holds the widest state word ("CONNECTING") without resizing.
@@ -1137,10 +1465,10 @@ int addStepCell(lv_obj_t *parent, int x, int y, int w, float *field, float step,
   c.valueLabel = fixedLabel(parent, x + btnW + 4, y, valW, 24, FONT_BODY, COL_FG, "");
   lv_obj_set_style_text_align(c.valueLabel, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_pad_top(c.valueLabel, 3, 0);
-  lv_obj_set_style_bg_color(c.valueLabel, lv_color_hex(0x0e1114), 0);
+  theme::styleBg(c.valueLabel, COL_FIELD_FILL, 0);
   lv_obj_set_style_bg_opa(c.valueLabel, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(c.valueLabel, 1, 0);
-  lv_obj_set_style_border_color(c.valueLabel, COL_LAMP_EDGE, 0);
+  theme::styleBorder(c.valueLabel, COL_LAMP_EDGE, 0);
   lv_obj_set_style_radius(c.valueLabel, 3, 0);
   setText(c.valueLabel, buf);
 
@@ -1161,7 +1489,7 @@ struct StepSpec {
 // [VALUE]/[VALUE] rows of the layout C settings page, which is how the eleven
 // thresholds fit in half the card.
 void addStepRow(lv_obj_t *parent, int x, int y, const char *name, const StepSpec *specs, int n) {
-  lv_obj_t *l = label(parent, FONT_SMALL, lv_color_hex(0xc6ced6), name);
+  lv_obj_t *l = label(parent, FONT_SMALL, COL_SOFT_LABEL, name);
   lv_obj_set_pos(l, x, y + 4);
   int cx = x + 148;
   for (int i = 0; i < n; i++) {
@@ -1195,7 +1523,7 @@ void taEvent(lv_event_t *e) {
 
 lv_obj_t *addField(lv_obj_t *parent, int y, const char *name, const char *value, bool password,
                    int width) {
-  lv_obj_t *l = label(parent, FONT_SMALL, lv_color_hex(0xc6ced6), name);
+  lv_obj_t *l = label(parent, FONT_SMALL, COL_SOFT_LABEL, name);
   lv_obj_set_pos(l, 0, y + 8);
 
   lv_obj_t *ta = lv_textarea_create(parent);
@@ -1205,12 +1533,12 @@ lv_obj_t *addField(lv_obj_t *parent, int y, const char *name, const char *value,
   lv_textarea_set_max_length(ta, password ? 64 : 47);
   lv_textarea_set_password_mode(ta, password);
   lv_textarea_set_text(ta, value);
-  lv_obj_set_style_bg_color(ta, lv_color_hex(0x0e1114), 0);
+  theme::styleBg(ta, COL_FIELD_FILL, 0);
   lv_obj_set_style_bg_opa(ta, LV_OPA_COVER, 0);
-  lv_obj_set_style_text_color(ta, COL_FG, 0);
+  theme::styleText(ta, COL_FG);
   lv_obj_set_style_text_font(ta, FONT_BODY, 0);
   lv_obj_set_style_border_width(ta, 1, 0);
-  lv_obj_set_style_border_color(ta, COL_LAMP_EDGE, 0);
+  theme::styleBorder(ta, COL_LAMP_EDGE, 0);
   lv_obj_set_style_radius(ta, 3, 0);
   // One line of FONT_BODY (20 px) in the 34 px box: equal top/bottom padding
   // centres it vertically, as the HOST field has always looked.
@@ -1283,6 +1611,33 @@ void onBoostTile(lv_event_t *) {
   setText(lv_obj_get_child(g_btnBoostTile, 0), g_edit.boostTile ? "ON" : "OFF");
 }
 
+// ---- theme and view: the two display preferences that apply on the tap.
+// They are stored immediately rather than on SAVE: SAVE is at the bottom of the
+// page, and CLOSE would otherwise leave a theme on the glass that NVS does not
+// have. cfg::apply() writes only when the value actually changed, so cycling
+// back to the current scheme costs no flash page.
+char g_btnText[2][24];
+const char *themeButtonText() {
+  snprintf(g_btnText[0], sizeof g_btnText[0], "THEME %s", theme::schemeName(theme::scheme()));
+  return g_btnText[0];
+}
+const char *viewButtonText() {
+  snprintf(g_btnText[1], sizeof g_btnText[1], "VIEW %s", viewName(g_view));
+  return g_btnText[1];
+}
+void relabelDisplayButtons() {
+  if (w.btnTheme) setText(lv_obj_get_child(w.btnTheme, 0), themeButtonText());
+  if (w.btnView) setText(lv_obj_get_child(w.btnView, 0), viewButtonText());
+}
+void onThemeBtn(lv_event_t *) {
+  nextTheme();
+  relabelDisplayButtons();
+}
+void onViewBtn(lv_event_t *) {
+  nextView();
+  relabelDisplayButtons();
+}
+
 void onCfgSave(lv_event_t *) {
   strncpy(g_edit.ssid, lv_textarea_get_text(g_taSsid), sizeof(g_edit.ssid) - 1);
   strncpy(g_edit.pass, lv_textarea_get_text(g_taPass), sizeof(g_edit.pass) - 1);
@@ -1292,6 +1647,16 @@ void onCfgSave(lv_event_t *) {
   const bool ssidChanged = strcmp(g_edit.ssid, cfg::get().ssid) != 0;
   const uint8_t oldRole = cfg::get().netRole;
   const uint8_t oldChannel = cfg::get().fleetChannel;
+  // The theme and the view are applied and stored on the tap, not on SAVE, so
+  // g_edit (a snapshot taken when this page opened) is not the truth for them.
+  // Without this, SAVE would quietly put back the scheme and view that were up
+  // when the page was opened - including one changed from the console with the
+  // page already open.
+  {
+    const cfg::Data live = cfg::get();
+    g_edit.theme = live.theme;
+    g_edit.view = live.view;
+  }
   cfg::apply(g_edit);
   if (ssidChanged) ohxnow::forgetController();
   // The WiFi mode (AP+STA vs AP-only) cannot be switched safely with ESP-NOW
@@ -1340,6 +1705,11 @@ void onCfgDefaults(lv_event_t *) {
   setText(lv_obj_get_child(g_btnBoostTile, 0), g_edit.boostTile ? "ON" : "OFF");
   setText(lv_obj_get_child(g_btnNetRole, 0), netRoleName(g_edit.netRole));
   setNetChLabel();
+  // DEFAULTS restores the display preferences too (they are on the same page),
+  // so the glass is put back to what cfg::defaults() chose.
+  applyTheme((theme::Scheme)g_edit.theme);
+  applyView((View)g_edit.view, false);
+  relabelDisplayButtons();
   syncGauge();  // the zones and the numbers move with the scale
 }
 
@@ -1361,7 +1731,7 @@ void updateLogStatus() {
   if (!w.btnLog) return;
   const bool rec = logbook::recording();
   setText(lv_obj_get_child(w.btnLog, 0), rec ? "STOP LOG" : "START LOG");
-  setBgColor(w.btnLog, rec ? COL_RED : lv_color_hex(0x12161b), 0);
+  setBgColor(w.btnLog, rec ? COL_RED : COL_BUTTON_FILL, 0);
   if (w.logLine) {
     // With no filesystem there is nothing this button or its counter can say,
     // so it says that instead of a confident "stored 0 KB" (seen on the bench:
@@ -1393,7 +1763,7 @@ void buildSettings() {
   // the entire card area every frame and then completely covered by the card,
   // which is pure cost. It looked like a dimmed dashboard before; with the
   // dashboard hidden behind it, near-black is the same picture.
-  lv_obj_set_style_bg_color(w.settings, lv_color_hex(0x080a0d), 0);
+  theme::styleBg(w.settings, COL_PAGE_BG, 0);
   lv_obj_set_style_bg_opa(w.settings, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(w.settings, 0, 0);
   lv_obj_set_style_pad_all(w.settings, 0, 0);
@@ -1428,6 +1798,12 @@ void buildSettings() {
   int y = 0;
   lv_obj_t *h = label(card, FONT_MODE, COL_FG, "SETTINGS");
   lv_obj_set_pos(h, 0, y);
+
+  // The header's right-hand strip: the only place on this page with room left
+  // (both columns and the button row are full), and the two settings that are
+  // about the display itself rather than the car.
+  w.btnTheme = button(card, 386, 2, 200, 24, themeButtonText(), onThemeBtn);
+  w.btnView = button(card, 594, 2, 182, 24, viewButtonText(), onViewBtn);
   y += 32;
 
   rule(card, 0, y, L::W - 24);
@@ -1490,7 +1866,7 @@ void buildSettings() {
     y += 30;
   }
 
-  lv_obj_t *ul = label(card, FONT_SMALL, lv_color_hex(0xc6ced6), "Units");
+  lv_obj_t *ul = label(card, FONT_SMALL, COL_SOFT_LABEL, "Units");
   lv_obj_set_pos(ul, 0, y + 4);
   g_btnTempUnits =
       button(card, 110, y, 44, 24, g_edit.tempF ? "\xC2\xB0" "F" : "\xC2\xB0" "C", onTempUnits);
@@ -1499,14 +1875,14 @@ void buildSettings() {
   g_btnDistUnits = button(card, 230, y, 56, 24, g_edit.unitsMetric ? "km" : "mi", onDistUnits);
   y += 30;
 
-  lv_obj_t *dn = label(card, FONT_SMALL, lv_color_hex(0xc6ced6), "Day / Night");
+  lv_obj_t *dn = label(card, FONT_SMALL, COL_SOFT_LABEL, "Day / Night");
   lv_obj_set_pos(dn, 0, y + 4);
   g_btnDayNight = button(card, 110, y, 90, 24, kDayNightNames[g_edit.dayNight], onDayNight);
   // The BOOST panel is a preference now, not a capability decision. It shares
   // the Day / Night row: the left column ends 14 px above the button rule, so
   // there is no room for a row of its own, and this row has 180 px of space
   // after its button.
-  lv_obj_t *btl = label(card, FONT_SMALL, lv_color_hex(0xc6ced6), "Boost tile");
+  lv_obj_t *btl = label(card, FONT_SMALL, COL_SOFT_LABEL, "Boost tile");
   lv_obj_set_pos(btl, 208, y + 4);
   g_btnBoostTile = button(card, 288, y, 42, 24, g_edit.boostTile ? "ON" : "OFF", onBoostTile);
   y += 30;
@@ -1764,7 +2140,7 @@ void updateRevBar(const cfg::Data &c, float rpm) {
       // them; make the next pass repaint every one.
       for (int i = 0; i < L::BAR_SEG; i++) g_revLit[i] = -1;
     } else {
-      setBgColor(w.revFlash, wantFlash == 2 ? flashCol : COL_TRACK, 0);
+      setBgColor(w.revFlash, wantFlash == 2 ? flashCol : (lv_color_t)COL_TRACK, 0);
       if (g_revFlash == 0) lv_obj_remove_flag(w.revFlash, LV_OBJ_FLAG_HIDDEN);
     }
     g_revFlash = wantFlash;
@@ -1863,7 +2239,7 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
 
   // ---- boost
   fmtBoost(buf, sizeof(buf), v.boost);
-  setSuffix(w.boostVal, buf, colFor(v.boost, c.boostWarn, c.boostCrit));
+  setReading(w.boostVal, buf, v.boost, c.boostWarn, c.boostCrit);
   setText(w.boostUnit, boostUnitText());
   {
     int pct = 0;
@@ -1885,7 +2261,7 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
 
   // ---- temperatures
   fmtTempValue(buf, sizeof(buf), v.coolant);
-  setSuffix(w.coolVal, buf, colFor(v.coolant, c.coolWarn, c.coolCrit));
+  setReading(w.coolVal, buf, v.coolant, c.coolWarn, c.coolCrit);
   setText(w.coolUnit, tempUnitText());
   {
     int pct = 0;
@@ -1899,7 +2275,7 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
   }
 
   fmtTempValue(buf, sizeof(buf), v.oil);
-  setSuffix(w.oilVal, buf, colFor(v.oil, c.oilWarn, c.oilCrit));
+  setReading(w.oilVal, buf, v.oil, c.oilWarn, c.oilCrit);
   setText(w.oilUnit, tempUnitText());
   {
     int pct = 0;
@@ -2036,6 +2412,146 @@ void updateReadouts(const cfg::Data &c, const telemetry::Live &live, const telem
   // once a speed is stored (engaged). Off when the frames are missing, so a
   // quiet link cannot read as "armed".
   lampStateCruise(w.lampCc, d.cruise);
+}
+
+// ---- the Minimal and Temps views -------------------------------------
+// Same values, same easing, same NaN rule: a view is a second way to read the
+// dashboard, not a second source. Called from the 100 ms block in tick(), only
+// for the view that is on the glass, so a hidden view costs nothing.
+void updateMinimal(const cfg::Data &c, const telemetry::Dash &d) {
+  if (!w.minGrp) return;
+  char buf[32];
+  const Values v = g_shown;
+
+  fmtSpeed(buf, sizeof buf, v.speed);
+  setSuffix(w.mn.speed, buf, isnan(v.speed) ? COL_DIM : COL_FG);
+  setText(w.mn.speedUnit, speedUnitText());
+
+  if (isnan(v.rpm)) {
+    setSuffix(w.mn.rpm, "--", COL_DIM);
+  } else {
+    snprintf(buf, sizeof buf, "%d", (int)lroundf(v.rpm));
+    setSuffix(w.mn.rpm, buf, COL_FG);
+  }
+  {
+    int pct = 0;
+    if (!isnan(v.rpm)) {
+      pct = (int)lroundf(1000.0f * v.rpm / c.rpmMax);
+      if (pct < 0) pct = 0;
+      if (pct > 1000) pct = 1000;
+    }
+    setBar(w.mn.rpmBar, pct);
+    setBgColor(w.mn.rpmBar, colFor(v.rpm, c.rpmAmber, c.rpmRedline), LV_PART_INDICATOR);
+  }
+
+  // coolant (column 0)
+  fmtTempValue(buf, sizeof buf, v.coolant);
+  setReading(w.mn.val[0], buf, v.coolant, c.coolWarn, c.coolCrit);
+  setText(w.mn.unit[0], tempUnitText());
+  // oil (column 1)
+  fmtTempValue(buf, sizeof buf, v.oil);
+  setReading(w.mn.val[1], buf, v.oil, c.oilWarn, c.oilCrit);
+  setText(w.mn.unit[1], tempUnitText());
+  // fuel (column 2): litres, and the car's own low-fuel warning, exactly as in
+  // the tile (never smoothed, never inferred).
+  fmtFuelValue(buf, sizeof buf, v.fuel);
+  setSuffix(w.mn.val[2], buf,
+            isnan(v.fuel) ? (lv_color_t)COL_DIM
+                          : (d.fuelLow ? (lv_color_t)COL_AMBER : (lv_color_t)COL_FG));
+  setText(w.mn.unit[2], "L");
+  // mode (column 3)
+  setText(w.mn.val[3], (d.mode >= 0 && d.mode < 6) ? kModeNames[d.mode] : "--");
+}
+
+void updateTemps(const cfg::Data &c, const telemetry::Dash &d) {
+  if (!w.tempsGrp) return;
+  char buf[32], note[48];
+  const Values v = g_shown;
+
+  struct Row {
+    float v, warn, crit;
+    const char *unit;
+    int pct;
+  };
+  Row r[4] = {};
+  // coolant and oil use the same 40..130 C bar scale as the tile.
+  for (int i = 0; i < 2; i++) {
+    const float val = i == 0 ? v.coolant : v.oil;
+    r[i].v = val;
+    r[i].warn = i == 0 ? c.coolWarn : c.oilWarn;
+    r[i].crit = i == 0 ? c.coolCrit : c.oilCrit;
+    r[i].unit = tempUnitText();
+    int pct = 0;
+    if (!isnan(val)) {
+      pct = (int)(((val - 40.0f) / 90.0f) * 100.0f);
+      if (pct < 0) pct = 0;
+      if (pct > 100) pct = 100;
+    }
+    r[i].pct = pct;
+  }
+  r[2].v = v.oilPressure;
+  r[2].unit = c.pressureUnits == cfg::PRESSURE_PSI ? "psi" : "bar";
+  if (!isnan(v.oilPressure)) {
+    int pct = (int)((v.oilPressure / kOilPressMaxBar) * 100.0f);
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    r[2].pct = pct;
+  }
+  r[3].v = v.fuel;
+  r[3].unit = "L";
+  if (!isnan(v.fuel)) {
+    int pct = (int)lroundf(100.0f * v.fuel / c.tankLitres);
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    r[3].pct = pct;
+  }
+
+  for (int i = 0; i < 4; i++) {
+    if (!w.tv.val[i]) continue;
+    // The number: same formats as the tiles, so the two views can never
+    // disagree about a value.
+    lv_color_t col = COL_FG;
+    if (i < 2) {
+      fmtTempValue(buf, sizeof buf, r[i].v);
+      setReading(w.tv.val[i], buf, r[i].v, r[i].warn, r[i].crit);
+      col = colFor(r[i].v, r[i].warn, r[i].crit);
+    } else if (i == 2) {
+      if (isnan(r[i].v)) {
+        snprintf(buf, sizeof buf, "--");
+        col = COL_DIM;
+      } else if (c.pressureUnits == cfg::PRESSURE_PSI) {
+        snprintf(buf, sizeof buf, "%.1f", (double)(r[i].v * 14.5038f));
+        col = COL_FG;
+      } else {
+        snprintf(buf, sizeof buf, "%.1f", (double)r[i].v);
+        col = COL_FG;
+      }
+    } else {
+      fmtFuelValue(buf, sizeof buf, r[i].v);
+      col = isnan(r[i].v) ? (lv_color_t)COL_DIM : (d.fuelLow ? (lv_color_t)COL_AMBER : (lv_color_t)COL_FG);
+    }
+    // setReading() owns the two temperature rows' colour and plate; the
+    // pressure and fuel rows have no warn/crit, so they use the plain setter.
+    if (i >= 2) setSuffix(w.tv.val[i], buf, col);
+    setText(w.tv.unit[i], r[i].unit);
+    setBar(w.tv.bar[i], r[i].pct);
+    setBgColor(w.tv.bar[i], (i == 3 && d.fuelLow) ? (lv_color_t)COL_AMBER : col,
+               LV_PART_INDICATOR);
+
+    // The thresholds this row is coloured by - the settings are a page away, so
+    // the view that depends on them carries them.
+    if (i < 2) {
+      char a[12], b[12];
+      fmtTempValue(a, sizeof a, r[i].warn);
+      fmtTempValue(b, sizeof b, r[i].crit);
+      snprintf(note, sizeof note, "warn %s  crit %s %s", a, b, r[i].unit);
+    } else if (i == 2) {
+      snprintf(note, sizeof note, "scale 0 - 10 %s", r[i].unit);
+    } else {
+      snprintf(note, sizeof note, "tank %d L", (int)lroundf(c.tankLitres));
+    }
+    setText(w.tv.note[i], note);
+  }
 }
 
 // The line under the mode on the HALDEX panel: normally the coupling state,
@@ -2335,8 +2851,12 @@ void begin() {
     // is safe to touch, so leave the screen unbuilt.
     return;
   }
+  // The stored scheme decides every role colour from here on. It goes in
+  // before the first object exists, so the whole tree is built in the right
+  // palette rather than recoloured afterwards.
+  theme::setScheme(theme::schemeAt(cfg::get().theme));
   lv_obj_remove_style_all(scr);
-  lv_obj_set_style_bg_color(scr, COL_BG, 0);
+  theme::styleBg(scr, COL_BG, 0);
   lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
   lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -2345,16 +2865,31 @@ void begin() {
   w.root = opaque(scr, 0, 0, L::W, L::H, COL_BG);
 
   buildGauge(w.root);
-  buildTiles(w.root);
+  // The tile band is one container so a view can take it off the glass with a
+  // single flag; the tiles are positioned inside it, starting at y 0.
+  w.bandGrp = plain(w.root, 0, L::TILE_Y, L::W, L::TILE_H);
+  buildTiles(w.bandGrp);
+  buildMinimal(w.root);
+  buildTemps(w.root);
   placeBand(g_variant);  // the panels are built with the full band's geometry;
                          // this is what makes the log line and g_placed true
   buildStatusBar(w.root);
+  applyView((View)cfg::get().view, true);
 
   // Long-press the top band opens settings, as the tach ring used to: it is
   // the whole band above the tiles, which beats the 24 px status-bar buttons
   // as a target in a moving car. The rev bar is inside it.
   lv_obj_add_flag(w.top, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(w.top, onLongPress, LV_EVENT_LONG_PRESSED, nullptr);
+  // The other two views have no top band, so the same long-press target is the
+  // whole content area. Without it, Settings would only be one 24 px button on
+  // a moving car - the reason the long-press exists at all.
+  lv_obj_t *const pressTargets[2] = {w.minGrp, w.tempsGrp};
+  for (lv_obj_t *t : pressTargets) {
+    if (!t) continue;
+    lv_obj_add_flag(t, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(t, onLongPress, LV_EVENT_LONG_PRESSED, nullptr);
+  }
 
   // Tap anywhere on the HALDEX panel to step the mode. A plain tap on
   // purpose: no confirm, because the panel shows the mode and the controller's
@@ -2406,7 +2941,7 @@ void applyDebugMask() {
     }
   }
   if (!w.top) return;
-  if (g_dbgHideAll) {
+  if (g_dbgHideAll || g_view != View::Race) {
     lv_obj_add_flag(w.top, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_remove_flag(w.top, LV_OBJ_FLAG_HIDDEN);
@@ -2564,16 +3099,25 @@ void tick() {
 
   uint32_t t0 = micros();
   // The rev bar and the big number run at the full rate: the bar's edge is
-  // what the eye tracks now that the needle is gone.
-  updateRevBar(c, g_shown.rpm);
-  updateGaugeText(c, g_shown.rpm);
+  // what the eye tracks now that the needle is gone. The other two views have
+  // nothing that moves per frame, so they cost nothing outside the 100 ms pass.
+  if (g_view == View::Race) {
+    updateRevBar(c, g_shown.rpm);
+    updateGaugeText(c, g_shown.rpm);
+  }
   uint32_t t1 = micros();
   // The tiles carry values that only arrive at 10 Hz and are already eased,
   // so repainting them 30 times a second buys nothing.
   static uint32_t lastReadouts = 0;
+  if (g_forceReadout) {
+    lastReadouts = now - 100;
+    g_forceReadout = false;
+  }
   if ((uint32_t)(now - lastReadouts) >= 100) {
     lastReadouts = now;
     if (dbg(8)) updateReadouts(c, l, d);
+    if (g_view == View::Minimal) updateMinimal(c, d);
+    else if (g_view == View::Temps) updateTemps(c, d);
     updateModeCmd(now);  // after the coupling line, so its answer wins
   }
   uint32_t t2 = micros();
@@ -2662,6 +3206,7 @@ void showSettings(bool visible) {
     setText(lv_obj_get_child(g_btnBoostTile, 0), g_edit.boostTile ? "ON" : "OFF");
     setText(lv_obj_get_child(g_btnNetRole, 0), netRoleName(g_edit.netRole));
     setNetChLabel();
+    relabelDisplayButtons();
   } else if (w.kb) {
     lv_keyboard_set_textarea(w.kb, nullptr);
     lv_obj_add_flag(w.kb, LV_OBJ_FLAG_HIDDEN);
@@ -2702,6 +3247,53 @@ void setPage(Page p) {
 }
 
 Page page() { return g_page; }
+
+// ---------------------------------------------------------------- views
+const char *viewName(View v) {
+  switch (v) {
+    case View::Minimal: return "MINIMAL";
+    case View::Temps: return "TEMPS";
+    default: return "RACE";
+  }
+}
+
+View view() { return g_view; }
+
+void setView(View v) {
+  if ((uint8_t)v >= (uint8_t)View::Count) v = View::Race;
+  if (v == g_view) return;
+  applyView(v, false);
+  cfg::Data d = cfg::get();
+  d.view = (uint8_t)v;
+  cfg::apply(d);  // writes only when the value changed
+}
+
+void nextView() { setView((View)(((uint8_t)g_view + 1) % (uint8_t)View::Count)); }
+
+// ---------------------------------------------------------------- theme
+// One place a palette change goes through, whether it came from the Settings
+// button, the console or DEFAULTS. Persisting is the caller's choice: DEFAULTS
+// has already written its config, the button has not.
+void applyTheme(theme::Scheme s) {
+  if (!theme::setScheme(s)) return;
+  // The rev cells hold colours computed from the old palette, and a crit plate
+  // holds a background it will not re-apply while its state is unchanged - so
+  // unplate them and let the next readout pass put them back in the new
+  // palette (g_forceReadout makes that pass the next frame, not the next tick).
+  syncGauge();
+  clearPlates();
+  g_forceReadout = true;
+  if (w.root) lv_obj_invalidate(w.root);
+  Serial.printf("[ui] theme %s\n", theme::schemeName(s));
+}
+
+void nextTheme() {
+  const theme::Scheme s = theme::schemeAt((uint8_t)theme::scheme() + 1);
+  applyTheme(s);
+  cfg::Data d = cfg::get();
+  d.theme = (uint8_t)s;
+  cfg::apply(d);
+}
 
 // Which tile band the glass is showing, and a way to change it. The capability
 // decision calls this once when it settles; the console can call it by hand.

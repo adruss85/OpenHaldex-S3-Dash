@@ -96,11 +96,11 @@ void setTextColor(lv_obj_t *l, lv_color_t c) {
 }
 
 lv_obj_t *mkLabel(lv_obj_t *parent, int x, int y, int w, int h, const lv_font_t *font,
-                  lv_color_t color, const char *text) {
+                  theme::Col color, const char *text) {
   lv_obj_t *l = lv_label_create(parent);
   lv_obj_remove_flag(l, (lv_obj_flag_t)(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
   lv_obj_set_style_text_font(l, font, 0);
-  lv_obj_set_style_text_color(l, color, 0);
+  theme::styleText(l, color);
   lv_obj_set_style_pad_all(l, 0, 0);
   lv_label_set_text(l, text);
   lv_obj_set_size(l, w, h);
@@ -115,10 +115,10 @@ lv_obj_t *mkPanel(lv_obj_t *parent, int x, int y, int w, int h) {
   lv_obj_remove_flag(o, (lv_obj_flag_t)(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
   lv_obj_set_pos(o, x, y);
   lv_obj_set_size(o, w, h);
-  lv_obj_set_style_bg_color(o, COL_PANEL, 0);
+  theme::styleBg(o, COL_PANEL, 0);
   lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(o, 1, 0);
-  lv_obj_set_style_border_color(o, COL_LINE, 0);
+  theme::styleBorder(o, COL_LINE, 0);
   lv_obj_set_style_radius(o, 4, 0);
   lv_obj_set_style_pad_all(o, 0, 0);
   return o;
@@ -131,10 +131,10 @@ lv_obj_t *mkButton(lv_obj_t *parent, int x, int y, int w, int h, const char *tex
   lv_obj_set_pos(b, x, y);
   lv_obj_set_size(b, w, h);
   lv_obj_set_style_radius(b, 4, 0);
-  lv_obj_set_style_bg_color(b, lv_color_hex(0x12161b), 0);
+  theme::styleBg(b, COL_BUTTON_FILL, 0);
   lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(b, 1, 0);
-  lv_obj_set_style_border_color(b, COL_LAMP_EDGE, 0);
+  theme::styleBorder(b, COL_LAMP_EDGE, 0);
   if (cb) lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, nullptr);
   lv_obj_t *l = mkLabel(b, 0, 0, w, h, FONT_CAP, COL_FG, text);
   // Centre the label itself, not just the text inside a full-width box.
@@ -417,7 +417,7 @@ void buildPage() {
   if (!lv_screen_active()) return;
 
   g_root = mkPanel(lv_layer_top(), 0, 0, LCD_H_RES, LCD_V_RES);
-  lv_obj_set_style_bg_color(g_root, COL_BG, 0);
+  theme::styleBg(g_root, COL_BG, 0);
   lv_obj_set_style_border_width(g_root, 0, 0);
   lv_obj_set_style_radius(g_root, 0, 0);
   lv_obj_add_flag(g_root, LV_OBJ_FLAG_HIDDEN);

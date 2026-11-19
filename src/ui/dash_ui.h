@@ -42,6 +42,25 @@ enum class Page : uint8_t {
 void setPage(Page p);
 Page page();
 
+/// The dashboard views. They share the status bar (live dot, tell-tales,
+/// SETTINGS) - a view only changes what is drawn above it - so switching one
+/// costs a hide/show, never a rebuild and never a second set of lamps.
+///   Race     the rev bar, the big number and the four-tile band
+///   Minimal  speed and rpm, large, plus the three readings that matter
+///   Temps    coolant / oil / oil pressure / fuel, full width, with bars
+enum class View : uint8_t { Race = 0, Minimal, Temps, Count };
+
+const char *viewName(View v);
+View view();
+/// Switch view and remember it. Cheap and idempotent.
+void setView(View v);
+/// Next view, wrapping. For the Settings button and console 'g'.
+void nextView();
+
+/// Palette. Switching repaints the whole tree once (the colours are shared
+/// styles) and remembers the choice. See theme.h.
+void nextTheme();
+
 /// Place the tile band: four panels, or three when the car has no boost
 /// source (theme.h). Called once when the capability decision settles, and
 /// by hand from the console. Idempotent.

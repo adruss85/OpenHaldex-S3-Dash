@@ -107,6 +107,13 @@ struct Data {
   // the panel and read "--", and a patched car can hand the width back to the
   // other three panels. Appended for the same prefix-compatible reason.
   uint8_t boostTile;
+
+  // --- added in version 9. The colour scheme (theme::Scheme) and which
+  // dashboard view owns the glass (ui::View). Both are display preferences,
+  // applied the moment they are tapped rather than on SAVE, and appended for
+  // the same prefix-compatible reason as every field above.
+  uint8_t theme;
+  uint8_t view;
 };
 
 /// Load from NVS (or defaults + any build-time secrets on first boot).

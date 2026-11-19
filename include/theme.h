@@ -20,14 +20,140 @@
 #include "board_config.h"
 
 // ------------------------------------------------------------- palette
-// Same hex values as :root in dash.html.
-#define COL_BG lv_color_hex(0x000000)
-#define COL_PANEL lv_color_hex(0x0b0d10)
-#define COL_LINE lv_color_hex(0x1c2128)
-#define COL_FG lv_color_hex(0xe8edf2)
-#define COL_DIM lv_color_hex(0x7c8894)
-#define COL_GREEN lv_color_hex(0x22c55e)
-#define COL_GREEN_DIM lv_color_hex(0x15803d)  // lamp "armed" state: on, but not doing anything
+// Every colour on the glass is a *role*, not a hex value: a scheme is a table
+// of role -> colour, and switching scheme re-points the roles. Midnight is the
+// palette dash.html was ported from, and it is what every build before 0.9.4
+// drew, so it stays the first entry and the default.
+//
+// The neutrals below are shared by every scheme on purpose. The panel is a
+// 16-bit TN RGB panel read at a glance, and a scheme that moved the black
+// would lose the contrast the dashboard is designed around; only the accent
+// family moves. That is also the shape of the reference gauge's themes
+// (ESP32-S3-Gauge, src/ui/theme.cpp: one accent per scheme).
+//
+// Two rules the non-Midnight schemes follow:
+//   warn  is a lighter shade of the scheme's own accent, never amber. In a
+//         green dash an amber number reads as a different system rather than
+//         as a hotter version of the same reading.
+//   crit  is the accent as a solid plate with contrasting text (critText).
+//         Outside Midnight there is no red: "maximum" is shown by inverting
+//         the scheme, which cannot be confused with the warn shade.
+namespace theme {
+
+enum class Scheme : uint8_t { Midnight = 0, Orange, Green, Blue, Purple, White, Count };
+
+constexpr uint8_t kSchemeCount = (uint8_t)Scheme::Count;
+
+/// The semantic roles. A palette is one colour per role; COL_* below are the
+/// names the rest of the UI uses, so a role is renamed in one place.
+enum class Role : uint8_t {
+  Bg,        // the screen behind everything
+  Panel,     // status bar, raw-page cards
+  Line,      // rules, tile separators, card borders
+  Fg,        // values, the big number, the mode
+  Dim,       // captions, units, "peak", "--"
+  Accent,    // "normal" values, live bars, the LIVE dot
+  AccentDim, // cruise lamp "armed" letters
+  AccentDimmer,  // cruise lamp "armed" plate
+  Warn,      // warning values and the stale dot
+  Crit,      // critical values, plates and the redline flash
+  CritText,  // text drawn on a Crit plate
+  AccentText,  // text drawn on an Accent plate (the cruise lamp when it regulates)
+  Cyan,      // the second reading (lock actual)
+  Shift,     // the shift flash
+  Track,     // unfilled bar background
+  LampOff,
+  LampEdge,
+  LampTxtOff,
+  ZoneAccent,  // unlit rev-bar tints
+  ZoneWarn,
+  ZoneCrit,
+  White,       // the big rev digits, boost bar fill, raw-page heads
+  ButtonFill,
+  FieldFill,
+  PageBg,
+  SoftLabel,
+  Count
+};
+
+/// One scheme. The neutrals are the defaults (dash.html's :root values); a
+/// scheme therefore only has to name the accent family it changes.
+struct Palette {
+  uint32_t bg = 0x000000;
+  uint32_t panel = 0x0b0d10;
+  uint32_t line = 0x1c2128;
+  uint32_t fg = 0xe8edf2;
+  uint32_t dim = 0x7c8894;
+  uint32_t white = 0xf2f5f8;
+  uint32_t track = 0x14181d;
+  uint32_t lampOff = 0x0e1114;
+  uint32_t lampEdge = 0x2a2f36;
+  uint32_t lampTxtOff = 0x3c444d;
+  uint32_t buttonFill = 0x12161b;
+  uint32_t fieldFill = 0x0e1114;
+  uint32_t pageBg = 0x080a0d;
+  uint32_t softLabel = 0xc6ced6;
+
+  // --- the accent family: the only part a scheme changes ---
+  uint32_t accent;
+  uint32_t accentDim;
+  uint32_t accentDimmer;
+  uint32_t zoneAccent;
+  uint32_t warn;
+  uint32_t zoneWarn;
+  uint32_t crit;
+  uint32_t critText;
+  // Text on an accent plate. The same colour as critText in every scheme but
+  // Midnight, where the accent is green (black letters) and the crit plate is
+  // red (white letters).
+  uint32_t accentText = 0x000000;
+  uint32_t zoneCrit;
+  uint32_t cyan;
+  uint32_t shift;
+};
+
+/// A colour together with the role it came from. The role is what lets a
+/// build-time colour be attached as a shared style, so a scheme change
+/// repaints it without walking the tree. A computed colour (a value's
+/// warn/crit colour, say) has no role and is written locally - which is
+/// correct, because the code that computes it re-computes it every pass.
+struct Col {
+  lv_color_t v;
+  Role role;
+  constexpr Col(lv_color_t c) : v(c), role(Role::Count) {}
+  constexpr Col(Role r, lv_color_t c) : v(c), role(r) {}
+  operator lv_color_t() const { return v; }
+};
+
+Scheme scheme();
+const char *schemeName(Scheme s);
+Scheme schemeAt(uint8_t i);
+
+/// The current palette's colour for a role.
+Col c(Role role);
+
+/// Add a role colour to an object as a shared style, so setScheme() repaints
+/// it. A colour without a role (a computed one) is written as an ordinary
+/// local property instead, exactly as before.
+void styleText(lv_obj_t *obj, Col col);
+void styleBg(lv_obj_t *obj, Col col, lv_style_selector_t sel = 0);
+void styleBorder(lv_obj_t *obj, Col col, lv_style_selector_t sel = 0);
+
+/// Switch palette and repaint. True if the scheme actually changed. The UI
+/// wraps this in ui::applyTheme(), which is also where the choice is stored.
+bool setScheme(Scheme s);
+
+}  // namespace theme
+
+// The names the UI already uses. Each is a role lookup, so a scheme change is
+// visible to the next call without touching a call site.
+#define COL_BG theme::c(theme::Role::Bg)
+#define COL_PANEL theme::c(theme::Role::Panel)
+#define COL_LINE theme::c(theme::Role::Line)
+#define COL_FG theme::c(theme::Role::Fg)
+#define COL_DIM theme::c(theme::Role::Dim)
+#define COL_GREEN theme::c(theme::Role::Accent)
+#define COL_GREEN_DIM theme::c(theme::Role::AccentDim)  // lamp "armed" state: on, but not doing anything
 // The cruise lamp's "armed" background, taken much darker than COL_GREEN_DIM so
 // a switch that is merely on cannot compete with the lamp that means the car is
 // actually holding a speed. Deliberately a colour, not an opacity: lampPaint()
@@ -37,19 +163,25 @@
 // COL_GREEN_DIM (see lampStateCruise) - white on this plate was the brightest
 // thing in the status bar, which inverted the hierarchy the comment above is
 // about.
-#define COL_GREEN_DIMMER lv_color_hex(0x072a14)
-#define COL_AMBER lv_color_hex(0xf59e0b)
-#define COL_RED lv_color_hex(0xef4444)
-#define COL_CYAN lv_color_hex(0x22d3ee)
-#define COL_SHIFT lv_color_hex(0x8b5cf6)  // the rev bar's shift flash
-#define COL_TRACK lv_color_hex(0x14181d)  // unfilled bar background
-#define COL_LAMP_OFF lv_color_hex(0x0e1114)
-#define COL_LAMP_EDGE lv_color_hex(0x2a2f36)
-#define COL_LAMP_TXT_OFF lv_color_hex(0x3c444d)
-#define COL_ZONE_GREEN lv_color_hex(0x123a22)  // unlit zone tints
-#define COL_ZONE_AMBER lv_color_hex(0x3a2a10)
-#define COL_ZONE_RED lv_color_hex(0x3a1414)
-#define COL_WHITE lv_color_hex(0xf2f5f8)  // the big rev digits, boost tile bar
+#define COL_GREEN_DIMMER theme::c(theme::Role::AccentDimmer)
+#define COL_AMBER theme::c(theme::Role::Warn)
+#define COL_RED theme::c(theme::Role::Crit)
+#define COL_CRIT_TEXT theme::c(theme::Role::CritText)
+#define COL_ACCENT_TEXT theme::c(theme::Role::AccentText)
+#define COL_CYAN theme::c(theme::Role::Cyan)
+#define COL_SHIFT theme::c(theme::Role::Shift)  // the rev bar's shift flash
+#define COL_TRACK theme::c(theme::Role::Track)  // unfilled bar background
+#define COL_LAMP_OFF theme::c(theme::Role::LampOff)
+#define COL_LAMP_EDGE theme::c(theme::Role::LampEdge)
+#define COL_LAMP_TXT_OFF theme::c(theme::Role::LampTxtOff)
+#define COL_ZONE_GREEN theme::c(theme::Role::ZoneAccent)  // unlit zone tints
+#define COL_ZONE_AMBER theme::c(theme::Role::ZoneWarn)
+#define COL_ZONE_RED theme::c(theme::Role::ZoneCrit)
+#define COL_WHITE theme::c(theme::Role::White)  // the big rev digits, boost tile bar
+#define COL_BUTTON_FILL theme::c(theme::Role::ButtonFill)
+#define COL_FIELD_FILL theme::c(theme::Role::FieldFill)
+#define COL_PAGE_BG theme::c(theme::Role::PageBg)
+#define COL_SOFT_LABEL theme::c(theme::Role::SoftLabel)
 
 // --------------------------------------------------------------- fonts
 // montserrat_12/14/16 are the stock LVGL faces, enabled in lv_conf.h. The

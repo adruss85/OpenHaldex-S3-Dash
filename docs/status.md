@@ -3,17 +3,17 @@ Read this when you need to know what has actually been verified, on which firmwa
 # Status
 
 <!-- status:start -->
-Firmware version: 0.9.3
-Flash: 1 532 810 / 1 966 080 B (78.0%)
-Internal RAM (static): 60 372 / 327 680 B
-Measured: 2026-11-17, build 59fa217
+Firmware version: 0.9.4
+Flash: 1 536 246 / 1 966 080 B (78.1%)
+Internal RAM (static): 61 764 / 327 680 B
+Measured: 2026-11-19, build 1bdf969
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
 about the current build. `tools/doc_status.py` regenerates the block above from
 a real `pio run` (or a saved log / a `firmware.elf`).
 
-This is **0.9.3**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
+This is **0.9.4**: layout C (0.6.0), the boot splash (0.6.1), the splash's move
 to a pre-rendered picture (0.6.2), the drive log (0.7.0), a quieter cruise lamp
 (0.7.1), the rev bar with a settable scale (0.7.2), the four faults from the 11
 Nov drive (0.7.3), the CC lamp's three states (0.7.4), the cruise set speed in
@@ -22,11 +22,30 @@ patch (0.8.0), the binary-size audit with the night-brightness floor lowered
 (0.8.1), relay reception from any CANN sender (0.8.2), the dash as the
 fleet's AP anchor with the role/channel settings (0.9.0), the BOOST panel as a
 setting with OIL PRES moved into the temperatures card (0.9.1), the two
-faults from that car run fixed (0.9.2), and the rename to **CANvas dash** with a
-new splash and the `CANv-dash` AP (0.9.3). The status
+faults from that car run fixed (0.9.2), the rename to **CANvas dash** with a
+new splash and the `CANv-dash` AP (0.9.3), and six live colour schemes with
+three dashboard views (0.9.4). The status
 below separates what was verified in the car, what has
 been exercised on the bench, and what is still unproven; measured figures carry
 the version they came from.
+
+**0.9.4 is bench-verified, not car-verified.** On the glass on 19 Nov 2026,
+over USB: the build boots on the stored scheme and view, `T` and `g` (and the
+same two Settings buttons) switch them live with no redraw stall, and the
+frame buffer sampled as RGB565 shows the accents actually changing — Midnight's
+red critical digits stay red with no plate, while Orange, Green and Purple draw
+a solid accent plate with contrasting text in the same box, and the neutrals
+(background, rules, tiles) are identical in all six. The view switch was read
+off the hidden flags (`[ui] view TEMPS: top off band off min off temps on`) and
+the frame buffer, and it caught a real bug: the first cut compared a
+"belongs to the Race view" boolean, so Minimal and Temps were both visible with
+Temps drawn over Minimal. Stored theme and view survive a reset (the board came
+up in the view and scheme it had before the flash). Idle render 56-59 fps,
+internal RAM 146.2 KB free / 145.1 KB lowest — level with 0.9.3 on the same
+bench. **Not verified**: any palette or plate with live car data (there was no
+controller on the air, so every reading was `--` and the crit plate was proved
+by forcing one), the settings header buttons by touch (the console keys drive
+the same handlers), and anything about how the schemes read in daylight.
 
 **0.9.3 is a rename and has not been on hardware.** The banner, update page and
 docs say CANvas dash; the splash is the new `assets/canvas-dash-splash-base.jpg`

@@ -290,8 +290,19 @@ void handleSerial() {
                        "n=polling e=esp-now f=forget controller v=tile band r/t=touch s=settings "
                        "x=raw page c=can page C=can dump m=mode o=ota O=ota-fail-test "
                        "l/L=drive log F=format log partition V=version z=force shift flash "
-                       "w=role W=fleet channel N=network");
+                       "w=role W=fleet channel N=network T=theme g=view");
         break;
+      case 'T':
+        // The palette, same as the THEME button on SETTINGS. Persisted on the
+        // spot, so a scheme chosen on the bench survives the reboot.
+        ui::nextTheme();
+        continue;
+      case 'g':
+        // The dashboard view, same as the VIEW button. One key on purpose: the
+        // views are a look, not a mode, and the console is how they get checked
+        // on a bench where the touch panel is not being used.
+        ui::nextView();
+        continue;
       case 'v': {
         // Force the tile band, for bench work: the band follows the Boost tile
         // setting, and this is how the other shape is seen without opening

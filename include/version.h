@@ -8,7 +8,34 @@
 // =====================================================================
 #pragma once
 
-#define OHX_DASH_VERSION "0.9.3"  // CANvas dash: new name, new splash, AP "CANv-dash"
+#define OHX_DASH_VERSION "0.9.4"  // CANvas dash: six palettes, three views
+// 0.9.4 - Two things about the glass, neither of which changes what the dash
+// reads from the car.
+// Six colour schemes, switched live: Midnight (the palette every earlier build
+// drew), Orange, Green, Blue, Purple, White. The accent family moves and the
+// neutrals do not - the background, rules, text grey and lamp greys are what
+// this TN panel's contrast is built on. In Midnight a warning is amber and a
+// critical is red; in the other five a warning is a lighter shade of that
+// scheme's accent and a critical is the accent as a solid plate with
+// black or white text, which is what replaces the red. Colours are now
+// attached as shared LVGL styles (include/theme.h, src/ui/theme.cpp), so a
+// change is a few style writes plus one style-report sweep - no rebuild, no
+// reboot - rather than the per-frame cost a recolour loop would have had.
+// Three dashboard views, switched live: Race (the rev bar and tile band, i.e.
+// the layout above), Minimal (speed and rpm large, three readings under them)
+// and Temps (coolant, oil, oil pressure and fuel full width, with the
+// thresholds each row is coloured by). A view only replaces the band above the
+// status bar, so the tell-tales and LIVE/STALE are the same objects in all
+// three and cannot disagree. Long-press still opens Settings from any view.
+// Both are on the Settings header (THEME / VIEW) and on the console (T / g),
+// are stored the moment they are chosen - not on SAVE - and are reset by
+// DEFAULTS. Config blob version 9 (appended theme, view; an older blob migrates
+// to Midnight/Race, which is what it was drawing).
+// Not verified on hardware: how the six schemes read in daylight, and any
+// palette or crit plate with live car data. Bench-verified on 19 Nov 2026 over
+// USB: the schemes and the three views switch live (frame buffer sampled as
+// RGB565), the crit plate inverts outside Midnight and Midnight keeps its red
+// text, and both preferences survive a reset. See docs/status.md.
 // 0.9.3 - The project is renamed CANvas dash. The boot banner, the update page
 // and the docs say so, and the splash is a new pre-rendered base
 // (assets/canvas-dash-splash-base.jpg, 800x480) carrying the CANvas wordmark and

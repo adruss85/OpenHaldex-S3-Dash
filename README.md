@@ -95,6 +95,29 @@ u = min(width / 100, height / 56)         ->  8 px at 800x480
 REVS is the only full-width item; everything else is a tile, so no value
 appears twice.
 
+**Two more ways to read the same numbers.** The dashboard has three **views**,
+chosen with the VIEW button on the Settings header (or `g` on the console):
+**Race** is the layout above; **Minimal** is the speed and rpm large with the
+three readings that matter underneath; **Temps** is coolant, oil, oil pressure
+and fuel full width, each with a bar and the thresholds it is coloured by.
+A view only replaces the band above the status bar, so the tell-tales, the
+odometer and LIVE/STALE are the same objects in all three — switching one costs
+a hide/show, never a rebuild, and a value can never disagree between views
+because all of them draw the same eased sample. Long-press still opens Settings
+from anywhere on the glass.
+
+**Six colour schemes**, chosen with the THEME button beside it (or `T`):
+**Midnight** (the palette every build before 0.9.4 drew), then **Orange**,
+**Green**, **Blue**, **Purple** and **White**. Only the accent family moves —
+the background, the rules, the text grey and the lamp greys stay put, because
+that is the contrast this 16-bit TN panel is read at. In Midnight a warning is
+amber and a critical is red; in the other five there is no second hue to lean
+on, so a warning becomes a lighter shade of the scheme's accent and a critical
+becomes that accent as a solid plate with contrasting text (black on orange,
+green and white; white on blue and purple). The change is applied on the tap and
+stored immediately, so a scheme can never be left on the glass that NVS does
+not have.
+
 **Tell-tales mirror the car, they are not inferred.** BRAKE and HAND light from
 the chassis CAN bit (or the controller's wired input, whichever moves — on this
 car the CAN brake works and the wired handbrake never moves). TC and ASR mirror
@@ -398,6 +421,8 @@ Defaults match the browser page:
 | Pressure units | bar (boost and oil pressure; or psi) |
 | Distance units | km (metric) |
 | Boost tile | on |
+| Colour scheme | Midnight |
+| Dashboard view | Race |
 | Day / night | Auto (from the car's Terminal 58s) |
 | Brightness (day) | 100 % |
 | Poll live / dash / stale | 1000 / 1000 / 1500 ms |

@@ -19,7 +19,9 @@ namespace {
 constexpr const char *kNamespace = "ohxdash";
 constexpr const char *kKey = "cfg";
 constexpr uint32_t kMagic = 0x4F485844;  // 'OHXD'
-constexpr uint16_t kVersion = 8;  // 8: + boostTile (the BOOST panel is a
+constexpr uint16_t kVersion = 9;  // 9: + theme, view (colour scheme and the
+                                  //    dashboard view, both appended);
+                                  //    8: + boostTile (the BOOST panel is a
                                   //    setting now, default on);
                                   //    7: + pressureUnits (system-wide bar/psi,
                                   //    folded from the old boost units);
@@ -104,6 +106,12 @@ void validate(Data &d) {
   if (d.pressureUnits > PRESSURE_PSI) d.pressureUnits = PRESSURE_BAR;
   d.boostTile = d.boostTile ? 1 : 0;
 
+  // theme::Scheme::Count and ui::View::Count are the ceilings; config.cpp does
+  // not include the UI headers, so the numbers are the contract (theme.h and
+  // dash_ui.h assert their own side).
+  if (d.theme > 5) d.theme = 0;
+  if (d.view > 2) d.view = 0;
+
   // --- polling -------------------------------------------------------
   d.pollLiveMs = (uint16_t)clampv<int>(d.pollLiveMs, 50, 1000);
   d.pollDashMs = (uint16_t)clampv<int>(d.pollDashMs, 250, 2000);
@@ -176,6 +184,8 @@ Data defaults() {
   d.fleetChannel = 1;
   d.pressureUnits = PRESSURE_BAR;
   d.boostTile = 1;  // the panel every build before 0.9.1 had when it had boost at all
+  d.theme = 0;      // Midnight, the palette every earlier build drew
+  d.view = 0;       // the rev bar and tile band (View::Race)
 
   // /api/live is no longer the fast path: rpm, speed, throttle, boost, oil
   // and the lock values arrive over ESP-NOW at 10 Hz. It stays at 1 Hz for
@@ -222,6 +232,13 @@ void begin() {
       memcpy(&blob, raw, readLen);
       if (blob.magic == kMagic && blob.version >= kOldestVersion) {
         Data d = blob.data;
+        if (blob.version < 9) {
+          // A settings upgrade must not change what the driver was looking at:
+          // every earlier build drew Midnight on the rev-bar view.
+          d.theme = 0;
+          d.view = 0;
+          saveAgain = true;
+        }
         if (blob.version < 8) {
           // A new setting must not make a panel disappear on upgrade: every
           // car that had boost keeps showing it until it is switched off.

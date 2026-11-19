@@ -94,6 +94,30 @@ in `include/theme.h`, so geometry is adjusted in one place. The reasoning
 behind the top band is in `docs/redesign-bars.md`, and the mock-up tool that
 draws the layout at panel size before it is coded is `tools/mockup_dash.py`.
 
+### Colour, and changing it without a rebuild
+
+`include/theme.h` also holds the palette: a table of `theme::Role` values
+(background, rules, three text greys, the lamp greys, and an accent family) for
+each of six schemes. `src/ui/theme.cpp` turns each role into one **shared**
+`lv_style_t` for text, one for background and one for border, and the UI
+attaches those styles instead of writing colours directly. A scheme change is
+therefore a handful of `lv_style_set_*` writes plus one
+`lv_obj_report_style_change(nullptr)` sweep, which is what makes the THEME
+button — and console `T` — instant, with no rebuild and no reboot.
+
+Two kinds of colour are deliberately *not* in a shared style: anything computed
+per pass (a value's warn/crit colour, the LIVE dot, the lamps' lit state). Those
+are written locally every readout, and every one of those writes is guarded by
+"does the object already have this colour", so they re-apply on the next tick
+after a scheme change without costing anything while the value is steady. The
+rev bar keeps a packed colour per cell, so `syncGauge()` repaints all 80 cells
+once when the scheme changes.
+
+This is why geometry stays in `theme.h` and colour moved into roles: the
+dashboard has ~250 objects whose colours were previously decided at build time,
+and a registry of those objects (with a delete hook each) would have been the
+alternative. Nothing scales, and nothing here adds a per-frame check.
+
 ---
 
 ## Fonts
