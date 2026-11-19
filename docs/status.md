@@ -4,9 +4,9 @@ Read this when you need to know what has actually been verified, on which firmwa
 
 <!-- status:start -->
 Firmware version: 0.9.4
-Flash: 1 537 710 / 1 966 080 B (78.2%)
+Flash: 1 537 654 / 1 966 080 B (78.2%)
 Internal RAM (static): 62 036 / 327 680 B
-Measured: 2026-11-19, build 11c885f
+Measured: 2026-11-19, build 0a7fc6f
 <!-- status:end -->
 
 Measured figures are baselines for the firmware version they name, not claims
@@ -66,10 +66,20 @@ The scheme itself also changed shape: outside Midnight it is one hue in three
 steps (base, lighter, brightest), which is the order the rev bar draws left to
 right, so the redline end is the most vivid third of the bar rather than a
 repeat of the left end — White runs dark grey, light grey, white — and the text
-is tinted with the same hue. The fuel bar carries graduations every eighth of a
-tank, drawn over the level. Minimal keeps the rev bar, puts the speed in the rpm
-number's row, and shows coolant/oil/fuel/boost as bars with no numbers. A
-horizontal swipe changes view as well as the buttons.
+is the hue itself rather than a tint lifted towards white. The fuel bar carries
+graduations every eighth of a tank, drawn over the level. Minimal keeps the rev
+bar, puts the speed in the rpm number's row, and shows coolant | oil over
+fuel | boost as half-width bars with no numbers. A horizontal swipe changes view
+as well as the buttons.
+
+All of that was checked on the glass: the ramp shows in the frame buffer sampled
+as RGB565 (the bar's rightmost fifth is a brighter step than the rest), the two
+columns of bars and their captions land where the layout says, the fuel bar's
+marks are visible over the level, and the swipes and the saturated text were
+confirmed by eye. **Swipes did nothing at first**: LVGL gives every object
+created with a parent `LV_OBJ_FLAG_GESTURE_BUBBLE`, and delivers the gesture to
+the first ancestor *without* it — which is the screen. The handler was on the
+dashboard root, so the gesture climbed straight past it.
 
 Measured after that: idle 57–60 fps, 146 KB internal RAM free / 145 KB lowest,
 an NVS write of 6 ms (55 ms when NVS erases a page) made with the glass blanked.
